@@ -1,0 +1,6 @@
+Mox.defmock(Familiar.Providers.LLMMock, for: Familiar.Providers.LLM)
+Mox.defmock(Familiar.Knowledge.EmbedderMock, for: Familiar.Knowledge.Embedder)
+Mox.defmock(Familiar.System.FileSystemMock, for: Familiar.System.FileSystem)
+Mox.defmock(Familiar.System.ShellMock, for: Familiar.System.Shell)
+Mox.defmock(Familiar.System.NotificationsMock, for: Familiar.System.Notifications)
+Mox.defmock(Familiar.System.ClockMock, for: Familiar.System.Clock)
