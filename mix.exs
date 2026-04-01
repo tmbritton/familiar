@@ -18,7 +18,15 @@ defmodule Familiar.MixProject do
       deps: deps(),
       test_coverage: [threshold: 90],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      escript: escript(),
       listeners: [Phoenix.CodeReloader]
+    ]
+  end
+
+  defp escript do
+    [
+      main_module: Familiar.CLI.Main,
+      name: "fam"
     ]
   end
 

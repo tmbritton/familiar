@@ -24,5 +24,7 @@ defmodule FamiliarWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :index
+    get "/daemon/status", DaemonController, :status
+    post "/daemon/stop", DaemonController, :stop
   end
 end
