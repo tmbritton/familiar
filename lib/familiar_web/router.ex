@@ -20,8 +20,9 @@ defmodule FamiliarWeb.Router do
     get "/", PageController, :home
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", FamiliarWeb do
-  #   pipe_through :api
-  # end
+  scope "/api", FamiliarWeb do
+    pipe_through :api
+
+    get "/health", HealthController, :index
+  end
 end
