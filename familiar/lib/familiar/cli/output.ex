@@ -91,6 +91,7 @@ defmodule Familiar.CLI.Output do
   defp quiet_summary(%{version: v}), do: v
   defp quiet_summary(%{daemon: s}), do: s
   defp quiet_summary(%{status: s}), do: s
+  defp quiet_summary(%{results: results, query: _}), do: "results:#{length(results)}"
   defp quiet_summary(%{files_scanned: n}), do: "scanned:#{n}"
   defp quiet_summary(%{conventions: c}), do: "conventions:#{length(c)}"
   defp quiet_summary(%{provider: _}), do: "ok"

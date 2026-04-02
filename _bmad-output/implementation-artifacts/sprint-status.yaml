@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: '2026-04-01'
-last_updated: '2026-04-02T08:00:00'
+last_updated: '2026-04-02T10:00:00'
 project: anthill
 project_key: NOKEY
 tracking_system: file-system
@@ -56,8 +56,8 @@ development_status:
   epic-1-retrospective: done
 
   # Epic 2: Knowledge Store & Context Management (7 stories)
-  epic-2: backlog
-  2-1-knowledge-entry-crud-semantic-search: backlog
+  epic-2: in-progress
+  2-1-knowledge-entry-crud-semantic-search: done
   2-2-context-freshness-validation: backlog
   2-3-post-task-hygiene-loop: backlog
   2-4-knowledge-store-management: backlog

@@ -238,6 +238,55 @@ defmodule Familiar.CLI.MainTest do
     end
   end
 
+  describe "run/2 with search command" do
+    test "returns search results" do
+      Paths.ensure_familiar_dir!()
+
+      search_deps =
+        deps(
+          search_fn: fn "auth query" ->
+            {:ok,
+             [
+               %{
+                 id: 1,
+                 text: "Auth uses JWT tokens",
+                 type: "convention",
+                 source: "init_scan",
+                 source_file: "lib/auth.ex",
+                 distance: 0.1,
+                 inserted_at: ~U[2026-04-01 00:00:00Z]
+               }
+             ]}
+          end
+        )
+
+      result = Main.run({"search", ["auth query"], %{}}, search_deps)
+      assert {:ok, %{results: [_ | _], query: "auth query"}} = result
+    end
+
+    test "returns usage error when no query provided" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"search", [], %{}}, deps())
+      assert {:error, {:usage_error, %{message: msg}}} = result
+      assert msg =~ "search"
+    end
+
+    test "propagates search errors" do
+      Paths.ensure_familiar_dir!()
+
+      err_deps =
+        deps(
+          search_fn: fn _query ->
+            {:error, {:provider_unavailable, %{provider: :ollama}}}
+          end
+        )
+
+      result = Main.run({"search", ["query"], %{}}, err_deps)
+      assert {:error, {:provider_unavailable, _}} = result
+    end
+  end
+
   describe "run/2 with unknown command" do
     test "returns unknown_command error" do
       Paths.ensure_familiar_dir!()
@@ -264,7 +313,7 @@ defmodule Familiar.CLI.MainTest do
   # -- Test helpers --
 
   defp deps(overrides \\ []) do
-    %{
+    base = %{
       ensure_running_fn:
         Keyword.get(overrides, :ensure_running_fn, fn _opts ->
           {:error, {:daemon_unavailable, %{}}}
@@ -289,5 +338,13 @@ defmodule Familiar.CLI.MainTest do
           {:ok, %{files_scanned: 0, entries_created: 0}}
         end)
     }
+
+    # Merge any extra keys (e.g., search_fn, conventions_fn)
+    extras =
+      overrides
+      |> Keyword.drop(Map.keys(base))
+      |> Map.new()
+
+    Map.merge(base, extras)
   end
 end

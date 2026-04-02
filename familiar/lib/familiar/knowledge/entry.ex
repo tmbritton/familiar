@@ -9,8 +9,8 @@ defmodule Familiar.Knowledge.Entry do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @valid_types ~w(convention file_summary architecture relationship decision)
-  @valid_sources ~w(init_scan post_task manual)
+  @valid_types ~w(convention file_summary architecture relationship decision fact gotcha)
+  @valid_sources ~w(init_scan post_task manual agent user)
 
   schema "knowledge_entries" do
     field :text, :string

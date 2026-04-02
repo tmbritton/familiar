@@ -10,6 +10,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.CLI.HttpClient
   alias Familiar.CLI.Output
   alias Familiar.Daemon.Paths
+  alias Familiar.Knowledge
   alias Familiar.Knowledge.ConventionReviewer
   alias Familiar.Knowledge.InitScanner
   alias Familiar.Knowledge.Prerequisites
@@ -141,6 +142,20 @@ defmodule Familiar.CLI.Main do
 
     case config_fn.(config_path) do
       {:ok, config} -> {:ok, config_to_map(config)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp run_with_daemon({"search", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam search <query>"}}}
+  end
+
+  defp run_with_daemon({"search", args, _}, deps) do
+    query = Enum.join(args, " ")
+    search_fn = Map.get(deps, :search_fn, &Knowledge.search/1)
+
+    case search_fn.(query) do
+      {:ok, results} -> {:ok, %{results: results, query: query}}
       {:error, _} = error -> error
     end
   end
@@ -305,6 +320,12 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp text_formatter("search") do
+    fn %{results: results, query: query} ->
+      format_search_results(results, query)
+    end
+  end
+
   defp text_formatter("conventions") do
     fn %{conventions: conventions, review_mode: review_mode} ->
       format_conventions_text(conventions, review_mode)
@@ -380,6 +401,30 @@ defmodule Familiar.CLI.Main do
     Enum.join(lines, "\n")
   end
 
+  defp format_search_results([], query) do
+    "No results found for \"#{query}\""
+  end
+
+  defp format_search_results(results, query) do
+    header = "Search results for \"#{query}\" (#{length(results)} found):\n"
+
+    lines =
+      results
+      |> Enum.with_index(1)
+      |> Enum.map(&format_search_line/1)
+
+    header <> Enum.join(lines, "\n\n")
+  end
+
+  defp format_search_line({result, idx}) do
+    source_info =
+      [result[:source_file], result[:source]]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" | ")
+
+    "  #{idx}. [#{result.type}] #{result.text}\n     Source: #{source_info}"
+  end
+
   defp help_text do
     """
     fam - Familiar CLI
@@ -388,6 +433,7 @@ defmodule Familiar.CLI.Main do
 
     Commands:
       init             Initialize Familiar on this project
+      search <query>   Search knowledge store by semantic similarity
       config           Show current configuration
       conventions      List discovered conventions
       conventions review  Review and approve conventions
