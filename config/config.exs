@@ -25,6 +25,7 @@ config :familiar, FamiliarWeb.Endpoint,
 # Provider adapter configuration (overridden by test.exs for mocks)
 config :familiar, Familiar.Providers.LLM, Familiar.Providers.OllamaAdapter
 config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.OllamaEmbedder
+config :familiar, Familiar.System.FileSystem, Familiar.System.LocalFileSystem
 
 # Ollama provider settings
 config :familiar, :ollama,

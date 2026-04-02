@@ -65,10 +65,35 @@ defmodule Familiar.CLI.MainTest do
     end
   end
 
-  describe "run/2 with init mode detection" do
-    test "returns init_required when no .familiar/ dir" do
-      result = Main.run({"health", [], %{}}, deps())
-      assert {:error, {:init_required, %{}}} = result
+  describe "run/2 with auto-init" do
+    test "auto-init triggers when no .familiar/ dir" do
+      # When prerequisites fail, auto-init returns the prerequisite error
+      prereq_deps =
+        deps(
+          prerequisites_fn: fn _opts ->
+            {:error,
+             {:prerequisites_failed, %{missing: ["ollama"], instructions: "Install Ollama"}}}
+          end
+        )
+
+      result = Main.run({"health", [], %{}}, prereq_deps)
+      assert {:error, {:prerequisites_failed, _}} = result
+    end
+
+    test "auto-init runs init then executes original command" do
+      init_deps =
+        deps(
+          prerequisites_fn: fn _opts -> {:ok, %{}} end,
+          init_fn: fn _opts ->
+            Paths.ensure_familiar_dir!()
+            {:ok, %{files_scanned: 1, entries_created: 1}}
+          end,
+          ensure_running_fn: fn _opts -> {:ok, 4000} end,
+          health_fn: fn 4000 -> {:ok, %{status: "ok", version: "0.1.0"}} end
+        )
+
+      result = Main.run({"health", [], %{}}, init_deps)
+      assert {:ok, %{status: "ok"}} = result
     end
   end
 
@@ -188,7 +213,16 @@ defmodule Familiar.CLI.MainTest do
           {:error, {:daemon_unavailable, %{}}}
         end),
       version_compatible_fn:
-        Keyword.get(overrides, :version_compatible_fn, fn _cli, _daemon -> true end)
+        Keyword.get(overrides, :version_compatible_fn, fn _cli, _daemon -> true end),
+      prerequisites_fn:
+        Keyword.get(overrides, :prerequisites_fn, fn _opts ->
+          {:error,
+           {:prerequisites_failed, %{missing: ["ollama"], instructions: "Install Ollama"}}}
+        end),
+      init_fn:
+        Keyword.get(overrides, :init_fn, fn _opts ->
+          {:ok, %{files_scanned: 0, entries_created: 0}}
+        end)
     }
   end
 end

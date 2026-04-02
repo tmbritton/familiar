@@ -97,6 +97,14 @@ defmodule Familiar.CLI.Output do
   defp error_message(:init_required, _),
     do: "No .familiar/ directory found. Run `fam init` to initialize"
 
+  defp error_message(:prerequisites_failed, %{instructions: instructions}), do: instructions
+
+  defp error_message(:already_initialized, _),
+    do: "Project already initialized. .familiar/ directory exists"
+
+  defp error_message(:init_failed, %{reason: reason}),
+    do: "Initialization failed: #{reason}"
+
   defp error_message(:unknown_command, %{command: cmd}), do: "Unknown command: #{cmd}"
   defp error_message(:usage_error, %{message: msg}), do: msg
   defp error_message(type, _), do: to_string(type)

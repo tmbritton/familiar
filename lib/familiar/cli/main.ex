@@ -10,6 +10,8 @@ defmodule Familiar.CLI.Main do
   alias Familiar.CLI.HttpClient
   alias Familiar.CLI.Output
   alias Familiar.Daemon.Paths
+  alias Familiar.Knowledge.InitScanner
+  alias Familiar.Knowledge.Prerequisites
 
   @version Mix.Project.config()[:version]
 
@@ -66,12 +68,28 @@ defmodule Familiar.CLI.Main do
     {:ok, %{help: help_text()}}
   end
 
+  # Init command — runs without daemon
+  def run({"init", _, _}, deps) do
+    if File.dir?(Paths.familiar_dir()) do
+      {:error, {:already_initialized, %{path: Paths.familiar_dir()}}}
+    else
+      run_init(deps)
+    end
+  end
+
   # All other commands need .familiar/ to exist
   def run({command, args, flags}, deps) do
     if File.dir?(Paths.familiar_dir()) do
       run_with_daemon({command, args, flags}, deps)
     else
-      {:error, {:init_required, %{}}}
+      # Auto-init: run init first, then retry the original command
+      case run_init(deps) do
+        {:ok, _init_summary} ->
+          run_with_daemon({command, args, flags}, deps)
+
+        {:error, _} = error ->
+          error
+      end
     end
   end
 
@@ -118,6 +136,30 @@ defmodule Familiar.CLI.Main do
 
   defp run_with_daemon({command, _, _}, _deps) do
     {:error, {:unknown_command, %{command: command}}}
+  end
+
+  # -- Init --
+
+  defp run_init(deps) do
+    prerequisites_fn = Map.get(deps, :prerequisites_fn, &Prerequisites.check/1)
+    init_fn = Map.get(deps, :init_fn, &default_init/1)
+
+    with {:ok, _provider_info} <- prerequisites_fn.([]) do
+      init_fn.(progress_fn: &init_progress/1)
+    end
+  end
+
+  defp default_init(opts) do
+    project_dir = Paths.project_dir()
+
+    InitScanner.run_with_cleanup(project_dir, fn ->
+      Paths.ensure_familiar_dir!()
+      InitScanner.run(project_dir, opts)
+    end)
+  end
+
+  defp init_progress(msg) do
+    IO.puts(:stderr, msg)
   end
 
   # -- Private --
@@ -168,6 +210,32 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp text_formatter("init") do
+    fn summary ->
+      lines = [
+        "Initialization complete!",
+        "  Files scanned: #{summary.files_scanned}",
+        "  Knowledge entries: #{summary.entries_created}"
+      ]
+
+      lines =
+        if summary[:deferred] && summary.deferred > 0 do
+          lines ++ ["  Deferred: #{summary.deferred} files (will be processed later)"]
+        else
+          lines
+        end
+
+      lines =
+        if summary[:warning] do
+          lines ++ ["  Warning: #{summary.warning}"]
+        else
+          lines ++ ["", "Try: fam plan \"describe a feature\" — your spec will appear for review"]
+        end
+
+      Enum.join(lines, "\n")
+    end
+  end
+
   defp text_formatter(_), do: nil
 
   defp help_text do
@@ -177,6 +245,7 @@ defmodule Familiar.CLI.Main do
     Usage: fam <command> [options]
 
     Commands:
+      init             Initialize Familiar on this project
       health           Check daemon health and version
       version          Show CLI version
       daemon start     Start the daemon
