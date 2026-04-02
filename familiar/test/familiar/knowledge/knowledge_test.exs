@@ -6,6 +6,8 @@ defmodule Familiar.Knowledge.KnowledgeTest do
   alias Familiar.Knowledge
   alias Familiar.Knowledge.EmbedderMock
   alias Familiar.Knowledge.Entry
+  alias Familiar.System.ClockMock
+  alias Familiar.System.FileSystemMock
 
   # async: false because sqlite-vec virtual tables
   # don't participate in Ecto sandbox transactions.
@@ -13,7 +15,17 @@ defmodule Familiar.Knowledge.KnowledgeTest do
   setup :verify_on_exit!
 
   setup do
+    Mox.set_mox_global()
     Familiar.Repo.query!("DELETE FROM knowledge_entry_embeddings")
+
+    # Stub FileSystem for freshness validation — entries have source_files
+    # that don't exist on real filesystem, treat as unchanged (fresh)
+    stub(FileSystemMock, :stat, fn _path ->
+      {:ok, %{mtime: ~U[2020-01-01 00:00:00Z], size: 100}}
+    end)
+
+    stub(ClockMock, :now, fn -> ~U[2026-04-02 12:00:00Z] end)
+
     :ok
   end
 
@@ -144,6 +156,7 @@ defmodule Familiar.Knowledge.KnowledgeTest do
       assert first.source_file == "lib/auth.ex"
       assert first.distance <= second.distance
       assert first.inserted_at
+      assert first.freshness in [:fresh, :unknown]
     end
 
     test "returns empty list for empty query without calling embedder" do

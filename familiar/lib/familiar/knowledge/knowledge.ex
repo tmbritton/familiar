@@ -9,8 +9,11 @@ defmodule Familiar.Knowledge do
 
   use Boundary, deps: [Familiar.Providers], exports: [Familiar.Knowledge]
 
+  require Logger
+
   alias Familiar.Knowledge.ContentValidator
   alias Familiar.Knowledge.Entry
+  alias Familiar.Knowledge.Freshness
   alias Familiar.Repo
 
   @doc "List all knowledge entries of a given type."
@@ -25,32 +28,84 @@ defmodule Familiar.Knowledge do
 
   Returns a flat list of result maps with entry fields and distance.
   """
-  @spec search(String.t()) :: {:ok, [map()]} | {:error, {atom(), map()}}
-  def search(query) do
+  @spec search(String.t(), keyword()) :: {:ok, [map()]} | {:error, {atom(), map()}}
+  def search(query, opts \\ []) do
     if String.trim(query) == "" do
       {:ok, []}
     else
-      search_inner(query)
+      search_inner(query, opts)
     end
   end
 
-  defp search_inner(query) do
+  defp search_inner(query, opts) do
     with {:ok, results} <- search_similar(query) do
-      formatted =
-        Enum.map(results, fn %{entry: entry, distance: distance} ->
-          %{
-            id: entry.id,
-            text: entry.text,
-            type: entry.type,
-            source: entry.source,
-            source_file: entry.source_file,
-            distance: distance,
-            inserted_at: entry.inserted_at
-          }
-        end)
+      entries = Enum.map(results, fn %{entry: entry} -> entry end)
+      distance_map = Map.new(results, fn %{entry: e, distance: d} -> {e.id, d} end)
+      {freshness_map, warnings} = run_freshness_check(entries, opts)
 
+      log_freshness_warnings(warnings)
+      trigger_background_maintenance(entries, freshness_map, opts)
+
+      formatted = format_with_freshness(entries, distance_map, freshness_map)
       {:ok, formatted}
     end
+  end
+
+  defp format_with_freshness(entries, distance_map, freshness_map) do
+    entries
+    |> Enum.reject(&(Map.get(freshness_map, &1.id) == :deleted))
+    |> Enum.map(fn entry ->
+      %{
+        id: entry.id,
+        text: entry.text,
+        type: entry.type,
+        source: entry.source,
+        source_file: entry.source_file,
+        distance: Map.get(distance_map, entry.id),
+        inserted_at: entry.inserted_at,
+        freshness: Map.get(freshness_map, entry.id, :unknown)
+      }
+    end)
+  end
+
+  defp log_freshness_warnings([]), do: :ok
+
+  defp log_freshness_warnings(warnings) do
+    Enum.each(warnings, &Logger.warning("Freshness: #{&1}"))
+  end
+
+  defp trigger_background_maintenance(entries, freshness_map, opts) do
+    stale = Enum.filter(entries, &(Map.get(freshness_map, &1.id) == :stale))
+    deleted = Enum.filter(entries, &(Map.get(freshness_map, &1.id) == :deleted))
+
+    if stale != [], do: Task.start(fn -> Freshness.refresh_stale(stale, opts) end)
+    if deleted != [], do: Task.start(fn -> Freshness.remove_deleted(deleted) end)
+  end
+
+  defp run_freshness_check(entries, opts) do
+    case Freshness.validate_entries(entries, opts) do
+      {:ok, result} ->
+        map =
+          Map.new(result.fresh, &{&1.id, :fresh})
+          |> Map.merge(Map.new(result.stale, &{&1.id, :stale}))
+          |> Map.merge(Map.new(result.deleted, &{&1.id, :deleted}))
+
+        {map, result.warnings}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Context freshness validation skipped — results may include stale entries: #{inspect(reason)}"
+        )
+
+        {Map.new(entries, &{&1.id, :unknown}), []}
+    end
+  rescue
+    e ->
+      Logger.warning(
+        "Context freshness validation skipped — results may include stale entries: #{inspect(e)}"
+      )
+
+      {Map.new(entries, &{&1.id, :unknown}), []}
   end
 
   @doc "Fetch a single knowledge entry by ID."
@@ -170,7 +225,42 @@ defmodule Familiar.Knowledge do
     end
   end
 
+  @doc """
+  Delete a knowledge entry and its embedding.
+
+  Removes the embedding from sqlite-vec and the entry from the database.
+  """
+  @spec delete_entry(Entry.t()) :: :ok | {:error, {atom(), map()}}
+  def delete_entry(entry) do
+    delete_embedding(entry.id)
+
+    case Repo.delete(entry) do
+      {:ok, _} -> :ok
+      {:error, changeset} -> {:error, {:delete_failed, %{changeset: changeset}}}
+    end
+  end
+
+  @doc """
+  Replace the embedding for an existing entry.
+
+  Deletes the old embedding and inserts a new one.
+  """
+  @spec replace_embedding(integer(), [float()]) :: :ok | {:error, {atom(), map()}}
+  def replace_embedding(entry_id, vector) do
+    case delete_embedding(entry_id) do
+      {:ok, _} -> insert_embedding(entry_id, vector)
+      {:error, reason} -> {:error, {:storage_failed, %{reason: reason}}}
+    end
+  end
+
   # -- Private --
+
+  defp delete_embedding(entry_id) do
+    Repo.query(
+      "DELETE FROM knowledge_entry_embeddings WHERE entry_id = ?",
+      [entry_id]
+    )
+  end
 
   @expected_embedding_dimensions 768
 

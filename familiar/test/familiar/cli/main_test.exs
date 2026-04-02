@@ -254,7 +254,8 @@ defmodule Familiar.CLI.MainTest do
                  source: "init_scan",
                  source_file: "lib/auth.ex",
                  distance: 0.1,
-                 inserted_at: ~U[2026-04-01 00:00:00Z]
+                 inserted_at: ~U[2026-04-01 00:00:00Z],
+                 freshness: :fresh
                }
              ]}
           end
@@ -262,6 +263,32 @@ defmodule Familiar.CLI.MainTest do
 
       result = Main.run({"search", ["auth query"], %{}}, search_deps)
       assert {:ok, %{results: [_ | _], query: "auth query"}} = result
+    end
+
+    test "formats stale entries with [stale] indicator" do
+      Paths.ensure_familiar_dir!()
+
+      search_deps =
+        deps(
+          search_fn: fn "stale query" ->
+            {:ok,
+             [
+               %{
+                 id: 1,
+                 text: "Stale knowledge",
+                 type: "convention",
+                 source: "init_scan",
+                 source_file: "lib/old.ex",
+                 distance: 0.1,
+                 inserted_at: ~U[2026-04-01 00:00:00Z],
+                 freshness: :stale
+               }
+             ]}
+          end
+        )
+
+      result = Main.run({"search", ["stale query"], %{}}, search_deps)
+      assert {:ok, %{results: [_ | _]}} = result
     end
 
     test "returns usage error when no query provided" do

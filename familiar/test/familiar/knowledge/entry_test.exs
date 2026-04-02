@@ -68,5 +68,28 @@ defmodule Familiar.Knowledge.EntryTest do
         assert changeset.valid?, "Expected source #{source} to be valid"
       end
     end
+
+    test "accepts checked_at timestamp" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      changeset =
+        Entry.changeset(%Entry{}, %{
+          text: "some knowledge",
+          type: "convention",
+          source: "init_scan",
+          checked_at: now
+        })
+
+      assert changeset.valid?
+      assert get_change(changeset, :checked_at) == now
+    end
+
+    test "valid without checked_at" do
+      changeset =
+        Entry.changeset(%Entry{}, %{text: "some knowledge", type: "convention", source: "init_scan"})
+
+      assert changeset.valid?
+      assert get_change(changeset, :checked_at) == nil
+    end
   end
 end

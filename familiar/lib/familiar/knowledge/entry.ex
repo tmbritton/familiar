@@ -18,6 +18,7 @@ defmodule Familiar.Knowledge.Entry do
     field :source, :string
     field :source_file, :string
     field :metadata, :string, default: "{}"
+    field :checked_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end
@@ -25,7 +26,7 @@ defmodule Familiar.Knowledge.Entry do
   @doc "Changeset for creating or updating a knowledge entry."
   def changeset(entry, attrs) do
     entry
-    |> cast(attrs, [:text, :type, :source, :source_file, :metadata])
+    |> cast(attrs, [:text, :type, :source, :source_file, :metadata, :checked_at])
     |> validate_required([:text, :type, :source])
     |> validate_inclusion(:type, @valid_types)
     |> validate_inclusion(:source, @valid_sources)

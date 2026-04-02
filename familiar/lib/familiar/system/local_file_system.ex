@@ -27,9 +27,9 @@ defmodule Familiar.System.LocalFileSystem do
 
   @impl true
   def stat(path) do
-    case File.stat(path) do
-      {:ok, %File.Stat{mtime: mtime, size: size}} ->
-        {:ok, %{mtime: mtime, size: size}}
+    case File.stat(path, time: :posix) do
+      {:ok, %File.Stat{mtime: mtime_posix, size: size}} ->
+        {:ok, %{mtime: DateTime.from_unix!(mtime_posix), size: size}}
 
       {:error, reason} ->
         {:error, {:file_error, %{path: path, reason: reason}}}

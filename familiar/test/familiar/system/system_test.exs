@@ -4,6 +4,7 @@ defmodule Familiar.System.SystemTest do
   alias Familiar.System.ClockMock
   alias Familiar.System.FileSystemMock
   alias Familiar.System.NotificationsMock
+  alias Familiar.System.RealClock
   alias Familiar.System.ShellMock
 
   describe "FileSystem behaviour mock" do
@@ -75,6 +76,18 @@ defmodule Familiar.System.SystemTest do
       expect(ClockMock, :now, fn -> frozen end)
 
       assert ^frozen = ClockMock.now()
+    end
+  end
+
+  describe "RealClock" do
+    test "now/0 returns a DateTime close to current time" do
+      before = DateTime.utc_now()
+      result = RealClock.now()
+      after_time = DateTime.utc_now()
+
+      assert %DateTime{} = result
+      assert DateTime.compare(result, before) in [:eq, :gt]
+      assert DateTime.compare(result, after_time) in [:eq, :lt]
     end
   end
 end

@@ -422,8 +422,14 @@ defmodule Familiar.CLI.Main do
       |> Enum.reject(&is_nil/1)
       |> Enum.join(" | ")
 
-    "  #{idx}. [#{result.type}] #{result.text}\n     Source: #{source_info}"
+    freshness_tag = freshness_indicator(result[:freshness])
+
+    "  #{idx}. [#{result.type}] #{result.text}#{freshness_tag}\n     Source: #{source_info}"
   end
+
+  defp freshness_indicator(:stale), do: " [stale]"
+  defp freshness_indicator(:unknown), do: " [?]"
+  defp freshness_indicator(_), do: ""
 
   defp help_text do
     """

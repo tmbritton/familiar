@@ -1143,7 +1143,7 @@ So that I can trace changes back to their source and keep my work tracker clean.
 
 ## Epic 5: Task Execution & Validation
 
-User can dispatch tasks and receive validated, convention-following code produced by context-aware agents. Execution includes automatic self-validation (test/build/lint/coverage/duplicate checks), atomic rollback on failure, cascading dependency handling, provider resilience, and thesis validation through provider comparison and ablation testing. Safety constraints enforced throughout.
+User can dispatch tasks and receive validated, convention-following code produced by context-aware agents. **Agents are Actors: each agent task is a GenServer under a DynamicSupervisor** — agent state (conversation history, task context, tool permissions) lives in GenServer state, the tool-call loop uses `handle_continue`/`handle_info` (not a recursive function), inter-agent coordination uses message passing, and supervisor strategies handle crash recovery. This is the core reason BEAM/OTP was chosen. Execution includes automatic self-validation (test/build/lint/coverage/duplicate checks), atomic rollback on failure, cascading dependency handling, provider resilience, and thesis validation through provider comparison and ablation testing. Safety constraints enforced throughout.
 
 ### Story 5.1: Agent Runner & Tool Call Loop
 
