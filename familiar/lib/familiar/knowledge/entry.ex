@@ -29,6 +29,17 @@ defmodule Familiar.Knowledge.Entry do
     |> validate_required([:text, :type, :source])
     |> validate_inclusion(:type, @valid_types)
     |> validate_inclusion(:source, @valid_sources)
+    |> validate_json(:metadata)
+  end
+
+  defp validate_json(changeset, field) do
+    validate_change(changeset, field, fn _field, value ->
+      case Jason.decode(value) do
+        {:ok, decoded} when is_map(decoded) -> []
+        {:ok, _} -> [{field, "must be a JSON object"}]
+        {:error, _} -> [{field, "must be valid JSON"}]
+      end
+    end)
   end
 
   @doc "Returns the list of valid entry types."

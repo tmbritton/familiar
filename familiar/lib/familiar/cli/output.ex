@@ -58,8 +58,8 @@ defmodule Familiar.CLI.Output do
     "Error [#{type}]#{detail_str}"
   end
 
-  def format({:ok, _data}, :quiet, _formatter) do
-    "ok"
+  def format({:ok, data}, :quiet, _formatter) do
+    quiet_summary(data)
   end
 
   def format({:error, {type, _details}}, :quiet, _formatter) do
@@ -87,6 +87,15 @@ defmodule Familiar.CLI.Output do
   def exit_code({:error, _}), do: 1
 
   # -- Private --
+
+  defp quiet_summary(%{version: v}), do: v
+  defp quiet_summary(%{daemon: s}), do: s
+  defp quiet_summary(%{status: s}), do: s
+  defp quiet_summary(%{files_scanned: n}), do: "scanned:#{n}"
+  defp quiet_summary(%{conventions: c}), do: "conventions:#{length(c)}"
+  defp quiet_summary(%{provider: _}), do: "ok"
+  defp quiet_summary(%{help: _}), do: "ok"
+  defp quiet_summary(_), do: "ok"
 
   defp error_message(:daemon_unavailable, _), do: "Daemon is not running and could not be started"
   defp error_message(:timeout, _), do: "Daemon did not respond within the timeout period"

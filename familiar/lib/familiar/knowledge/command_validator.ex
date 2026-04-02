@@ -7,14 +7,7 @@ defmodule Familiar.Knowledge.CommandValidator do
   the Shell behaviour port.
   """
 
-  @language_indicators [
-    {"mix.exs", "elixir"},
-    {"package.json", "nodejs"},
-    {"go.mod", "go"},
-    {"Cargo.toml", "rust"},
-    {"pyproject.toml", "python"},
-    {"Gemfile", "ruby"}
-  ]
+  @language_indicators Familiar.Knowledge.LanguageIndicators.short_list()
 
   # Safe probe commands only — never run actual builds/tests during init
   @language_commands %{

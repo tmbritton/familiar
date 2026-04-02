@@ -555,5 +555,84 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
       assert %DateTime{} = entry.inserted_at
       assert %DateTime{} = entry.updated_at
     end
+
+    test "search_similar respects limit option" do
+      Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
+        {:ok, List.duplicate(0.1, 768)}
+      end)
+
+      for i <- 1..5 do
+        {:ok, _} =
+          Knowledge.store_with_embedding(%{
+            text: "Entry number #{i} for limit testing",
+            type: "file_summary",
+            source: "init_scan",
+            source_file: "lib/mod#{i}.ex",
+            metadata: "{}"
+          })
+      end
+
+      {:ok, all_results} = Knowledge.search_similar("limit testing", limit: 10)
+      assert length(all_results) == 5
+
+      {:ok, limited} = Knowledge.search_similar("limit testing", limit: 2)
+      assert length(limited) == 2
+    end
+  end
+
+  # -- Deferred Fix Tests --
+
+  describe "edge cases" do
+    test "scan_files handles non-existent project directory gracefully" do
+      result = InitScanner.scan_files("/tmp/nonexistent_#{System.unique_integer([:positive])}", file_system: @fs)
+      assert {:ok, [], 0} = result
+    end
+
+    test "second init run creates additional entries (no dedup)", %{project_dir: tmp_dir} do
+      create_file(tmp_dir, "lib/app.ex", "defmodule App do\n  def hello, do: :world\nend")
+
+      stub_llm_extraction()
+      stub_embedder_deterministic()
+      stub_shell_commands()
+
+      {:ok, first_summary} =
+        InitScanner.run(tmp_dir, progress_fn: fn _msg -> :ok end, file_system: @fs)
+
+      assert first_summary.entries_created > 0
+      entries_after_first = Repo.aggregate(Entry, :count)
+
+      # Run again — same files, creates more entries (no dedup in init_scanner)
+      stub_llm_extraction()
+      stub_embedder_deterministic()
+      stub_shell_commands()
+
+      {:ok, second_summary} =
+        InitScanner.run(tmp_dir, progress_fn: fn _msg -> :ok end, file_system: @fs)
+
+      assert second_summary.entries_created > 0
+      entries_after_second = Repo.aggregate(Entry, :count)
+
+      # Documents current behavior: entries accumulate, no deduplication
+      assert entries_after_second > entries_after_first
+    end
+
+    test "pipeline handles file with corrupt binary content", %{project_dir: tmp_dir} do
+      # Valid file
+      create_file(tmp_dir, "lib/good.ex", "defmodule Good do\n  def run, do: :ok\nend")
+      # Corrupt binary content (not valid UTF-8)
+      corrupt_path = Path.join(tmp_dir, "lib/corrupt.ex")
+      corrupt_path |> Path.dirname() |> File.mkdir_p!()
+      File.write!(corrupt_path, <<0xFF, 0xFE, 0x00, 0x01, 0xFF>>)
+
+      stub_llm_extraction()
+      stub_embedder_deterministic()
+      stub_shell_commands()
+
+      result = InitScanner.run(tmp_dir, progress_fn: fn _msg -> :ok end, file_system: @fs)
+
+      # Pipeline should complete — corrupt file processed (LLM handles the content)
+      assert {:ok, summary} = result
+      assert summary.files_scanned >= 1
+    end
   end
 end

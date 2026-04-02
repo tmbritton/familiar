@@ -118,7 +118,20 @@ defmodule Familiar.Config do
   defp validate_language(nil), do: {:ok, %{}}
 
   defp validate_language(section) when is_map(section) do
-    {:ok, section}
+    invalid =
+      Enum.filter(section, fn {_key, value} ->
+        not (is_binary(value) or is_list(value))
+      end)
+
+    case invalid do
+      [] ->
+        {:ok, section}
+
+      [{key, _} | _] ->
+        {:error,
+         {:invalid_config,
+          %{field: "language.#{key}", reason: "expected a string or list value"}}}
+    end
   end
 
   defp validate_language(_section) do

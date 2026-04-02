@@ -7,16 +7,7 @@ defmodule Familiar.Knowledge.ConventionDiscoverer do
   2. LLM-assisted cross-cutting analysis — error handling, architecture patterns
   """
 
-  @language_indicators %{
-    "mix.exs" => "Elixir",
-    "package.json" => "Node.js/JavaScript",
-    "go.mod" => "Go",
-    "Cargo.toml" => "Rust",
-    "pyproject.toml" => "Python",
-    "Gemfile" => "Ruby",
-    "pom.xml" => "Java",
-    "build.gradle" => "Java/Kotlin"
-  }
+  @language_indicators Familiar.Knowledge.LanguageIndicators.display_map()
 
   @doc """
   Discover conventions from scanned file infos (structural + LLM).

@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: '2026-04-01'
-last_updated: '2026-04-02T07:00:00'
+last_updated: '2026-04-02T08:00:00'
 project: anthill
 project_key: NOKEY
 tracking_system: file-system
@@ -43,7 +43,7 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   # Epic 1: Project Foundation & Initialization (9 stories)
-  epic-1: in-progress
+  epic-1: done
   1-1a-phoenix-project-setup-database-foundation: done
   1-1b-behaviour-ports-domain-contexts-test-scaffold: done
   1-2-provider-adapters-embedding-pipeline: done
@@ -53,7 +53,7 @@ development_status:
   1-5-convention-discovery-user-review: done
   1-6-configuration-auto-init: done
   1-7-foundation-integration-test: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   # Epic 2: Knowledge Store & Context Management (7 stories)
   epic-2: backlog

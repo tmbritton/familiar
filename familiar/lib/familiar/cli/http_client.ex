@@ -100,7 +100,8 @@ defmodule Familiar.CLI.HttpClient do
 
   defp discover_port do
     case StateFile.read() do
-      {:ok, %{"port" => port}} -> port
+      {:ok, %{"port" => port}} when is_integer(port) -> port
+      {:ok, _} -> {:error, {:daemon_unavailable, %{reason: :invalid_port}}}
       {:error, _} -> {:error, {:daemon_unavailable, %{reason: :no_daemon_json}}}
     end
   end
