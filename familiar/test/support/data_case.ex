@@ -29,6 +29,11 @@ defmodule Familiar.DataCase do
 
   setup tags do
     Familiar.DataCase.setup_sandbox(tags)
+
+    # Entry timestamps use Clock behaviour via autogenerate.
+    # Default to real system clock; tests needing controlled time override.
+    Mox.stub(Familiar.System.ClockMock, :now, fn -> DateTime.utc_now() end)
+
     :ok
   end
 

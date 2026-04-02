@@ -20,7 +20,13 @@ defmodule Familiar.Knowledge.Entry do
     field :metadata, :string, default: "{}"
     field :checked_at, :utc_datetime
 
-    timestamps(type: :utc_datetime)
+    timestamps(type: :utc_datetime, autogenerate: {__MODULE__, :clock_now, []})
+  end
+
+  @doc false
+  def clock_now do
+    clock = Application.get_env(:familiar, Familiar.System.Clock, Familiar.System.RealClock)
+    clock.now() |> DateTime.truncate(:second)
   end
 
   @doc "Changeset for creating or updating a knowledge entry."

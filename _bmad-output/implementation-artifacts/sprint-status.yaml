@@ -63,7 +63,7 @@ development_status:
   2-4-knowledge-store-management: done
   2-5-backup-restore-health-monitoring: done
   2-6-secret-filtering: done
-  2-7-knowledge-store-integration-test: backlog
+  2-7-knowledge-store-integration-test: done
   epic-2-retrospective: optional
 
   # Epic 3: Planning & Specification (7 stories)
