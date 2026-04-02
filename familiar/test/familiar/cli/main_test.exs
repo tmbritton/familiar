@@ -261,7 +261,7 @@ defmodule Familiar.CLI.MainTest do
           end
         )
 
-      result = Main.run({"search", ["auth query"], %{}}, search_deps)
+      result = Main.run({"search", ["auth query"], %{raw: true}}, search_deps)
       assert {:ok, %{results: [_ | _], query: "auth query"}} = result
     end
 
@@ -287,7 +287,7 @@ defmodule Familiar.CLI.MainTest do
           end
         )
 
-      result = Main.run({"search", ["stale query"], %{}}, search_deps)
+      result = Main.run({"search", ["stale query"], %{raw: true}}, search_deps)
       assert {:ok, %{results: [_ | _]}} = result
     end
 
@@ -309,7 +309,7 @@ defmodule Familiar.CLI.MainTest do
           end
         )
 
-      result = Main.run({"search", ["query"], %{}}, err_deps)
+      result = Main.run({"search", ["query"], %{raw: true}}, err_deps)
       assert {:error, {:provider_unavailable, _}} = result
     end
   end
@@ -736,6 +736,105 @@ defmodule Familiar.CLI.MainTest do
 
     test "returns :text for no flags" do
       assert :text = Main.format_mode(%{})
+    end
+  end
+
+  describe "parse_args/1 for plan command" do
+    test "parses plan with description" do
+      assert {"plan", ["add", "user", "accounts"], %{}} = Main.parse_args(["plan", "add", "user", "accounts"])
+    end
+
+    test "parses plan --resume" do
+      assert {"plan", [], %{resume: true}} = Main.parse_args(["plan", "--resume"])
+    end
+
+    test "parses plan --resume --session 42" do
+      assert {"plan", [], %{resume: true, session: 42}} = Main.parse_args(["plan", "--resume", "--session", "42"])
+    end
+
+    test "parses search --raw" do
+      assert {"search", ["query"], %{raw: true}} = Main.parse_args(["search", "--raw", "query"])
+    end
+  end
+
+  describe "run/2 with plan command" do
+    test "starts a planning session" do
+      Paths.ensure_familiar_dir!()
+
+      plan_deps =
+        deps(
+          plan_fn: fn "add user accounts", _opts ->
+            {:ok, %{session_id: 1, response: "What auth method?", status: :questioning}}
+          end
+        )
+
+      result = Main.run({"plan", ["add", "user", "accounts"], %{}}, plan_deps)
+      assert {:ok, %{session_id: 1, response: "What auth method?", command: "plan"}} = result
+    end
+
+    test "resumes latest session with --resume" do
+      Paths.ensure_familiar_dir!()
+
+      plan_deps =
+        deps(
+          plan_latest_fn: fn -> {:ok, 5} end,
+          plan_resume_fn: fn 5 ->
+            {:ok, %{session_id: 5, description: "test", status: "active", message_count: 3, last_response: "continued"}}
+          end
+        )
+
+      result = Main.run({"plan", [], %{resume: true}}, plan_deps)
+      assert {:ok, %{session_id: 5, description: "test"}} = result
+    end
+
+    test "resumes specific session with --resume --session" do
+      Paths.ensure_familiar_dir!()
+
+      plan_deps =
+        deps(
+          plan_resume_fn: fn 42 ->
+            {:ok, %{session_id: 42, description: "test", status: "active", message_count: 1, last_response: "question"}}
+          end
+        )
+
+      result = Main.run({"plan", [], %{resume: true, session: 42}}, plan_deps)
+      assert {:ok, %{session_id: 42}} = result
+    end
+
+    test "returns usage error when no description or --resume" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"plan", [], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+  end
+
+  describe "run/2 with librarian search" do
+    test "uses librarian for non-raw search" do
+      Paths.ensure_familiar_dir!()
+
+      lib_deps =
+        deps(
+          librarian_fn: fn "auth query", _opts ->
+            {:ok, %{summary: "Auth uses JWT [lib/auth.ex]", results: [%{id: 1, text: "Auth uses JWT", type: "convention"}]}}
+          end
+        )
+
+      result = Main.run({"search", ["auth query"], %{}}, lib_deps)
+      assert {:ok, %{summary: "Auth uses JWT [lib/auth.ex]", query: "auth query"}} = result
+    end
+
+    test "falls back to raw search when librarian fails" do
+      Paths.ensure_familiar_dir!()
+
+      fallback_deps =
+        deps(
+          librarian_fn: fn _query, _opts -> {:error, {:search_failed, %{}}} end,
+          search_fn: fn "auth" -> {:ok, [%{id: 1, text: "result", type: "fact"}]} end
+        )
+
+      result = Main.run({"search", ["auth"], %{}}, fallback_deps)
+      assert {:ok, %{results: [_ | _], query: "auth"}} = result
     end
   end
 

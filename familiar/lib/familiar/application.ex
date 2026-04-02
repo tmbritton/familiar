@@ -10,6 +10,7 @@ defmodule Familiar.Application do
         FamiliarWeb.Telemetry,
         Familiar.Repo,
         {Task.Supervisor, name: Familiar.TaskSupervisor},
+        {DynamicSupervisor, name: Familiar.LibrarianSupervisor, strategy: :one_for_one},
         {Ecto.Migrator,
          repos: Application.fetch_env!(:familiar, :ecto_repos), skip: skip_migrations?()},
         # Recovery gate — runs synchronously after Repo/Migrator, returns :ignore

@@ -17,6 +17,8 @@ defmodule Familiar.CLI.Main do
   alias Familiar.Knowledge.InitScanner
   alias Familiar.Knowledge.Management
   alias Familiar.Knowledge.Prerequisites
+  alias Familiar.Planning.Engine
+  alias Familiar.Planning.Librarian
 
   @version Mix.Project.config()[:version]
 
@@ -45,7 +47,10 @@ defmodule Familiar.CLI.Main do
           compact: :boolean,
           health: :boolean,
           force: :boolean,
-          apply: :string
+          apply: :string,
+          resume: :boolean,
+          session: :integer,
+          raw: :boolean
         ],
         aliases: [j: :json, q: :quiet, h: :help]
       )
@@ -53,7 +58,7 @@ defmodule Familiar.CLI.Main do
     flag_map = Enum.into(flags, %{})
 
     format_flags = Map.take(flag_map, [:json, :quiet])
-    context_flags = Map.take(flag_map, [:refresh, :compact, :health, :force, :apply])
+    context_flags = Map.take(flag_map, [:refresh, :compact, :health, :force, :apply, :resume, :session, :raw])
     all_flags = Map.merge(format_flags, context_flags)
 
     if flag_map[:help] || args == [] do
@@ -169,17 +174,48 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp run_with_daemon({"plan", _, flags}, deps) when is_map_key(flags, :resume) do
+    plan_resume_fn = Map.get(deps, :plan_resume_fn, &Engine.resume/1)
+
+    case Map.get(flags, :session) do
+      sid when is_integer(sid) ->
+        plan_resume_fn.(sid)
+
+      nil ->
+        latest_fn = Map.get(deps, :plan_latest_fn, &Engine.latest_active_session/0)
+
+        case latest_fn.() do
+          {:ok, sid} -> plan_resume_fn.(sid)
+          {:error, _} = error -> error
+        end
+    end
+  end
+
+  defp run_with_daemon({"plan", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam plan <description> | fam plan --resume [--session <id>]"}}}
+  end
+
+  defp run_with_daemon({"plan", args, _}, deps) do
+    description = Enum.join(args, " ")
+    plan_fn = Map.get(deps, :plan_fn, &Engine.start_plan/2)
+
+    case plan_fn.(description, []) do
+      {:ok, result} -> {:ok, Map.put(result, :command, "plan")}
+      {:error, _} = error -> error
+    end
+  end
+
   defp run_with_daemon({"search", [], _}, _deps) do
     {:error, {:usage_error, %{message: "Usage: fam search <query>"}}}
   end
 
-  defp run_with_daemon({"search", args, _}, deps) do
+  defp run_with_daemon({"search", args, flags}, deps) do
     query = Enum.join(args, " ")
-    search_fn = Map.get(deps, :search_fn, &Knowledge.search/1)
 
-    case search_fn.(query) do
-      {:ok, results} -> {:ok, %{results: results, query: query}}
-      {:error, _} = error -> error
+    if Map.get(flags, :raw, false) do
+      run_raw_search(query, deps)
+    else
+      run_librarian_search(query, deps)
     end
   end
 
@@ -290,6 +326,27 @@ defmodule Familiar.CLI.Main do
 
   defp run_with_daemon({command, _, _}, _deps) do
     {:error, {:unknown_command, %{command: command}}}
+  end
+
+  defp run_raw_search(query, deps) do
+    search_fn = Map.get(deps, :search_fn, &Knowledge.search/1)
+
+    case search_fn.(query) do
+      {:ok, results} -> {:ok, %{results: results, query: query}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp run_librarian_search(query, deps) do
+    librarian_fn = Map.get(deps, :librarian_fn, &Librarian.query/2)
+
+    case librarian_fn.(query, []) do
+      {:ok, %{summary: summary, results: results}} ->
+        {:ok, %{results: results, query: query, summary: summary}}
+
+      {:error, _} ->
+        run_raw_search(query, deps)
+    end
   end
 
   defp run_compact(flags, deps) do
@@ -566,9 +623,28 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp text_formatter("plan") do
+    fn
+      %{session_id: sid, response: response, status: status} ->
+        status_tag = if status == :spec_ready, do: " [SPEC READY]", else: ""
+        "Planning session ##{sid}#{status_tag}\n\n#{response}"
+
+      %{session_id: sid, description: desc, last_response: last} ->
+        response_text = last || "(no messages yet)"
+        "Resumed session ##{sid}: #{desc}\n\n#{response_text}"
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
   defp text_formatter("search") do
-    fn %{results: results, query: query} ->
-      format_search_results(results, query)
+    fn
+      %{results: results, query: query, summary: summary} ->
+        "#{summary}\n\n---\nRaw results (#{length(results)} found) for \"#{query}\""
+
+      %{results: results, query: query} ->
+        format_search_results(results, query)
     end
   end
 
@@ -848,7 +924,10 @@ defmodule Familiar.CLI.Main do
 
     Commands:
       init               Initialize Familiar on this project
-      search <query>     Search knowledge store by semantic similarity
+      plan <description> Start a planning conversation for a feature
+      plan --resume      Resume the latest planning conversation
+      search <query>     Search knowledge store (curated by Librarian)
+      search --raw <q>   Search knowledge store directly (no curation)
       entry <id>         Inspect a knowledge entry
       edit <id> <text>   Edit a knowledge entry (re-embeds, tags as user)
       delete <id>        Delete a knowledge entry
