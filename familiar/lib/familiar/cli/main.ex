@@ -205,6 +205,28 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp run_with_daemon({"spec", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam spec <id>"}}}
+  end
+
+  defp run_with_daemon({"spec", [id_string | _], _}, deps) do
+    spec_fn = Map.get(deps, :spec_fn, &Engine.get_spec/1)
+
+    case Integer.parse(id_string) do
+      {id, ""} ->
+        case spec_fn.(id) do
+          {:ok, spec} ->
+            {:ok, %{id: spec.id, title: spec.title, body: spec.body, status: spec.status, file_path: spec.file_path}}
+
+          {:error, _} = error ->
+            error
+        end
+
+      _ ->
+        {:error, {:usage_error, %{message: "Invalid spec ID: #{id_string}"}}}
+    end
+  end
+
   defp run_with_daemon({"search", [], _}, _deps) do
     {:error, {:usage_error, %{message: "Usage: fam search <query>"}}}
   end
@@ -572,6 +594,27 @@ defmodule Familiar.CLI.Main do
     }
   end
 
+  defp text_formatter("spec") do
+    fn
+      %{title: title, body: body, status: status, file_path: path} ->
+        full_body = body || ""
+        preview = String.slice(full_body, 0, 2000)
+        truncated = if String.length(full_body) > 2000, do: "\n\n... (truncated — full spec at #{path})", else: ""
+
+        lines = [
+          "#{title} [#{status}]",
+          if(path, do: "File: #{path}", else: nil),
+          "",
+          preview <> truncated
+        ]
+
+        lines |> Enum.reject(&is_nil/1) |> Enum.join("\n")
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
   defp text_formatter("health") do
     fn %{status: status, version: version} ->
       "Daemon is #{status} (version #{version})"
@@ -928,6 +971,7 @@ defmodule Familiar.CLI.Main do
       plan --resume      Resume the latest planning conversation
       search <query>     Search knowledge store (curated by Librarian)
       search --raw <q>   Search knowledge store directly (no curation)
+      spec <id>          Display a generated specification
       entry <id>         Inspect a knowledge entry
       edit <id> <text>   Edit a knowledge entry (re-embeds, tags as user)
       delete <id>        Delete a knowledge entry

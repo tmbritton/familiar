@@ -809,6 +809,42 @@ defmodule Familiar.CLI.MainTest do
     end
   end
 
+  describe "run/2 with spec command" do
+    test "returns spec details for valid ID" do
+      Paths.ensure_familiar_dir!()
+
+      mock_spec = %{id: 1, title: "Add Auth", body: "# Add Auth\n\nSpec body", status: "draft", file_path: ".familiar/specs/1-add-auth.md"}
+
+      spec_deps = deps(spec_fn: fn 1 -> {:ok, mock_spec} end)
+
+      result = Main.run({"spec", ["1"], %{}}, spec_deps)
+      assert {:ok, %{id: 1, title: "Add Auth"}} = result
+    end
+
+    test "returns error for non-existent spec" do
+      Paths.ensure_familiar_dir!()
+
+      spec_deps = deps(spec_fn: fn 999 -> {:error, {:spec_not_found, %{spec_id: 999}}} end)
+
+      result = Main.run({"spec", ["999"], %{}}, spec_deps)
+      assert {:error, {:spec_not_found, _}} = result
+    end
+
+    test "returns usage error for invalid ID" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"spec", ["abc"], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+
+    test "returns usage error when no ID provided" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"spec", [], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+  end
+
   describe "run/2 with librarian search" do
     test "uses librarian for non-raw search" do
       Paths.ensure_familiar_dir!()

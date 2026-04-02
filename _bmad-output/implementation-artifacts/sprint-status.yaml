@@ -70,7 +70,7 @@ development_status:
   # Epic 3: Planning & Specification (7 stories)
   epic-3: in-progress
   3-1-planning-conversation-engine: done
-  3-2-spec-generation-verification: backlog
+  3-2-spec-generation-verification: done
   3-3-streaming-reasoning-trail: backlog
   3-4-spec-review-approval-cli: backlog
   3-5-task-decomposition-dependency-mapping: backlog

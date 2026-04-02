@@ -19,6 +19,8 @@ defmodule Familiar.Planning.Engine do
   alias Familiar.Planning.Message
   alias Familiar.Planning.PromptAssembly
   alias Familiar.Planning.Session
+  alias Familiar.Planning.Spec
+  alias Familiar.Planning.SpecGenerator
   alias Familiar.Repo
 
   # Story 3.2 will implement tool dispatch — currently tool_calls are
@@ -106,6 +108,31 @@ defmodule Familiar.Planning.Engine do
          |> Repo.one() do
       nil -> {:error, {:no_active_session, %{}}}
       session -> {:ok, session.id}
+    end
+  end
+
+  @doc """
+  Generate a spec from a completed planning session.
+
+  Triggers the spec generation pipeline: LLM generation with tool dispatch,
+  verification against tool call log, and spec file persistence.
+  """
+  @spec generate_spec(integer(), keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
+  def generate_spec(session_id, opts \\ []) do
+    with {:ok, session} <- load_session(session_id),
+         :ok <- validate_active(session) do
+      SpecGenerator.generate(session, opts)
+    end
+  end
+
+  @doc """
+  Fetch a spec by ID.
+  """
+  @spec get_spec(integer()) :: {:ok, Familiar.Planning.Spec.t()} | {:error, {atom(), map()}}
+  def get_spec(spec_id) do
+    case Repo.get(Spec, spec_id) do
+      nil -> {:error, {:spec_not_found, %{spec_id: spec_id}}}
+      spec -> {:ok, spec}
     end
   end
 

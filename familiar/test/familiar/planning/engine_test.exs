@@ -212,4 +212,63 @@ defmodule Familiar.Planning.EngineTest do
       assert hd(tools).name == "knowledge_search"
     end
   end
+
+  describe "generate_spec/2" do
+    test "generates spec from session" do
+      {:ok, %{session_id: sid}} = Engine.start_plan("add auth", base_opts())
+
+      spec_opts = [
+        providers_mod: %{chat: fn _msgs, _opts ->
+          {:ok, %{content: "# Add Auth\n\n## Assumptions\n\nUses JWT in `lib/auth.ex`\n\n## Implementation Plan\n\n1. Add handler"}}
+        end},
+        file_system: __MODULE__.StubFileSystem,
+        knowledge_mod: __MODULE__.StubKnowledge
+      ]
+
+      {:ok, result} = Engine.generate_spec(sid, spec_opts)
+
+      assert result.spec.title == "Add Auth"
+      assert result.spec.session_id == sid
+    end
+
+    test "returns error for non-existent session" do
+      {:error, {type, _}} = Engine.generate_spec(999_999)
+      assert type == :session_not_found
+    end
+  end
+
+  describe "get_spec/1" do
+    test "returns spec by ID" do
+      {:ok, %{session_id: sid}} = Engine.start_plan("add auth", base_opts())
+
+      spec_opts = [
+        providers_mod: %{chat: fn _msgs, _opts ->
+          {:ok, %{content: "# Test Spec\n\n## Assumptions\n\nNone\n\n## Implementation Plan\n\n1. Do it"}}
+        end},
+        file_system: __MODULE__.StubFileSystem,
+        knowledge_mod: __MODULE__.StubKnowledge
+      ]
+
+      {:ok, %{spec: spec}} = Engine.generate_spec(sid, spec_opts)
+      {:ok, fetched} = Engine.get_spec(spec.id)
+      assert fetched.id == spec.id
+    end
+
+    test "returns error for non-existent spec" do
+      {:error, {type, _}} = Engine.get_spec(999_999)
+      assert type == :spec_not_found
+    end
+  end
+
+  defmodule StubFileSystem do
+    @moduledoc false
+    def read(_path), do: {:error, {:file_error, %{reason: :enoent}}}
+    def write(_path, _content), do: :ok
+    def stat(_path), do: {:ok, %{mtime: ~U[2026-04-02 10:00:00Z], size: 50}}
+  end
+
+  defmodule StubKnowledge do
+    @moduledoc false
+    def search(_query), do: {:ok, []}
+  end
 end
