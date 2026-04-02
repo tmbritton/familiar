@@ -95,6 +95,33 @@ defmodule Familiar.CLI.MainTest do
       result = Main.run({"health", [], %{}}, init_deps)
       assert {:ok, %{status: "ok"}} = result
     end
+
+    test "auto-init triggers for config command when no .familiar/" do
+      init_deps =
+        deps(
+          prerequisites_fn: fn _opts -> {:ok, %{}} end,
+          init_fn: fn _opts ->
+            Paths.ensure_familiar_dir!()
+            {:ok, %{files_scanned: 0, entries_created: 0}}
+          end
+        )
+
+      result = Main.run({"config", [], %{}}, init_deps)
+      # After auto-init, config returns defaults since no config.toml written
+      assert {:ok, config} = result
+      assert config.provider.chat_model == "llama3.2"
+    end
+
+    test "auto-init failure prevents original command" do
+      fail_deps =
+        deps(
+          prerequisites_fn: fn _opts -> {:ok, %{}} end,
+          init_fn: fn _opts -> {:error, {:init_failed, %{reason: "disk full"}}} end
+        )
+
+      result = Main.run({"health", [], %{}}, fail_deps)
+      assert {:error, {:init_failed, %{reason: "disk full"}}} = result
+    end
   end
 
   describe "run/2 with health command" do
@@ -170,6 +197,44 @@ defmodule Familiar.CLI.MainTest do
 
       result = Main.run({"daemon", ["start"], %{}}, start_deps)
       assert {:ok, %{status: "started", port: 4000}} = result
+    end
+  end
+
+  describe "run/2 with config command" do
+    test "returns config from config.toml" do
+      Paths.ensure_familiar_dir!()
+
+      # Write a minimal config file
+      config_path = Path.join(Paths.familiar_dir(), "config.toml")
+
+      File.write!(config_path, """
+      [provider]
+      chat_model = "codellama"
+      """)
+
+      result = Main.run({"config", [], %{}}, deps())
+      assert {:ok, config} = result
+      assert config.provider.chat_model == "codellama"
+      # Defaults filled in
+      assert config.provider.base_url == "http://localhost:11434"
+    end
+
+    test "returns defaults when no config file" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"config", [], %{}}, deps())
+      assert {:ok, config} = result
+      assert config.provider.chat_model == "llama3.2"
+    end
+
+    test "returns error for invalid config" do
+      Paths.ensure_familiar_dir!()
+
+      config_path = Path.join(Paths.familiar_dir(), "config.toml")
+      File.write!(config_path, "[provider]\ntimeout = -1")
+
+      result = Main.run({"config", [], %{}}, deps())
+      assert {:error, {:invalid_config, %{field: "provider.timeout"}}} = result
     end
   end
 

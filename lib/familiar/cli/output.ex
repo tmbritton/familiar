@@ -105,6 +105,9 @@ defmodule Familiar.CLI.Output do
   defp error_message(:init_failed, %{reason: reason}),
     do: "Initialization failed: #{reason}"
 
+  defp error_message(:invalid_config, %{field: field, reason: reason}),
+    do: "Invalid configuration: #{field} — #{reason}"
+
   defp error_message(:unknown_command, %{command: cmd}), do: "Unknown command: #{cmd}"
   defp error_message(:usage_error, %{message: msg}), do: msg
   defp error_message(type, _), do: to_string(type)

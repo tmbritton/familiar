@@ -83,6 +83,68 @@ defmodule Familiar.CLI.OutputTest do
     end
   end
 
+  describe "format/3 — invalid_config error" do
+    test "JSON envelope for invalid_config includes field and reason" do
+      result =
+        Output.format(
+          {:error,
+           {:invalid_config, %{field: "provider.timeout", reason: "expected positive integer"}}},
+          :json
+        )
+
+      decoded = Jason.decode!(result)
+      assert decoded["error"]["type"] == "invalid_config"
+      assert decoded["error"]["message"] =~ "provider.timeout"
+      assert decoded["error"]["details"]["field"] == "provider.timeout"
+    end
+
+    test "text mode for invalid_config shows error type" do
+      result =
+        Output.format(
+          {:error, {:invalid_config, %{field: "scan.max_files", reason: "must be positive"}}},
+          :text
+        )
+
+      assert result =~ "invalid_config"
+    end
+
+    test "quiet mode for invalid_config returns error type" do
+      result =
+        Output.format(
+          {:error, {:invalid_config, %{field: "x", reason: "y"}}},
+          :quiet
+        )
+
+      assert result == "error: invalid_config"
+    end
+  end
+
+  describe "JSON envelope contract for all error types" do
+    test "all known error types produce valid JSON with type, message, details" do
+      error_cases = [
+        {:daemon_unavailable, %{}},
+        {:timeout, %{}},
+        {:version_mismatch, %{cli: "0.1.0", daemon: "0.2.0"}},
+        {:init_required, %{}},
+        {:prerequisites_failed, %{instructions: "Install Ollama"}},
+        {:already_initialized, %{path: ".familiar/"}},
+        {:init_failed, %{reason: "boom"}},
+        {:unknown_command, %{command: "bogus"}},
+        {:usage_error, %{message: "bad usage"}},
+        {:invalid_config, %{field: "provider.timeout", reason: "expected positive integer"}}
+      ]
+
+      for {type, details} <- error_cases do
+        result = Output.format({:error, {type, details}}, :json)
+        decoded = Jason.decode!(result)
+        assert is_map(decoded["error"]), "Missing error envelope for #{type}"
+        assert decoded["error"]["type"] == to_string(type), "Wrong type for #{type}"
+        assert is_binary(decoded["error"]["message"]), "Missing message for #{type}"
+        assert is_map(decoded["error"]["details"]), "Missing details for #{type}"
+      end
+    end
+  end
+
   describe "exit_code/1" do
     test "returns 0 for success" do
       assert Output.exit_code({:ok, _any = nil}) == 0
@@ -90,6 +152,10 @@ defmodule Familiar.CLI.OutputTest do
 
     test "returns 1 for errors" do
       assert Output.exit_code({:error, {:daemon_unavailable, %{}}}) == 1
+    end
+
+    test "returns 1 for invalid_config" do
+      assert Output.exit_code({:error, {:invalid_config, %{}}}) == 1
     end
 
     test "returns 2 for usage errors" do

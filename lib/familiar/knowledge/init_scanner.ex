@@ -9,6 +9,7 @@ defmodule Familiar.Knowledge.InitScanner do
 
   require Logger
 
+  alias Familiar.Config.Generator, as: ConfigGenerator
   alias Familiar.Knowledge
   alias Familiar.Knowledge.CommandValidator
   alias Familiar.Knowledge.ConventionDiscoverer
@@ -101,6 +102,7 @@ defmodule Familiar.Knowledge.InitScanner do
 
       with {:ok, summary} <- result do
         DefaultFiles.install(familiar_dir)
+        ConfigGenerator.generate_default(familiar_dir, summary[:language])
         {:ok, summary}
       end
     end

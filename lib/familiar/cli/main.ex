@@ -135,6 +135,16 @@ defmodule Familiar.CLI.Main do
     {:error, {:usage_error, %{message: "Usage: fam daemon <start|stop|status>"}}}
   end
 
+  defp run_with_daemon({"config", _, _}, _deps) do
+    config_fn = &Familiar.Config.load/1
+    config_path = Paths.config_path()
+
+    case config_fn.(config_path) do
+      {:ok, config} -> {:ok, config_to_map(config)}
+      {:error, _} = error -> error
+    end
+  end
+
   defp run_with_daemon({"conventions", args, _}, deps) do
     with {:ok, port} <- deps.ensure_running_fn.(health_fn: deps.health_fn),
          {:ok, conventions} <-
@@ -208,6 +218,15 @@ defmodule Familiar.CLI.Main do
       evidence_total: meta["evidence_total"] || 0,
       evidence_ratio: meta["evidence_ratio"] || 0.0,
       reviewed: meta["reviewed"] || false
+    }
+  end
+
+  defp config_to_map(%Familiar.Config{} = config) do
+    %{
+      provider: config.provider,
+      language: config.language,
+      scan: config.scan,
+      notifications: config.notifications
     }
   end
 
@@ -292,6 +311,10 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp text_formatter("config") do
+    fn config -> format_config_text(config) end
+  end
+
   defp text_formatter(_), do: nil
 
   defp format_conventions_text([], _review_mode) do
@@ -318,6 +341,45 @@ defmodule Familiar.CLI.Main do
     "  #{idx}. #{conv.text} #{evidence}#{status}"
   end
 
+  defp format_config_text(config) do
+    lines = ["Configuration:"]
+
+    lines =
+      lines ++
+        [
+          "  [provider]",
+          "    base_url = #{config.provider.base_url}",
+          "    chat_model = #{config.provider.chat_model}",
+          "    embedding_model = #{config.provider.embedding_model}",
+          "    timeout = #{config.provider.timeout}"
+        ]
+
+    lines =
+      if config.language != %{} do
+        lang_lines =
+          config.language
+          |> Enum.sort()
+          |> Enum.map(fn {k, v} -> "    #{k} = #{inspect(v)}" end)
+
+        lines ++ ["  [language]"] ++ lang_lines
+      else
+        lines ++ ["  [language] (not configured)"]
+      end
+
+    lines =
+      lines ++
+        [
+          "  [scan]",
+          "    max_files = #{config.scan.max_files}",
+          "    large_project_threshold = #{config.scan.large_project_threshold}",
+          "  [notifications]",
+          "    provider = #{config.notifications.provider}",
+          "    enabled = #{config.notifications.enabled}"
+        ]
+
+    Enum.join(lines, "\n")
+  end
+
   defp help_text do
     """
     fam - Familiar CLI
@@ -326,6 +388,7 @@ defmodule Familiar.CLI.Main do
 
     Commands:
       init             Initialize Familiar on this project
+      config           Show current configuration
       conventions      List discovered conventions
       conventions review  Review and approve conventions
       health           Check daemon health and version
