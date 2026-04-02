@@ -23,7 +23,6 @@ defmodule Familiar.Knowledge.InitScannerTest do
       create_file(tmp_dir, "README.md", "# App")
       create_file(tmp_dir, "mix.exs", "defmodule App.MixProject do end")
 
-      # Skip directories
       create_file(tmp_dir, "_build/dev/lib/app.beam", "binary")
       create_file(tmp_dir, "deps/phoenix/lib/phoenix.ex", "defmodule Phoenix do end")
       create_file(tmp_dir, ".git/config", "[core]")
@@ -84,46 +83,62 @@ defmodule Familiar.Knowledge.InitScannerTest do
       paths = Enum.map(files, & &1.relative_path)
 
       assert "lib/good.ex" in paths
-      # bad.ex should be skipped, not crash
       assert files != []
     after
-      # Restore permissions for cleanup
       bad_path = Path.join(tmp_dir, "lib/bad.ex")
       if File.exists?(bad_path), do: File.chmod!(bad_path, 0o644)
     end
   end
 
   describe "run/1 full pipeline" do
-    test "runs scan, extract, embed pipeline", %{tmp_dir: tmp_dir} do
+    test "runs scan, extract, discover, embed pipeline", %{tmp_dir: tmp_dir} do
       create_file(tmp_dir, "lib/app.ex", "defmodule App do\n  def hello, do: :world\nend")
 
-      Mox.expect(Familiar.Providers.LLMMock, :chat, fn messages, _opts ->
+      # LLM called for extraction + convention discovery
+      Mox.expect(Familiar.Providers.LLMMock, :chat, 2, fn messages, _opts ->
         prompt = hd(messages).content
-        assert prompt =~ "app.ex"
 
-        {:ok,
-         %{
-           content:
-             Jason.encode!([
-               %{
-                 "type" => "file_summary",
-                 "text" => "App module defines a hello function that returns :world",
-                 "source_file" => "lib/app.ex"
-               }
-             ])
-         }}
+        if prompt =~ "conventions" do
+          {:ok,
+           %{
+             content:
+               Jason.encode!([
+                 %{
+                   "type" => "convention",
+                   "text" => "Uses pattern matching",
+                   "evidence_count" => 1,
+                   "evidence_total" => 1
+                 }
+               ])
+           }}
+        else
+          {:ok,
+           %{
+             content:
+               Jason.encode!([
+                 %{
+                   "type" => "file_summary",
+                   "text" => "App module defines a hello function",
+                   "source_file" => "lib/app.ex"
+                 }
+               ])
+           }}
+        end
       end)
 
-      Mox.expect(Familiar.Knowledge.EmbedderMock, :embed, fn text ->
+      # Embedder called for all entries (extraction + structural conventions + LLM conventions)
+      Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn text ->
         assert is_binary(text)
         {:ok, List.duplicate(0.1, 768)}
       end)
 
+      # Shell called for command validation (no mix.exs so unknown language → skip)
       result = InitScanner.run(tmp_dir, progress_fn: fn _msg -> :ok end, file_system: @fs)
 
       assert {:ok, summary} = result
       assert summary.files_scanned >= 1
       assert summary.entries_created >= 1
+      assert summary.conventions_discovered >= 1
       assert summary.deferred == 0
     end
 
@@ -150,16 +165,24 @@ defmodule Familiar.Knowledge.InitScannerTest do
     test "handles LLM extraction failure gracefully", %{tmp_dir: tmp_dir} do
       create_file(tmp_dir, "lib/app.ex", "defmodule App do end")
 
-      Mox.expect(Familiar.Providers.LLMMock, :chat, fn _messages, _opts ->
+      # Both extraction and convention discovery LLM calls fail
+      Mox.expect(Familiar.Providers.LLMMock, :chat, 2, fn _messages, _opts ->
         {:error, {:provider_unavailable, %{reason: :timeout}}}
+      end)
+
+      # Structural conventions still get embedded
+      Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn text ->
+        assert is_binary(text)
+        {:ok, List.duplicate(0.1, 768)}
       end)
 
       result = InitScanner.run(tmp_dir, progress_fn: fn _msg -> :ok end, file_system: @fs)
 
       assert {:ok, summary} = result
       assert summary.files_scanned == 1
-      assert summary.entries_created == 0
       assert summary.extraction_warnings =~ "could not be analyzed"
+      # Structural conventions still discovered even when LLM fails
+      assert summary.conventions_discovered >= 1
     end
   end
 

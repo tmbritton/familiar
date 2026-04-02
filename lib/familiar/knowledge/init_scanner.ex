@@ -10,6 +10,8 @@ defmodule Familiar.Knowledge.InitScanner do
   require Logger
 
   alias Familiar.Knowledge
+  alias Familiar.Knowledge.CommandValidator
+  alias Familiar.Knowledge.ConventionDiscoverer
   alias Familiar.Knowledge.DefaultFiles
   alias Familiar.Knowledge.Extractor
   alias Familiar.Knowledge.FileClassifier
@@ -89,11 +91,12 @@ defmodule Familiar.Knowledge.InitScanner do
            %{
              files_scanned: 0,
              entries_created: 0,
+             conventions_discovered: 0,
              deferred: deferred,
              warning: "No source files found to index — Familiar will have limited context"
            }}
         else
-          run_extraction_pipeline(files, deferred, progress_fn, concurrency)
+          run_extraction_pipeline(files, deferred, progress_fn, concurrency, opts)
         end
 
       with {:ok, summary} <- result do
@@ -167,7 +170,7 @@ defmodule Familiar.Knowledge.InitScanner do
     end
   end
 
-  defp run_extraction_pipeline(files, deferred, progress_fn, concurrency) do
+  defp run_extraction_pipeline(files, deferred, progress_fn, concurrency, opts) do
     progress_fn.("Extracting knowledge from #{length(files)} files...")
 
     {entries, extraction_failures} = Extractor.extract_from_files_with_stats(files)
@@ -178,16 +181,32 @@ defmodule Familiar.Knowledge.InitScanner do
       )
     end
 
-    progress_fn.("Building knowledge store (embedding 0/#{length(entries)} entries)...")
+    # Convention discovery
+    progress_fn.("Discovering conventions...")
+    conventions = ConventionDiscoverer.discover(files)
 
-    results = embed_entries(entries, progress_fn, concurrency)
+    # Command validation
+    progress_fn.("Validating project commands...")
+    {:ok, cmd_result} = CommandValidator.validate(files, opts)
+
+    log_command_validation(cmd_result)
+
+    # Embed all entries (knowledge + conventions)
+    all_entries = entries ++ conventions
+
+    progress_fn.("Building knowledge store (embedding 0/#{length(all_entries)} entries)...")
+
+    results = embed_entries(all_entries, progress_fn, concurrency)
 
     created = Enum.count(results, &match?({:ok, _}, &1))
 
     summary = %{
       files_scanned: length(files),
       entries_created: created,
-      deferred: deferred
+      conventions_discovered: length(conventions),
+      deferred: deferred,
+      language: cmd_result.language,
+      validated_commands: cmd_result.commands
     }
 
     summary =
@@ -201,7 +220,28 @@ defmodule Familiar.Knowledge.InitScanner do
         summary
       end
 
+    summary =
+      if cmd_result.failures != [] do
+        Map.put(summary, :command_warnings, format_command_failures(cmd_result.failures))
+      else
+        summary
+      end
+
     {:ok, summary}
+  end
+
+  defp log_command_validation(%{failures: []}) do
+    :ok
+  end
+
+  defp log_command_validation(%{failures: failures}) do
+    Logger.warning(
+      "[InitScanner] #{length(failures)} command(s) failed validation: #{format_command_failures(failures)}"
+    )
+  end
+
+  defp format_command_failures(failures) do
+    Enum.map_join(failures, ", ", &to_string(&1.command))
   end
 
   defp embed_entries(entries, progress_fn, concurrency) do

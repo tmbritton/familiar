@@ -12,6 +12,13 @@ defmodule Familiar.Knowledge do
   alias Familiar.Knowledge.Entry
   alias Familiar.Repo
 
+  @doc "List all knowledge entries of a given type."
+  @spec list_by_type(module(), String.t()) :: [Entry.t()]
+  def list_by_type(queryable \\ Entry, type) do
+    import Ecto.Query
+    queryable |> where([e], e.type == ^type) |> Repo.all()
+  end
+
   @doc "Search the knowledge store by semantic similarity."
   @spec search(String.t()) :: {:ok, [map()]} | {:error, {atom(), map()}}
   def search(_query), do: {:error, {:not_implemented, %{}}}

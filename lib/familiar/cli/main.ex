@@ -10,6 +10,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.CLI.HttpClient
   alias Familiar.CLI.Output
   alias Familiar.Daemon.Paths
+  alias Familiar.Knowledge.ConventionReviewer
   alias Familiar.Knowledge.InitScanner
   alias Familiar.Knowledge.Prerequisites
 
@@ -134,8 +135,28 @@ defmodule Familiar.CLI.Main do
     {:error, {:usage_error, %{message: "Usage: fam daemon <start|stop|status>"}}}
   end
 
+  defp run_with_daemon({"conventions", args, _}, deps) do
+    with {:ok, port} <- deps.ensure_running_fn.(health_fn: deps.health_fn),
+         {:ok, conventions} <-
+           Map.get(deps, :conventions_fn, &default_conventions/1).(port) do
+      handle_conventions(conventions, args, deps)
+    end
+  end
+
   defp run_with_daemon({command, _, _}, _deps) do
     {:error, {:unknown_command, %{command: command}}}
+  end
+
+  defp handle_conventions(conventions, args, deps) do
+    if "review" in args do
+      review_fn = Map.get(deps, :review_fn, &ConventionReviewer.review/2)
+
+      with {:ok, review_result} <- review_fn.(conventions, []) do
+        {:ok, Map.merge(%{conventions: conventions, review_mode: true}, review_result)}
+      end
+    else
+      {:ok, %{conventions: conventions, review_mode: false}}
+    end
   end
 
   # -- Init --
@@ -160,6 +181,34 @@ defmodule Familiar.CLI.Main do
 
   defp init_progress(msg) do
     IO.puts(:stderr, msg)
+  end
+
+  defp default_conventions(port) do
+    _ = port
+
+    entries =
+      Familiar.Knowledge.Entry
+      |> Familiar.Knowledge.list_by_type("convention")
+      |> Enum.map(&format_convention_entry/1)
+
+    {:ok, entries}
+  end
+
+  defp format_convention_entry(entry) do
+    meta =
+      case Jason.decode(entry.metadata || "{}") do
+        {:ok, decoded} -> decoded
+        {:error, _} -> %{}
+      end
+
+    %{
+      id: entry.id,
+      text: entry.text,
+      evidence_count: meta["evidence_count"] || 0,
+      evidence_total: meta["evidence_total"] || 0,
+      evidence_ratio: meta["evidence_ratio"] || 0.0,
+      reviewed: meta["reviewed"] || false
+    }
   end
 
   # -- Private --
@@ -215,7 +264,8 @@ defmodule Familiar.CLI.Main do
       lines = [
         "Initialization complete!",
         "  Files scanned: #{summary.files_scanned}",
-        "  Knowledge entries: #{summary.entries_created}"
+        "  Knowledge entries: #{summary.entries_created}",
+        "  Conventions discovered: #{summary[:conventions_discovered] || 0}"
       ]
 
       lines =
@@ -236,7 +286,37 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp text_formatter("conventions") do
+    fn %{conventions: conventions, review_mode: review_mode} ->
+      format_conventions_text(conventions, review_mode)
+    end
+  end
+
   defp text_formatter(_), do: nil
+
+  defp format_conventions_text([], _review_mode) do
+    "No conventions discovered yet. Run `fam init` first."
+  end
+
+  defp format_conventions_text(conventions, review_mode) do
+    header =
+      if review_mode,
+        do: "Conventions for review (#{length(conventions)}):",
+        else: "Discovered conventions (#{length(conventions)}):"
+
+    lines =
+      conventions
+      |> Enum.with_index(1)
+      |> Enum.map(&format_convention_line/1)
+
+    Enum.join([header | lines], "\n")
+  end
+
+  defp format_convention_line({conv, idx}) do
+    status = if conv[:reviewed], do: " [reviewed]", else: ""
+    evidence = "(#{conv.evidence_count}/#{conv.evidence_total})"
+    "  #{idx}. #{conv.text} #{evidence}#{status}"
+  end
 
   defp help_text do
     """
@@ -246,6 +326,8 @@ defmodule Familiar.CLI.Main do
 
     Commands:
       init             Initialize Familiar on this project
+      conventions      List discovered conventions
+      conventions review  Review and approve conventions
       health           Check daemon health and version
       version          Show CLI version
       daemon start     Start the daemon

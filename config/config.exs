@@ -26,6 +26,7 @@ config :familiar, FamiliarWeb.Endpoint,
 config :familiar, Familiar.Providers.LLM, Familiar.Providers.OllamaAdapter
 config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.OllamaEmbedder
 config :familiar, Familiar.System.FileSystem, Familiar.System.LocalFileSystem
+config :familiar, Familiar.System.Shell, Familiar.System.RealShell
 
 # Ollama provider settings
 config :familiar, :ollama,
