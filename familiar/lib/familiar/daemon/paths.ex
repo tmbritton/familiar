@@ -31,6 +31,9 @@ defmodule Familiar.Daemon.Paths do
   @doc "Returns the database path."
   def db_path, do: Path.join(familiar_dir(), "familiar.db")
 
+  @doc "Returns the backups directory path."
+  def backups_dir, do: Path.join(familiar_dir(), "backups")
+
   @doc "Returns the config.toml path."
   def config_path, do: Path.join(familiar_dir(), "config.toml")
 

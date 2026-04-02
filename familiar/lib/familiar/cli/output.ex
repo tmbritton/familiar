@@ -94,6 +94,11 @@ defmodule Familiar.CLI.Output do
   defp quiet_summary(%{id: id, status: "edited"}), do: "edited:#{id}"
   defp quiet_summary(%{id: id, status: "deleted"}), do: "deleted:#{id}"
   defp quiet_summary(%{id: id, text: _, type: _}), do: "entry:#{id}"
+  defp quiet_summary(%{restored: f, status: _}), do: "restored:#{f}"
+  defp quiet_summary(%{path: p, size: _, filename: _}), do: "backup:#{p}"
+  defp quiet_summary(%{entry_count: c, signal: s, command: "status"}), do: "status:#{s}:#{c}"
+  defp quiet_summary(%{entry_count: c, signal: s}), do: "health:#{s}:#{c}"
+  defp quiet_summary(list) when is_list(list), do: "backups:#{length(list)}"
   defp quiet_summary(%{scanned: s}), do: "refreshed:#{s}"
   defp quiet_summary(%{candidates: c}), do: "candidates:#{length(c)}"
   defp quiet_summary(%{results: results, query: _}), do: "results:#{length(results)}"
@@ -127,6 +132,10 @@ defmodule Familiar.CLI.Output do
   defp error_message(:not_found, _), do: "Entry not found"
   defp error_message(:knowledge_not_code, _), do: "Content rejected: appears to be code, not knowledge"
   defp error_message(:delete_failed, _), do: "Failed to delete entry"
+  defp error_message(:backup_failed, %{reason: r}), do: "Backup failed: #{r}"
+  defp error_message(:restore_failed, %{reason: r}), do: "Restore failed: #{r}"
+  defp error_message(:no_backups, _), do: "No backups available"
+  defp error_message(:cancelled, _), do: "Restore cancelled"
   defp error_message(:unknown_command, %{command: cmd}), do: "Unknown command: #{cmd}"
   defp error_message(:usage_error, %{message: msg}), do: msg
   defp error_message(type, _), do: to_string(type)

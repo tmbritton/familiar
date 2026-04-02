@@ -15,6 +15,7 @@ defmodule Familiar.Daemon.Recovery do
   require Logger
 
   alias Familiar.Daemon.ShutdownMarker
+  alias Familiar.Knowledge.Backup
 
   @doc """
   Run crash recovery if an unclean shutdown is detected.
@@ -63,8 +64,6 @@ defmodule Familiar.Daemon.Recovery do
 
   @doc false
   def check_database_integrity do
-    # Run SQLite PRAGMA integrity_check
-    # Full backup/restore comes in Story 2.5
     case Familiar.Repo.query("PRAGMA integrity_check") do
       {:ok, %{rows: [["ok"]]}} ->
         Logger.info("[Recovery] Database integrity check: OK")
@@ -72,16 +71,42 @@ defmodule Familiar.Daemon.Recovery do
 
       {:ok, %{rows: rows}} ->
         Logger.error("[Recovery] Database integrity check failed: #{inspect(rows)}")
-        {:error, {:storage_failed, %{reason: :integrity_check_failed, details: rows}}}
+        auto_restore_from_backup()
 
       {:error, reason} ->
         Logger.error("[Recovery] Database integrity check error: #{inspect(reason)}")
-        {:error, {:storage_failed, %{reason: reason}}}
+        auto_restore_from_backup()
     end
   rescue
     e ->
       Logger.warning("[Recovery] Database integrity check skipped: #{Exception.message(e)}")
       :ok
+  end
+
+  defp auto_restore_from_backup do
+    case Backup.latest() do
+      {:ok, backup_path} ->
+        Logger.info("[Recovery] Attempting auto-restore from #{backup_path}")
+
+        case Backup.restore(backup_path) do
+          :ok ->
+            timestamp = Path.basename(backup_path, ".db")
+
+            Logger.info(
+              "[Recovery] Database restored from backup (#{timestamp}). Verify with `fam status`"
+            )
+
+            :ok
+
+          {:error, reason} ->
+            Logger.error("[Recovery] Auto-restore failed: #{inspect(reason)}")
+            :ok
+        end
+
+      {:error, {:no_backups, _}} ->
+        Logger.warning("[Recovery] No backups available for auto-restore")
+        :ok
+    end
   end
 
   @doc false

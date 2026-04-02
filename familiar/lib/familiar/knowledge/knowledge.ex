@@ -11,6 +11,9 @@ defmodule Familiar.Knowledge do
 
   require Logger
 
+  import Ecto.Query
+
+  alias Familiar.Knowledge.Backup
   alias Familiar.Knowledge.ContentValidator
   alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.Freshness
@@ -19,7 +22,6 @@ defmodule Familiar.Knowledge do
   @doc "List all knowledge entries of a given type."
   @spec list_by_type(module(), String.t()) :: [Entry.t()]
   def list_by_type(queryable \\ Entry, type) do
-    import Ecto.Query
     queryable |> where([e], e.type == ^type) |> Repo.all()
   end
 
@@ -164,9 +166,85 @@ defmodule Familiar.Knowledge do
     end
   end
 
-  @doc "Report knowledge store health metrics."
-  @spec health() :: {:ok, map()} | {:error, {atom(), map()}}
-  def health, do: {:error, {:not_implemented, %{}}}
+  @doc """
+  Report knowledge store health metrics.
+
+  Collects entry count, type breakdown, staleness ratio, last refresh,
+  backup status, and computes a green/amber/red health signal.
+  """
+  @spec health(keyword()) :: {:ok, map()}
+  def health(opts \\ []) do
+    entry_count = Repo.aggregate(Entry, :count)
+    types = collect_type_breakdown()
+    last_refresh = Repo.one(from(e in Entry, select: max(e.updated_at)))
+    staleness_ratio = compute_staleness_ratio(entry_count, opts)
+    backup_status = collect_backup_status(opts)
+    signal = compute_signal(staleness_ratio, backup_status, entry_count)
+
+    {:ok,
+     %{
+       entry_count: entry_count,
+       types: types,
+       staleness_ratio: staleness_ratio,
+       last_refresh: last_refresh,
+       backup: backup_status,
+       signal: signal
+     }}
+  end
+
+  defp collect_type_breakdown do
+    Entry
+    |> group_by([e], e.type)
+    |> select([e], {e.type, count(e.id)})
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  defp compute_staleness_ratio(0, _opts), do: 0.0
+
+  defp compute_staleness_ratio(_count, opts) do
+    entries = Repo.all(Entry)
+
+    if entries == [] do
+      0.0
+    else
+      compute_staleness_from_entries(entries, opts)
+    end
+  rescue
+    _ -> 0.0
+  end
+
+  defp compute_staleness_from_entries(entries, opts) do
+    case Freshness.validate_entries(entries, opts) do
+      {:ok, %{stale: stale, deleted: deleted}} ->
+        (length(stale) + length(deleted)) / length(entries)
+
+      _ ->
+        0.0
+    end
+  end
+
+  defp collect_backup_status(opts) do
+    case Backup.list(opts) do
+      {:ok, [newest | _] = all} ->
+        %{last: newest.timestamp, count: length(all)}
+
+      {:ok, []} ->
+        %{last: nil, count: 0}
+    end
+  end
+
+  defp compute_signal(staleness_ratio, backup_status, entry_count) do
+    has_backup = backup_status.count > 0
+
+    cond do
+      staleness_ratio > 0.30 -> :red
+      !has_backup and entry_count > 0 -> :red
+      staleness_ratio >= 0.10 -> :amber
+      !has_backup -> :amber
+      true -> :green
+    end
+  end
 
   @doc """
   Store a knowledge entry and embed its text for semantic search.
@@ -319,8 +397,6 @@ defmodule Familiar.Knowledge do
   defp load_entries_with_distances(rows) do
     entry_ids = Enum.map(rows, fn [id, _dist] -> id end)
     distance_map = Map.new(rows, fn [id, dist] -> {id, dist} end)
-
-    import Ecto.Query
 
     entries =
       Entry

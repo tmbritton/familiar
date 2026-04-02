@@ -553,6 +553,169 @@ defmodule Familiar.CLI.MainTest do
     end
   end
 
+  describe "run/2 with backup command" do
+    test "creates a backup" do
+      Paths.ensure_familiar_dir!()
+
+      backup_deps =
+        deps(
+          backup_fn: fn _opts ->
+            {:ok, %{path: "/backups/familiar-20260402T120000.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}}
+          end
+        )
+
+      result = Main.run({"backup", [], %{}}, backup_deps)
+      assert {:ok, %{path: _, size: 4096}} = result
+    end
+
+    test "propagates backup errors" do
+      Paths.ensure_familiar_dir!()
+
+      backup_deps =
+        deps(backup_fn: fn _opts -> {:error, {:backup_failed, %{reason: :disk_full}}} end)
+
+      result = Main.run({"backup", [], %{}}, backup_deps)
+      assert {:error, {:backup_failed, _}} = result
+    end
+  end
+
+  describe "run/2 with restore command" do
+    test "lists backups when no args" do
+      Paths.ensure_familiar_dir!()
+
+      restore_deps =
+        deps(
+          backup_list_fn: fn _opts ->
+            {:ok, [%{path: "/b/f.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+          end
+        )
+
+      result = Main.run({"restore", [], %{}}, restore_deps)
+      assert {:ok, [%{filename: "familiar-20260402T120000.db"}]} = result
+    end
+
+    test "restores specific backup with confirmation" do
+      Paths.ensure_familiar_dir!()
+
+      restore_deps =
+        deps(
+          backup_list_fn: fn _opts ->
+            {:ok, [%{path: "/b/familiar-20260402T120000.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+          end,
+          restore_fn: fn _path, _opts -> :ok end,
+          confirm_fn: fn _prompt -> "y\n" end
+        )
+
+      result = Main.run({"restore", ["20260402T120000"], %{}}, restore_deps)
+      assert {:ok, %{restored: "familiar-20260402T120000.db", status: "restored"}} = result
+    end
+
+    test "returns cancelled when user declines" do
+      Paths.ensure_familiar_dir!()
+
+      restore_deps =
+        deps(
+          backup_list_fn: fn _opts ->
+            {:ok, [%{path: "/b/f.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+          end,
+          confirm_fn: fn _prompt -> "n\n" end
+        )
+
+      result = Main.run({"restore", ["20260402T120000"], %{}}, restore_deps)
+      assert {:error, {:cancelled, %{}}} = result
+    end
+
+    test "skips confirmation with --force flag" do
+      Paths.ensure_familiar_dir!()
+
+      restore_deps =
+        deps(
+          backup_list_fn: fn _opts ->
+            {:ok, [%{path: "/b/f.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+          end,
+          restore_fn: fn _path, _opts -> :ok end
+        )
+
+      result = Main.run({"restore", ["20260402T120000"], %{force: true}}, restore_deps)
+      assert {:ok, %{restored: _, status: "restored"}} = result
+    end
+
+    test "skips confirmation in --json mode" do
+      Paths.ensure_familiar_dir!()
+
+      restore_deps =
+        deps(
+          backup_list_fn: fn _opts ->
+            {:ok, [%{path: "/b/f.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+          end,
+          restore_fn: fn _path, _opts -> :ok end
+        )
+
+      result = Main.run({"restore", ["20260402T120000"], %{json: true}}, restore_deps)
+      assert {:ok, %{status: "restored"}} = result
+    end
+
+    test "returns not_found for unknown timestamp" do
+      Paths.ensure_familiar_dir!()
+
+      restore_deps =
+        deps(
+          backup_list_fn: fn _opts -> {:ok, []} end
+        )
+
+      result = Main.run({"restore", ["99990101T000000"], %{force: true}}, restore_deps)
+      assert {:error, {:not_found, %{timestamp: "99990101T000000"}}} = result
+    end
+  end
+
+  describe "run/2 with status command" do
+    test "returns knowledge health metrics" do
+      Paths.ensure_familiar_dir!()
+
+      status_deps =
+        deps(
+          context_health_fn: fn _opts ->
+            {:ok,
+             %{
+               entry_count: 10,
+               types: %{"fact" => 5},
+               staleness_ratio: 0.0,
+               last_refresh: nil,
+               backup: %{last: nil, count: 0},
+               signal: :amber
+             }}
+          end
+        )
+
+      result = Main.run({"status", [], %{}}, status_deps)
+      assert {:ok, %{entry_count: 10, signal: :amber, command: "status"}} = result
+    end
+  end
+
+  describe "run/2 with context --health" do
+    test "returns health metrics" do
+      Paths.ensure_familiar_dir!()
+
+      health_deps =
+        deps(
+          context_health_fn: fn _opts ->
+            {:ok,
+             %{
+               entry_count: 42,
+               types: %{"fact" => 15, "convention" => 10},
+               staleness_ratio: 0.05,
+               last_refresh: ~U[2026-04-02 10:00:00Z],
+               backup: %{last: "20260402T090000", count: 3},
+               signal: :green
+             }}
+          end
+        )
+
+      result = Main.run({"context", [], %{health: true}}, health_deps)
+      assert {:ok, %{entry_count: 42, signal: :green}} = result
+    end
+  end
+
   describe "run/2 with unknown command" do
     test "returns unknown_command error" do
       Paths.ensure_familiar_dir!()

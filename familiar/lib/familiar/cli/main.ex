@@ -11,6 +11,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.CLI.Output
   alias Familiar.Daemon.Paths
   alias Familiar.Knowledge
+  alias Familiar.Knowledge.Backup
   alias Familiar.Knowledge.ConventionReviewer
   alias Familiar.Knowledge.Freshness
   alias Familiar.Knowledge.InitScanner
@@ -42,6 +43,8 @@ defmodule Familiar.CLI.Main do
           help: :boolean,
           refresh: :boolean,
           compact: :boolean,
+          health: :boolean,
+          force: :boolean,
           apply: :string
         ],
         aliases: [j: :json, q: :quiet, h: :help]
@@ -50,7 +53,7 @@ defmodule Familiar.CLI.Main do
     flag_map = Enum.into(flags, %{})
 
     format_flags = Map.take(flag_map, [:json, :quiet])
-    context_flags = Map.take(flag_map, [:refresh, :compact, :apply])
+    context_flags = Map.take(flag_map, [:refresh, :compact, :health, :force, :apply])
     all_flags = Map.merge(format_flags, context_flags)
 
     if flag_map[:help] || args == [] do
@@ -113,6 +116,15 @@ defmodule Familiar.CLI.Main do
          {:ok, health} <- deps.health_fn.(port) do
       check_version_compatibility(health.version, deps)
       {:ok, health}
+    end
+  end
+
+  defp run_with_daemon({"status", _, _}, deps) do
+    health_fn = Map.get(deps, :context_health_fn, &Knowledge.health/1)
+
+    case health_fn.([]) do
+      {:ok, health} -> {:ok, Map.put(health, :command, "status")}
+      {:error, _} = error -> error
     end
   end
 
@@ -237,8 +249,21 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp run_with_daemon({"backup", _, _}, deps) do
+    backup_fn = Map.get(deps, :backup_fn, &Backup.create/1)
+    backup_fn.([])
+  end
+
+  defp run_with_daemon({"restore", args, flags}, deps) do
+    run_restore(args, flags, deps)
+  end
+
   defp run_with_daemon({"context", args, flags}, deps) do
     cond do
+      Map.get(flags, :health, false) ->
+        health_fn = Map.get(deps, :context_health_fn, &Knowledge.health/1)
+        health_fn.([])
+
       Map.get(flags, :refresh, false) ->
         path_filter = find_path_arg(args)
         refresh_fn = Map.get(deps, :refresh_fn, &Management.refresh/2)
@@ -249,7 +274,9 @@ defmodule Familiar.CLI.Main do
         run_compact(flags, deps)
 
       true ->
-        {:error, {:usage_error, %{message: "Usage: fam context --refresh [path] | --compact [--apply <indices>]"}}}
+        {:error,
+         {:usage_error,
+          %{message: "Usage: fam context --refresh [path] | --compact [--apply <indices>] | --health"}}}
     end
   end
 
@@ -280,6 +307,50 @@ defmodule Familiar.CLI.Main do
         end
     end
   end
+
+  defp run_restore([], _flags, deps) do
+    list_fn = Map.get(deps, :backup_list_fn, &Backup.list/1)
+    list_fn.([])
+  end
+
+  defp run_restore([timestamp | _], flags, deps) do
+    list_fn = Map.get(deps, :backup_list_fn, &Backup.list/1)
+    restore_fn = Map.get(deps, :restore_fn, &Backup.restore/2)
+    confirm_fn = Map.get(deps, :confirm_fn, &default_confirm/1)
+    force = Map.get(flags, :force, false) or Map.get(flags, :json, false)
+
+    with {:ok, backups} <- list_fn.([]),
+         {:ok, backup} <- find_backup_by_timestamp(backups, timestamp),
+         :ok <- maybe_confirm(backup, confirm_fn, force),
+         :ok <- restore_fn.(backup.path, []) do
+      {:ok, %{restored: backup.filename, status: "restored"}}
+    end
+  end
+
+  defp find_backup_by_timestamp(backups, timestamp) do
+    case Enum.find(backups, &String.contains?(&1.filename, timestamp)) do
+      nil -> {:error, {:not_found, %{timestamp: timestamp}}}
+      backup -> {:ok, backup}
+    end
+  end
+
+  defp maybe_confirm(_backup, _confirm_fn, true), do: :ok
+
+  defp maybe_confirm(backup, confirm_fn, false) do
+    prompt = "Restore from #{backup.filename} backup? Current database will be replaced. (y/n): "
+
+    case confirm_fn.(prompt) do
+      response when is_binary(response) ->
+        if String.starts_with?(String.trim(String.downcase(response)), "y"),
+          do: :ok,
+          else: {:error, {:cancelled, %{}}}
+
+      _ ->
+        {:error, {:cancelled, %{}}}
+    end
+  end
+
+  defp default_confirm(prompt), do: IO.gets(prompt)
 
   defp parse_apply_indices(indices_str, candidates) do
     indices =
@@ -546,8 +617,34 @@ defmodule Familiar.CLI.Main do
     fn %{id: id} -> "Entry ##{id} deleted" end
   end
 
+  defp text_formatter("status") do
+    fn data -> format_health_text(Map.delete(data, :command)) end
+  end
+
+  defp text_formatter("backup") do
+    fn %{path: path, size: size, filename: _} ->
+      "Backup created: #{path} (#{format_size(size)})"
+    end
+  end
+
+  defp text_formatter("restore") do
+    fn
+      %{restored: filename, status: _} ->
+        "Restored from #{filename}. Restart daemon with `fam daemon restart`."
+
+      %{} = backups_list ->
+        format_backups_list(backups_list)
+
+      backups when is_list(backups) ->
+        format_backups_list(backups)
+    end
+  end
+
   defp text_formatter("context") do
     fn
+      %{entry_count: _, signal: _} = health ->
+        format_health_text(health)
+
       %{scanned: s, updated: u, created: c, removed: r, preserved: p} ->
         lines = [
           "Context refresh complete:",
@@ -685,6 +782,64 @@ defmodule Familiar.CLI.Main do
   defp freshness_indicator(:unknown), do: " [?]"
   defp freshness_indicator(_), do: ""
 
+  defp format_health_text(health) do
+    signal_icon = signal_indicator(health.signal)
+
+    lines = [
+      "Knowledge Store Health: #{signal_icon} #{health.signal}",
+      "  Entries: #{health.entry_count}",
+      "  Staleness: #{Float.round(health.staleness_ratio * 100, 1)}%",
+      "  Last refresh: #{health.last_refresh || "never"}",
+      "  Backups: #{health.backup.count} (last: #{health.backup.last || "never"})"
+    ]
+
+    type_lines =
+      health.types
+      |> Enum.sort()
+      |> Enum.map(fn {type, count} -> "    #{type}: #{count}" end)
+
+    if type_lines != [] do
+      Enum.join(lines ++ ["  Types:"] ++ type_lines, "\n")
+    else
+      Enum.join(lines, "\n")
+    end
+  end
+
+  defp signal_indicator(:green), do: "[OK]"
+  defp signal_indicator(:amber), do: "[WARN]"
+  defp signal_indicator(:red), do: "[CRITICAL]"
+
+  defp format_backups_list(backups) when is_list(backups) do
+    case backups do
+      [] ->
+        "No backups available"
+
+      _ ->
+        header = "Available backups (#{length(backups)}):\n"
+
+        lines =
+          backups
+          |> Enum.with_index(1)
+          |> Enum.map(fn {b, idx} ->
+            "  #{idx}. #{b.filename} (#{format_size(b.size)})"
+          end)
+
+        header <> Enum.join(lines, "\n")
+    end
+  end
+
+  defp format_backups_list(_), do: "No backups available"
+
+  defp format_size(bytes) when bytes >= 1_048_576 do
+    "#{Float.round(bytes / 1_048_576, 1)} MB"
+  end
+
+  defp format_size(bytes) when bytes >= 1024 do
+    "#{Float.round(bytes / 1024, 1)} KB"
+  end
+
+  defp format_size(bytes), do: "#{bytes} B"
+
   defp help_text do
     """
     fam - Familiar CLI
@@ -699,6 +854,11 @@ defmodule Familiar.CLI.Main do
       delete <id>        Delete a knowledge entry
       context --refresh [path]  Re-scan project or path
       context --compact  Find and consolidate duplicate entries
+      context --health   Show knowledge store health metrics
+      backup             Create knowledge store backup
+      restore            List available backups
+      restore <timestamp> Restore from a specific backup
+      status             Show knowledge store health and status
       config             Show current configuration
       conventions        List discovered conventions
       conventions review Review and approve conventions

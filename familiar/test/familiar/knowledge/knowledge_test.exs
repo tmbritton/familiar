@@ -257,6 +257,81 @@ defmodule Familiar.Knowledge.KnowledgeTest do
     end
   end
 
+  describe "health/1" do
+    test "returns health metrics for empty store" do
+      assert {:ok, health} = Knowledge.health()
+      assert health.entry_count == 0
+      assert health.types == %{}
+      assert health.staleness_ratio == 0.0
+      assert health.last_refresh == nil
+      assert health.backup.count == 0
+      assert health.signal in [:amber, :green]
+    end
+
+    test "returns entry counts and type breakdown" do
+      stub(EmbedderMock, :embed, fn _text ->
+        {:ok, deterministic_vector(0.01, 0.01)}
+      end)
+
+      {:ok, _} =
+        Knowledge.store_with_embedding(%{
+          text: "A fact about auth",
+          type: "fact",
+          source: "init_scan",
+          source_file: "lib/auth.ex"
+        })
+
+      {:ok, _} =
+        Knowledge.store_with_embedding(%{
+          text: "A convention about naming",
+          type: "convention",
+          source: "init_scan",
+          source_file: "lib/naming.ex"
+        })
+
+      assert {:ok, health} = Knowledge.health()
+      assert health.entry_count == 2
+      assert health.types["fact"] == 1
+      assert health.types["convention"] == 1
+    end
+
+    test "returns green signal with backups and low staleness" do
+      # Create a backup to satisfy has_backup check
+      tmp_dir = System.tmp_dir!()
+      backups_dir = Path.join(tmp_dir, "health-test-backups-#{:rand.uniform(100_000)}")
+      File.mkdir_p!(backups_dir)
+      File.write!(Path.join(backups_dir, "familiar-20260402T100000.db"), "backup")
+
+      assert {:ok, health} = Knowledge.health(backups_dir: backups_dir)
+      assert health.signal == :green
+      assert health.backup.count == 1
+
+      File.rm_rf!(backups_dir)
+    end
+
+    test "returns amber signal when no backup and empty store" do
+      assert {:ok, health} = Knowledge.health()
+      assert health.signal == :amber
+    end
+
+    test "returns red signal when no backup and entries exist" do
+      stub(EmbedderMock, :embed, fn _text ->
+        {:ok, deterministic_vector(0.01, 0.01)}
+      end)
+
+      {:ok, _} =
+        Knowledge.store_with_embedding(%{
+          text: "Some knowledge",
+          type: "fact",
+          source: "init_scan",
+          source_file: "lib/test.ex"
+        })
+
+      assert {:ok, health} = Knowledge.health()
+      assert health.signal == :red
+    end
+  end
+
   # Generate a deterministic 768-dimensional vector.
   defp deterministic_vector(primary, secondary) do
     half = div(768, 2)
