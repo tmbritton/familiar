@@ -81,8 +81,11 @@ defmodule Familiar.Knowledge do
     stale = Enum.filter(entries, &(Map.get(freshness_map, &1.id) == :stale))
     deleted = Enum.filter(entries, &(Map.get(freshness_map, &1.id) == :deleted))
 
-    if stale != [], do: Task.start(fn -> Freshness.refresh_stale(stale, opts) end)
-    if deleted != [], do: Task.start(fn -> Freshness.remove_deleted(deleted) end)
+    if stale != [],
+      do: Task.Supervisor.start_child(Familiar.TaskSupervisor, fn -> Freshness.refresh_stale(stale, opts) end)
+
+    if deleted != [],
+      do: Task.Supervisor.start_child(Familiar.TaskSupervisor, fn -> Freshness.remove_deleted(deleted) end)
   end
 
   defp run_freshness_check(entries, opts) do
@@ -205,10 +208,13 @@ defmodule Familiar.Knowledge do
     |> Map.new()
   end
 
+  @staleness_sample_size 100
+
   defp compute_staleness_ratio(0, _opts), do: 0.0
 
   defp compute_staleness_ratio(_count, opts) do
-    entries = Repo.all(Entry)
+    # Sample entries rather than loading all — sufficient for health signal
+    entries = from(e in Entry, order_by: [desc: e.updated_at], limit: @staleness_sample_size) |> Repo.all()
 
     if entries == [] do
       0.0
@@ -252,6 +258,29 @@ defmodule Familiar.Knowledge do
   end
 
   @doc """
+  Store a knowledge entry with a pre-computed embedding vector.
+
+  Skips the embedding step — used when the caller has already embedded.
+  Defense-in-depth: filters secrets before persisting.
+  """
+  @spec store_with_vector(map(), [float()]) :: {:ok, Entry.t()} | {:error, {atom(), map()}}
+  def store_with_vector(attrs, vector) do
+    attrs = filter_text_in_attrs(attrs)
+    changeset = Entry.changeset(%Entry{}, attrs)
+
+    with {:ok, entry} <- Repo.insert(changeset),
+         :ok <- insert_embedding_or_rollback(entry, vector) do
+      {:ok, entry}
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, {:validation_failed, %{changeset: changeset}}}
+
+      {:error, {type, details}} ->
+        {:error, {type, details}}
+    end
+  end
+
+  @doc """
   Store a knowledge entry and embed its text for semantic search.
 
   Pipeline: validate attrs -> insert entry -> embed text -> store vector.
@@ -261,6 +290,8 @@ defmodule Familiar.Knowledge do
   """
   @spec store_with_embedding(map()) :: {:ok, Entry.t()} | {:error, {atom(), map()}}
   def store_with_embedding(attrs) do
+    # Defense-in-depth: filter secrets even though callers should filter upstream
+    attrs = filter_text_in_attrs(attrs)
     changeset = Entry.changeset(%Entry{}, attrs)
 
     with {:ok, entry} <- Repo.insert(changeset),
@@ -283,7 +314,11 @@ defmodule Familiar.Knowledge do
 
       {:error, reason} ->
         # Compensating delete: remove the entry since embedding failed
-        Repo.delete(entry)
+        case Repo.delete(entry) do
+          {:ok, _} -> :ok
+          {:error, del_err} -> Logger.warning("Compensating delete failed for entry #{entry.id}: #{inspect(del_err)}")
+        end
+
         {:error, reason}
     end
   end
@@ -295,7 +330,11 @@ defmodule Familiar.Knowledge do
 
       {:error, reason} ->
         # Compensating delete: remove the entry since vector storage failed
-        Repo.delete(entry)
+        case Repo.delete(entry) do
+          {:ok, _} -> :ok
+          {:error, del_err} -> Logger.warning("Compensating delete failed for entry #{entry.id}: #{inspect(del_err)}")
+        end
+
         {:error, reason}
     end
   end
@@ -312,25 +351,71 @@ defmodule Familiar.Knowledge do
     limit = Keyword.get(opts, :limit, 10)
 
     with {:ok, query_vector} <- Familiar.Providers.embed(query) do
-      vector_json = Jason.encode!(query_vector)
+      search_by_vector(query_vector, limit)
+    end
+  end
 
-      case Repo.query(
-             """
-             SELECT entry_id, distance
-             FROM knowledge_entry_embeddings
-             WHERE embedding MATCH ?
-             ORDER BY distance
-             LIMIT ?
-             """,
-             [vector_json, limit]
-           ) do
-        {:ok, %{rows: rows}} ->
-          entries = load_entries_with_distances(rows)
-          {:ok, entries}
+  @doc """
+  Search the knowledge store using an entry's stored embedding.
 
-        {:error, reason} ->
-          {:error, {:query_failed, %{reason: reason}}}
-      end
+  Avoids re-embedding the text — queries sqlite-vec directly with the
+  stored vector. Used by consolidation to avoid N+1 embedding calls.
+  """
+  @spec search_similar_by_entry_id(integer(), keyword()) ::
+          {:ok, [%{entry: Entry.t(), distance: float()}]} | {:error, {atom(), map()}}
+  def search_similar_by_entry_id(entry_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 10)
+
+    # Use subquery to avoid binary/JSON format mismatch — sqlite-vec handles
+    # its own internal embedding format in subqueries.
+    case Repo.query(
+           """
+           SELECT entry_id, distance
+           FROM knowledge_entry_embeddings
+           WHERE embedding MATCH (SELECT embedding FROM knowledge_entry_embeddings WHERE entry_id = ?)
+           ORDER BY distance
+           LIMIT ?
+           """,
+           [entry_id, limit]
+         ) do
+      {:ok, %{rows: rows}} ->
+        entries = load_entries_with_distances(rows)
+        {:ok, entries}
+
+      {:error, reason} ->
+        {:error, {:query_failed, %{reason: reason}}}
+    end
+  end
+
+  @doc """
+  Search the knowledge store using a pre-computed embedding vector.
+
+  Avoids re-embedding when the caller already has the vector.
+  """
+  @spec search_by_vector([float()], integer()) ::
+          {:ok, [%{entry: Entry.t(), distance: float()}]} | {:error, {atom(), map()}}
+  def search_by_vector(vector, limit) do
+    vector_json = Jason.encode!(vector)
+    search_by_vector_json(vector_json, limit)
+  end
+
+  defp search_by_vector_json(vector_json, limit) do
+    case Repo.query(
+           """
+           SELECT entry_id, distance
+           FROM knowledge_entry_embeddings
+           WHERE embedding MATCH ?
+           ORDER BY distance
+           LIMIT ?
+           """,
+           [vector_json, limit]
+         ) do
+      {:ok, %{rows: rows}} ->
+        entries = load_entries_with_distances(rows)
+        {:ok, entries}
+
+      {:error, reason} ->
+        {:error, {:query_failed, %{reason: reason}}}
     end
   end
 
@@ -363,6 +448,20 @@ defmodule Familiar.Knowledge do
   end
 
   # -- Private --
+
+  defp filter_text_in_attrs(attrs) do
+    text = attrs[:text] || attrs["text"]
+
+    if is_binary(text) do
+      filtered = SecretFilter.filter(text)
+
+      attrs
+      |> Map.drop(["text", :text])
+      |> Map.put(:text, filtered)
+    else
+      attrs
+    end
+  end
 
   defp delete_embedding(entry_id) do
     Repo.query(
@@ -412,6 +511,7 @@ defmodule Familiar.Knowledge do
     |> Enum.map(fn entry ->
       %{entry: entry, distance: Map.get(distance_map, entry.id)}
     end)
+    |> Enum.reject(&is_nil(&1.distance))
     |> Enum.sort_by(& &1.distance)
   end
 end

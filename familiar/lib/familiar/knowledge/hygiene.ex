@@ -91,16 +91,27 @@ defmodule Familiar.Knowledge.Hygiene do
   """
   @spec store_with_dedup([map()], keyword()) :: {:ok, map()}
   def store_with_dedup(entries, _opts \\ []) do
-    results =
-      Enum.map(entries, fn entry ->
-        case find_duplicate(entry) do
-          {:duplicate, existing} -> update_existing(existing, entry)
-          :no_match -> store_new(entry)
-        end
-      end)
-
+    results = Enum.map(entries, &embed_and_dedup/1)
     counts = count_results(results)
     {:ok, counts}
+  end
+
+  defp embed_and_dedup(entry) do
+    case Providers.embed(entry.text) do
+      {:ok, vector} ->
+        dedup_and_store(entry, vector)
+
+      {:error, reason} ->
+        Logger.warning("Hygiene embed failed: #{inspect(reason)}")
+        {:skipped, entry}
+    end
+  end
+
+  defp dedup_and_store(entry, vector) do
+    case find_duplicate(entry, vector) do
+      {:duplicate, existing} -> update_existing(existing, entry, vector)
+      :no_match -> store_new(entry, vector)
+    end
   end
 
   # -- Success prompt --
@@ -204,10 +215,10 @@ defmodule Familiar.Knowledge.Hygiene do
 
   # -- Duplicate detection --
 
-  defp find_duplicate(%{source_file: nil}), do: :no_match
+  defp find_duplicate(%{source_file: nil}, _vector), do: :no_match
 
-  defp find_duplicate(entry) do
-    case Knowledge.search_similar(entry.text, limit: 5) do
+  defp find_duplicate(entry, vector) do
+    case Knowledge.search_by_vector(vector, 5) do
       {:ok, results} -> check_results_for_duplicate(results, entry.source_file)
       {:error, _} -> :no_match
     end
@@ -222,17 +233,17 @@ defmodule Familiar.Knowledge.Hygiene do
     if match, do: {:duplicate, match.entry}, else: :no_match
   end
 
-  defp update_existing(existing, new_attrs) do
+  defp update_existing(existing, new_attrs, vector) do
     metadata = increment_update_count(existing.metadata)
 
-    with {:ok, vector} <- Providers.embed(new_attrs.text),
-         changeset =
-           Entry.changeset(existing, %{
-             text: new_attrs.text,
-             type: new_attrs.type,
-             metadata: metadata
-           }),
-         {:ok, updated} <- Repo.update(changeset),
+    changeset =
+      Entry.changeset(existing, %{
+        text: new_attrs.text,
+        type: new_attrs.type,
+        metadata: metadata
+      })
+
+    with {:ok, updated} <- Repo.update(changeset),
          :ok <- Knowledge.replace_embedding(updated.id, vector) do
       {:updated, updated}
     else
@@ -253,8 +264,8 @@ defmodule Familiar.Knowledge.Hygiene do
     end
   end
 
-  defp store_new(entry) do
-    case Knowledge.store_with_embedding(entry) do
+  defp store_new(entry, vector) do
+    case Knowledge.store_with_vector(entry, vector) do
       {:ok, stored} -> {:extracted, stored}
       {:error, reason} ->
         Logger.warning("Hygiene store failed: #{inspect(reason)}")

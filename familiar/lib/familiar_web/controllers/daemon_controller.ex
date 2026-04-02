@@ -26,7 +26,7 @@ defmodule FamiliarWeb.DaemonController do
   def stop(conn, _params) do
     case get_server_status() do
       {:ok, _state} ->
-        Task.start(fn ->
+        Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
           Process.sleep(100)
           Server.stop()
         end)

@@ -36,7 +36,7 @@
 
 generated: '2026-04-01'
 last_updated: '2026-04-02'
-project: anthill
+project: familiar
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -56,7 +56,7 @@ development_status:
   epic-1-retrospective: done
 
   # Epic 2: Knowledge Store & Context Management (7 stories)
-  epic-2: in-progress
+  epic-2: done
   2-1-knowledge-entry-crud-semantic-search: done
   2-2-context-freshness-validation: done
   2-3-post-task-hygiene-loop: done
@@ -64,7 +64,7 @@ development_status:
   2-5-backup-restore-health-monitoring: done
   2-6-secret-filtering: done
   2-7-knowledge-store-integration-test: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # Epic 3: Planning & Specification (7 stories)
   epic-3: backlog

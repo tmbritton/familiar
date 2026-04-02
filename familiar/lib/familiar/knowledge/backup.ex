@@ -82,7 +82,8 @@ defmodule Familiar.Knowledge.Backup do
   def restore(backup_path, opts \\ []) do
     db = db_path(opts)
 
-    with :ok <- verify_source(backup_path) do
+    with :ok <- verify_source(backup_path),
+         :ok <- create_safety_backup(db, opts) do
       case File.cp(backup_path, db) do
         :ok ->
           Logger.info("[Backup] Database restored from #{backup_path}")
@@ -91,6 +92,35 @@ defmodule Familiar.Knowledge.Backup do
         {:error, reason} ->
           {:error, {:restore_failed, %{reason: reason}}}
       end
+    end
+  end
+
+  defp create_safety_backup(db, opts) do
+    if File.exists?(db), do: do_safety_backup(db, opts), else: :ok
+  end
+
+  defp do_safety_backup(db, opts) do
+    dir = backups_dir(opts)
+
+    case ensure_dir(dir) do
+      :ok ->
+        safety_path = Path.join(dir, "pre-restore-#{format_timestamp(DateTime.utc_now())}.db")
+        copy_safety_backup(db, safety_path)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp copy_safety_backup(db, safety_path) do
+    case File.cp(db, safety_path) do
+      :ok ->
+        Logger.info("[Backup] Safety backup created at #{safety_path}")
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[Backup] Safety backup failed: #{inspect(reason)} — proceeding with restore")
+        :ok
     end
   end
 
@@ -117,16 +147,35 @@ defmodule Familiar.Knowledge.Backup do
   """
   @spec prune(keyword()) :: {:ok, map()}
   def prune(opts \\ []) do
-    retention = Keyword.get(opts, :retention, @default_retention)
+    retention = max(Keyword.get(opts, :retention, @default_retention), 1)
+    safety_deleted = prune_safety_backups(opts)
 
     case list(opts) do
       {:ok, backups} when length(backups) > retention ->
         to_delete = Enum.drop(backups, retention)
         deleted = Enum.count(to_delete, &(File.rm(&1.path) == :ok))
-        {:ok, %{deleted: deleted, kept: retention}}
+        {:ok, %{deleted: deleted + safety_deleted, kept: retention}}
 
       {:ok, backups} ->
-        {:ok, %{deleted: 0, kept: length(backups)}}
+        {:ok, %{deleted: safety_deleted, kept: length(backups)}}
+    end
+  end
+
+  @safety_backup_retention 3
+
+  defp prune_safety_backups(opts) do
+    dir = backups_dir(opts)
+
+    case File.ls(dir) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.starts_with?(&1, "pre-restore-"))
+        |> Enum.sort(:desc)
+        |> Enum.drop(@safety_backup_retention)
+        |> Enum.count(&(File.rm(Path.join(dir, &1)) == :ok))
+
+      _ ->
+        0
     end
   end
 

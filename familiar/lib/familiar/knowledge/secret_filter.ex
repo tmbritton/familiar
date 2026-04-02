@@ -16,8 +16,10 @@ defmodule Familiar.Knowledge.SecretFilter do
     # GitHub tokens
     {~r/ghp_[a-zA-Z0-9]{36,}/, "[GITHUB_TOKEN]"},
     {~r/gho_[a-zA-Z0-9]{36,}/, "[GITHUB_OAUTH_TOKEN]"},
-    # Generic long base64 tokens (40+ chars, with trailing = padding)
+    # Base64 tokens with padding (40+ chars + trailing =)
     {~r/[A-Za-z0-9+\/]{40,}={1,2}/, "[REDACTED_TOKEN]"},
+    # Unpadded base64 tokens — require uppercase or +/ to avoid git hash false positives
+    {~r/(?=[A-Za-z0-9+\/]*[A-Z+\/])[A-Za-z0-9+\/]{40,}(?!=)/, "[REDACTED_TOKEN]"},
     # URLs with embedded credentials
     {~r{://[^:]+:[^@]+@}, "://[CREDENTIALS]@"},
     # Common env var values after =

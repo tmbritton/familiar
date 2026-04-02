@@ -453,10 +453,9 @@ defmodule Familiar.Knowledge.ManagementTest do
       assert keeper.text =~ "Short fact"
     end
 
-    test "returns zero merged when entries not found" do
-      {:ok, result} = Management.compact([{99_999, 99_998}])
-      assert result.merged == 0
-      assert result.failed == 1
+    test "returns error when all merges fail" do
+      assert {:error, {:compact_failed, %{merged: 0, failed: 1}}} =
+               Management.compact([{99_999, 99_998}])
     end
   end
 end

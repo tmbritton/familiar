@@ -67,6 +67,27 @@ defmodule Familiar.Daemon.RecoveryTest do
       # functions work correctly via backup_test.exs.
       assert :ok = Recovery.check_database_integrity()
     end
+
+    test "auto_restore_from_backup restores latest backup when available" do
+      Paths.ensure_familiar_dir!()
+      backups_dir = Paths.backups_dir()
+      db_path = Familiar.Repo.config()[:database]
+      File.mkdir_p!(backups_dir)
+
+      # Create a valid backup from the actual test DB
+      backup_path = Path.join(backups_dir, "familiar-20260401T120000.db")
+      File.cp!(db_path, backup_path)
+
+      # Call auto_restore_from_backup directly — verifies the
+      # Backup.latest → Backup.restore pipeline used by check_database_integrity
+      assert :ok = Recovery.auto_restore_from_backup()
+    end
+
+    test "auto_restore_from_backup returns error when no backups exist" do
+      Paths.ensure_familiar_dir!()
+      # No backups dir or files — error preserves shutdown marker for retry
+      assert {:error, {:no_backups, %{}}} = Recovery.auto_restore_from_backup()
+    end
   end
 
   describe "rollback_incomplete_transactions/0" do

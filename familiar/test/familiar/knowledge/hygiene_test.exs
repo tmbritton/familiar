@@ -208,9 +208,7 @@ defmodule Familiar.Knowledge.HygieneTest do
 
   describe "store_with_dedup/2 duplicate detection" do
     test "stores new entry when no match exists" do
-      # First call: search_similar for dedup check (no results)
-      # Second call: embed for store_with_embedding
-      expect(EmbedderMock, :embed, fn _text -> {:ok, deterministic_vector(1, 0)} end)
+      # Single embed call: store_with_dedup embeds upfront, reuses vector for search + store
       expect(EmbedderMock, :embed, fn _text -> {:ok, deterministic_vector(1, 0)} end)
 
       entries = [
@@ -246,11 +244,8 @@ defmodule Familiar.Knowledge.HygieneTest do
           metadata: Jason.encode!(%{})
         })
 
-      # Now run dedup with a similar entry for same source_file
-      # search_similar will embed the new text and find the existing one
+      # Now run dedup — single embed call upfront, reused for search + update
       new_vector = deterministic_vector(1, 0)
-      expect(EmbedderMock, :embed, fn "Updated fact about auth patterns" -> {:ok, new_vector} end)
-      # embed for replace_embedding after update
       expect(EmbedderMock, :embed, fn "Updated fact about auth patterns" -> {:ok, new_vector} end)
 
       entries = [
@@ -292,10 +287,8 @@ defmodule Familiar.Knowledge.HygieneTest do
 
       assert existing.type == "fact"
 
+      # Single embed call — reused for search + update
       new_vector = deterministic_vector(1, 0)
-      # search_similar embed
-      expect(EmbedderMock, :embed, fn "Auth pattern is a convention" -> {:ok, new_vector} end)
-      # update_existing embed (before persist)
       expect(EmbedderMock, :embed, fn "Auth pattern is a convention" -> {:ok, new_vector} end)
 
       entries = [
@@ -328,11 +321,8 @@ defmodule Familiar.Knowledge.HygieneTest do
           metadata: Jason.encode!(%{})
         })
 
-      # New entry with same text but different source_file
+      # Single embed call — reused for search + store
       new_vector = deterministic_vector(1, 0)
-      # search_similar embed
-      expect(EmbedderMock, :embed, fn "Fact about auth" -> {:ok, new_vector} end)
-      # store_with_embedding embed
       expect(EmbedderMock, :embed, fn "Fact about auth" -> {:ok, new_vector} end)
 
       entries = [
@@ -400,7 +390,7 @@ defmodule Familiar.Knowledge.HygieneTest do
         end
       end)
 
-      # Each entry needs search_similar embed + store_with_embedding embed
+      # Each entry embeds once upfront; vector reused for search + store
       stub(EmbedderMock, :embed, fn _text -> {:ok, deterministic_vector(1, 0)} end)
 
       context = %{

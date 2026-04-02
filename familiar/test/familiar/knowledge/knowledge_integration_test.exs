@@ -396,6 +396,58 @@ defmodule Familiar.Knowledge.KnowledgeIntegrationTest do
     end
   end
 
+  describe "cross-module: hygiene duplicate detection" do
+    test "hygiene supersedes existing entry instead of creating duplicate" do
+      v = deterministic_vector(1.0, 0.0)
+
+      stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text -> {:ok, v} end)
+
+      # Store initial entry
+      {:ok, original} =
+        Knowledge.store(%{
+          text: "Auth module uses bcrypt for password hashing",
+          type: "fact",
+          source: "init_scan",
+          source_file: "lib/auth.ex"
+        })
+
+      count_before = Repo.aggregate(Entry, :count)
+
+      # Hygiene extracts a similar entry for the same file
+      hygiene_response =
+        Jason.encode!([
+          %{
+            "type" => "fact",
+            "text" => "Auth module uses bcrypt with cost factor 12 for password hashing",
+            "source_file" => "lib/auth.ex"
+          }
+        ])
+
+      stub(Familiar.Providers.LLMMock, :chat, fn _messages, _opts ->
+        {:ok, %{content: hygiene_response}}
+      end)
+
+      context = %{
+        success_context: %{
+          task_summary: "Updated auth hashing",
+          modified_files: ["lib/auth.ex"],
+          decisions_made: "Increase bcrypt cost"
+        },
+        modified_files: ["lib/auth.ex"]
+      }
+
+      {:ok, result} = Hygiene.run(context, llm: Familiar.Providers.LLMMock)
+      assert result.updated >= 1
+
+      # Entry count should NOT increase — existing entry was superseded
+      assert Repo.aggregate(Entry, :count) == count_before
+
+      # Original entry should have updated text
+      {:ok, updated} = Knowledge.fetch_entry(original.id)
+      assert updated.text =~ "cost factor 12"
+    end
+  end
+
   describe "cross-module: consolidation candidates" do
     test "find_consolidation_candidates detects similar entries" do
       # Use identical vectors so distance is 0 (perfect match)

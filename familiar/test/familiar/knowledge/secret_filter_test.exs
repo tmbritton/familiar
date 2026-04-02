@@ -107,6 +107,44 @@ defmodule Familiar.Knowledge.SecretFilterTest do
     test "handles nil-like input gracefully" do
       assert nil == SecretFilter.filter(nil)
     end
+
+    test "strips Stripe publishable keys" do
+      text = "Frontend uses pk_live_abcdefghijklmnopqrstuvwxyz"
+      result = SecretFilter.filter(text)
+      refute result =~ "pk_live_"
+      assert result =~ "[STRIPE_PUBLISHABLE_KEY]"
+    end
+
+    test "strips GitHub OAuth tokens" do
+      text = "OAuth via gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm"
+      result = SecretFilter.filter(text)
+      refute result =~ "gho_"
+      assert result =~ "[GITHUB_OAUTH_TOKEN]"
+    end
+
+    test "strips unpadded base64 tokens with uppercase letters" do
+      # Mixed case base64 without = padding — should be caught
+      token = "ABCDEFabcdef0123456789ABCDEFabcdef01234567"
+      text = "Token: #{token}"
+      result = SecretFilter.filter(text)
+      assert result =~ "[REDACTED_TOKEN]"
+    end
+
+    test "strips unpadded base64 tokens with + or / characters" do
+      token = "abcdef+ghijkl/mnopqr0123456789abcdef01234567"
+      text = "Token: #{token}"
+      result = SecretFilter.filter(text)
+      assert result =~ "[REDACTED_TOKEN]"
+    end
+
+    test "strips all env var pattern types" do
+      for var <- ~w(DATABASE_URL SECRET_KEY_BASE API_KEY SECRET_KEY PRIVATE_KEY ACCESS_TOKEN AUTH_TOKEN) do
+        text = "#{var}=some_secret_value_123"
+        result = SecretFilter.filter(text)
+        assert result =~ "[REDACTED]", "Expected #{var} to be redacted"
+        refute result =~ "some_secret_value_123", "Expected value of #{var} to be removed"
+      end
+    end
   end
 
   describe "contains_secrets?/1" do
@@ -124,6 +162,27 @@ defmodule Familiar.Knowledge.SecretFilterTest do
 
     test "returns false for empty string" do
       refute SecretFilter.contains_secrets?("")
+    end
+
+    test "detects Stripe keys" do
+      assert SecretFilter.contains_secrets?("Key: sk_live_abcdefghijklmnopqrstuvwxyz")
+    end
+
+    test "detects GitHub tokens" do
+      assert SecretFilter.contains_secrets?("Token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm")
+    end
+
+    test "detects URLs with credentials" do
+      assert SecretFilter.contains_secrets?("postgres://admin:s3cret@localhost/db")
+    end
+
+    test "detects env var assignments" do
+      assert SecretFilter.contains_secrets?("API_KEY=some_value")
+    end
+
+    test "detects base64 tokens with padding" do
+      token = String.duplicate("A", 40) <> "=="
+      assert SecretFilter.contains_secrets?("Token: #{token}")
     end
   end
 
@@ -147,6 +206,24 @@ defmodule Familiar.Knowledge.SecretFilterTest do
 
     test "returns empty list for nil" do
       assert [] == SecretFilter.detect(nil)
+    end
+
+    test "detects all supported pattern types" do
+      # AWS
+      assert [{"[AWS_ACCESS_KEY]", _}] = SecretFilter.detect("AKIAIOSFODNN7EXAMPLE")
+      # Stripe secret
+      assert [{"[STRIPE_SECRET_KEY]", _}] = SecretFilter.detect("sk_live_abcdefghijklmnopqrstuvwxyz")
+      # Stripe publishable
+      assert [{"[STRIPE_PUBLISHABLE_KEY]", _}] = SecretFilter.detect("pk_live_abcdefghijklmnopqrstuvwxyz")
+      # GitHub token
+      assert [{"[GITHUB_TOKEN]", _}] = SecretFilter.detect("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm")
+      # GitHub OAuth
+      assert [{"[GITHUB_OAUTH_TOKEN]", _}] = SecretFilter.detect("gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm")
+      # URL credentials
+      assert [{"://[CREDENTIALS]@", _}] = SecretFilter.detect("postgres://admin:secret@host")
+      # Env var
+      detections = SecretFilter.detect("API_KEY=myvalue")
+      assert Enum.any?(detections, fn {pattern, _} -> pattern =~ "REDACTED" end)
     end
   end
 end

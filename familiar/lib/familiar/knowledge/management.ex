@@ -18,6 +18,8 @@ defmodule Familiar.Knowledge.Management do
   alias Familiar.Providers
   alias Familiar.Repo
 
+  @max_entries_load 5000
+
   @doc """
   Refresh the knowledge store by re-scanning files.
 
@@ -61,7 +63,7 @@ defmodule Familiar.Knowledge.Management do
   """
   @spec find_consolidation_candidates(keyword()) :: {:ok, %{candidates: [map()]}}
   def find_consolidation_candidates(_opts \\ []) do
-    entries = Repo.all(Entry)
+    entries = from(e in Entry, limit: @max_entries_load) |> Repo.all()
 
     candidates =
       entries
@@ -77,7 +79,7 @@ defmodule Familiar.Knowledge.Management do
   For each pair, keeps the longer entry, appends unique info from the shorter,
   re-embeds the merged text, and deletes the shorter entry.
   """
-  @spec compact([{integer(), integer()}], keyword()) :: {:ok, map()}
+  @spec compact([{integer(), integer()}], keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
   def compact(pairs, _opts \\ []) do
     results =
       Enum.map(pairs, fn {id_a, id_b} ->
@@ -87,7 +89,11 @@ defmodule Familiar.Knowledge.Management do
     merged = Enum.count(results, &match?({:ok, _}, &1))
     failed = Enum.count(results, &match?({:error, _}, &1))
 
-    {:ok, %{merged: merged, failed: failed}}
+    if merged == 0 and failed > 0 do
+      {:error, {:compact_failed, %{merged: 0, failed: failed}}}
+    else
+      {:ok, %{merged: merged, failed: failed}}
+    end
   end
 
   # -- Refresh internals --
@@ -105,13 +111,20 @@ defmodule Familiar.Knowledge.Management do
   defp file_relative_path(path) when is_binary(path), do: path
 
   defp load_existing_entries(nil) do
-    Repo.all(Entry)
+    entries = from(e in Entry, limit: @max_entries_load) |> Repo.all()
+    if length(entries) >= @max_entries_load, do: Logger.warning("Entry load capped at #{@max_entries_load} — results may be incomplete")
+    entries
   end
 
   defp load_existing_entries(path_prefix) do
     escaped = escape_like(path_prefix)
-    from(e in Entry, where: like(e.source_file, ^"#{escaped}%"))
-    |> Repo.all()
+
+    entries =
+      from(e in Entry, where: like(e.source_file, ^"#{escaped}%"), limit: @max_entries_load)
+      |> Repo.all()
+
+    if length(entries) >= @max_entries_load, do: Logger.warning("Entry load capped at #{@max_entries_load} — results may be incomplete")
+    entries
   end
 
   defp escape_like(str) do
@@ -232,7 +245,11 @@ defmodule Familiar.Knowledge.Management do
   end
 
   defp file_deleted?(entry, fs) do
-    match?({:error, :enoent}, fs.stat(entry.source_file))
+    case fs.stat(entry.source_file) do
+      {:error, {:file_error, %{reason: :enoent}}} -> true
+      {:error, :enoent} -> true
+      _ -> false
+    end
   end
 
   # -- Compact internals --
@@ -247,7 +264,7 @@ defmodule Familiar.Knowledge.Management do
   end
 
   defp find_matches_for_entry(entry) do
-    case Knowledge.search_similar(entry.text, limit: 5) do
+    case Knowledge.search_similar_by_entry_id(entry.id, limit: 5) do
       {:ok, results} -> filter_and_pair(entry, results)
       {:error, _} -> []
     end
@@ -282,7 +299,7 @@ defmodule Familiar.Knowledge.Management do
           do: {entry_a, entry_b},
           else: {entry_b, entry_a}
 
-      merged_text = keeper.text <> " " <> to_delete.text
+      merged_text = merge_texts(keeper.text, to_delete.text)
 
       with {:ok, vector} <- Providers.embed(merged_text),
            changeset = Entry.changeset(keeper, %{text: merged_text}),
@@ -292,6 +309,31 @@ defmodule Familiar.Knowledge.Management do
         {:ok, updated}
       end
     end
+  end
+
+  defp merge_texts(keeper_text, shorter_text) do
+    # Split into sentences and only append sentences not already in keeper
+    keeper_sentences = MapSet.new(split_sentences(keeper_text))
+
+    new_sentences =
+      shorter_text
+      |> split_sentences()
+      |> Enum.reject(&MapSet.member?(keeper_sentences, &1))
+
+    merged =
+      case new_sentences do
+        [] -> keeper_text
+        additions -> keeper_text <> " " <> Enum.join(additions, " ")
+      end
+
+    SecretFilter.filter(merged)
+  end
+
+  defp split_sentences(text) do
+    text
+    |> String.split(~r/[.!?]\s+|\n+/, trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
   end
 
   # -- DI --

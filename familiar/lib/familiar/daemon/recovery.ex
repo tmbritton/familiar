@@ -83,7 +83,8 @@ defmodule Familiar.Daemon.Recovery do
       :ok
   end
 
-  defp auto_restore_from_backup do
+  @doc false
+  def auto_restore_from_backup do
     case Backup.latest() do
       {:ok, backup_path} ->
         Logger.info("[Recovery] Attempting auto-restore from #{backup_path}")
@@ -100,12 +101,12 @@ defmodule Familiar.Daemon.Recovery do
 
           {:error, reason} ->
             Logger.error("[Recovery] Auto-restore failed: #{inspect(reason)}")
-            :ok
+            {:error, {:restore_failed, %{reason: reason}}}
         end
 
       {:error, {:no_backups, _}} ->
         Logger.warning("[Recovery] No backups available for auto-restore")
-        :ok
+        {:error, {:no_backups, %{}}}
     end
   end
 
