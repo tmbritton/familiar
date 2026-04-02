@@ -1,0 +1,124 @@
+# generated: 2026-04-01
+# last_updated: 2026-04-01
+# project: anthill
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: '2026-04-01'
+last_updated: '2026-04-02T07:00:00'
+project: anthill
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Project Foundation & Initialization (9 stories)
+  epic-1: in-progress
+  1-1a-phoenix-project-setup-database-foundation: done
+  1-1b-behaviour-ports-domain-contexts-test-scaffold: done
+  1-2-provider-adapters-embedding-pipeline: done
+  1-3a-daemon-lifecycle: done
+  1-3b-cli-entry-point-json-output: done
+  1-4-project-initialization-file-scanning: done
+  1-5-convention-discovery-user-review: done
+  1-6-configuration-auto-init: done
+  1-7-foundation-integration-test: done
+  epic-1-retrospective: optional
+
+  # Epic 2: Knowledge Store & Context Management (7 stories)
+  epic-2: backlog
+  2-1-knowledge-entry-crud-semantic-search: backlog
+  2-2-context-freshness-validation: backlog
+  2-3-post-task-hygiene-loop: backlog
+  2-4-knowledge-store-management: backlog
+  2-5-backup-restore-health-monitoring: backlog
+  2-6-secret-filtering: backlog
+  2-7-knowledge-store-integration-test: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Planning & Specification (7 stories)
+  epic-3: backlog
+  3-1-planning-conversation-engine: backlog
+  3-2-spec-generation-verification: backlog
+  3-3-streaming-reasoning-trail: backlog
+  3-4-spec-review-approval-cli: backlog
+  3-5-task-decomposition-dependency-mapping: backlog
+  3-6-cross-plan-conflict-detection-plan-freshness: backlog
+  3-7-planning-pipeline-integration-test: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Task Management (4 stories)
+  epic-4: backlog
+  4-1a-task-state-machine: backlog
+  4-1b-work-hierarchy-display: backlog
+  4-2-task-priority-removal: backlog
+  4-3-file-modification-tracking-epic-lifecycle: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Task Execution & Validation (9 stories)
+  epic-5: backlog
+  5-1-agent-runner-tool-call-loop: backlog
+  5-2-file-transaction-module: backlog
+  5-3-safety-enforcement: backlog
+  5-4-task-dispatch-execution-modes: backlog
+  5-5-multi-step-workflows: backlog
+  5-6-validation-pipeline: backlog
+  5-7-reliability-provider-resilience: backlog
+  5-8-thesis-validation: backlog
+  5-9-execution-pipeline-integration-test: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Recovery (2 stories)
+  epic-6: backlog
+  6-1-unified-recovery-fam-fix: backlog
+  6-2-autonomous-self-repair: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Web UI (9 stories)
+  epic-7: backlog
+  7-1a-css-design-system-zero-chrome-layout: backlog
+  7-1b-status-bar-notifications-error-communication: backlog
+  7-2-liveview-test-infrastructure-integration-scaffold: backlog
+  7-3-spec-renderer-review: backlog
+  7-4-triage-dashboard-work-hierarchy: backlog
+  7-5-search-picker-telescope: backlog
+  7-6-keyboard-navigation-help: backlog
+  7-7-activity-feed-knowledge-browser: backlog
+  7-8-notifications-progressive-onboarding: backlog
+  epic-7-retrospective: optional
+
+  # Epic 8: Workflow & Role Configuration (2 stories)
+  epic-8: backlog
+  8-1-workflow-role-file-management: backlog
+  8-2-interactive-session-management-language-extensibility: backlog
+  epic-8-retrospective: optional
