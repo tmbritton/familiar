@@ -91,6 +91,11 @@ defmodule Familiar.CLI.Output do
   defp quiet_summary(%{version: v}), do: v
   defp quiet_summary(%{daemon: s}), do: s
   defp quiet_summary(%{status: s}), do: s
+  defp quiet_summary(%{id: id, status: "edited"}), do: "edited:#{id}"
+  defp quiet_summary(%{id: id, status: "deleted"}), do: "deleted:#{id}"
+  defp quiet_summary(%{id: id, text: _, type: _}), do: "entry:#{id}"
+  defp quiet_summary(%{scanned: s}), do: "refreshed:#{s}"
+  defp quiet_summary(%{candidates: c}), do: "candidates:#{length(c)}"
   defp quiet_summary(%{results: results, query: _}), do: "results:#{length(results)}"
   defp quiet_summary(%{files_scanned: n}), do: "scanned:#{n}"
   defp quiet_summary(%{conventions: c}), do: "conventions:#{length(c)}"
@@ -118,6 +123,10 @@ defmodule Familiar.CLI.Output do
   defp error_message(:invalid_config, %{field: field, reason: reason}),
     do: "Invalid configuration: #{field} — #{reason}"
 
+  defp error_message(:not_found, %{id: id}), do: "Entry not found: #{id}"
+  defp error_message(:not_found, _), do: "Entry not found"
+  defp error_message(:knowledge_not_code, _), do: "Content rejected: appears to be code, not knowledge"
+  defp error_message(:delete_failed, _), do: "Failed to delete entry"
   defp error_message(:unknown_command, %{command: cmd}), do: "Unknown command: #{cmd}"
   defp error_message(:usage_error, %{message: msg}), do: msg
   defp error_message(type, _), do: to_string(type)

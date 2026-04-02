@@ -12,7 +12,9 @@ defmodule Familiar.CLI.Main do
   alias Familiar.Daemon.Paths
   alias Familiar.Knowledge
   alias Familiar.Knowledge.ConventionReviewer
+  alias Familiar.Knowledge.Freshness
   alias Familiar.Knowledge.InitScanner
+  alias Familiar.Knowledge.Management
   alias Familiar.Knowledge.Prerequisites
 
   @version Mix.Project.config()[:version]
@@ -34,19 +36,28 @@ defmodule Familiar.CLI.Main do
   def parse_args(argv) do
     {flags, args, _invalid} =
       OptionParser.parse(argv,
-        strict: [json: :boolean, quiet: :boolean, help: :boolean],
+        strict: [
+          json: :boolean,
+          quiet: :boolean,
+          help: :boolean,
+          refresh: :boolean,
+          compact: :boolean,
+          apply: :string
+        ],
         aliases: [j: :json, q: :quiet, h: :help]
       )
 
     flag_map = Enum.into(flags, %{})
 
     format_flags = Map.take(flag_map, [:json, :quiet])
+    context_flags = Map.take(flag_map, [:refresh, :compact, :apply])
+    all_flags = Map.merge(format_flags, context_flags)
 
     if flag_map[:help] || args == [] do
       {"help", [], format_flags}
     else
       [command | rest] = args
-      {command, rest, format_flags}
+      {command, rest, all_flags}
     end
   end
 
@@ -160,6 +171,88 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp run_with_daemon({"entry", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam entry <id>"}}}
+  end
+
+  defp run_with_daemon({"entry", [id_string | _], _}, deps) do
+    fetch_fn = Map.get(deps, :fetch_entry_fn, &Knowledge.fetch_entry/1)
+    freshness_fn = Map.get(deps, :freshness_fn, &Freshness.validate_entries/2)
+
+    case Integer.parse(id_string) do
+      {id, ""} ->
+        case fetch_fn.(id) do
+          {:ok, entry} -> {:ok, format_entry_detail(entry, freshness_fn)}
+          {:error, _} = error -> error
+        end
+
+      _ ->
+        {:error, {:usage_error, %{message: "Invalid entry ID: #{id_string}"}}}
+    end
+  end
+
+  defp run_with_daemon({"edit", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam edit <id> <new text>"}}}
+  end
+
+  defp run_with_daemon({"edit", [_id_string], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam edit <id> <new text>"}}}
+  end
+
+  defp run_with_daemon({"edit", [id_string | text_args], _}, deps) do
+    update_fn = Map.get(deps, :update_entry_fn, &Knowledge.update_entry/2)
+    fetch_fn = Map.get(deps, :fetch_entry_fn, &Knowledge.fetch_entry/1)
+
+    case Integer.parse(id_string) do
+      {id, ""} ->
+        new_text = Enum.join(text_args, " ")
+
+        with {:ok, entry} <- fetch_fn.(id),
+             {:ok, updated} <- update_fn.(entry, %{text: new_text, source: "user"}) do
+          {:ok, %{id: updated.id, text: updated.text, status: "edited"}}
+        end
+
+      _ ->
+        {:error, {:usage_error, %{message: "Invalid entry ID: #{id_string}"}}}
+    end
+  end
+
+  defp run_with_daemon({"delete", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam delete <id>"}}}
+  end
+
+  defp run_with_daemon({"delete", [id_string | _], _}, deps) do
+    fetch_fn = Map.get(deps, :fetch_entry_fn, &Knowledge.fetch_entry/1)
+    delete_fn = Map.get(deps, :delete_entry_fn, &Knowledge.delete_entry/1)
+
+    case Integer.parse(id_string) do
+      {id, ""} ->
+        with {:ok, entry} <- fetch_fn.(id),
+             :ok <- delete_fn.(entry) do
+          {:ok, %{id: id, status: "deleted"}}
+        end
+
+      _ ->
+        {:error, {:usage_error, %{message: "Invalid entry ID: #{id_string}"}}}
+    end
+  end
+
+  defp run_with_daemon({"context", args, flags}, deps) do
+    cond do
+      Map.get(flags, :refresh, false) ->
+        path_filter = find_path_arg(args)
+        refresh_fn = Map.get(deps, :refresh_fn, &Management.refresh/2)
+        project_dir = Map.get(deps, :project_dir, Paths.project_dir())
+        refresh_fn.(project_dir, path: path_filter)
+
+      Map.get(flags, :compact, false) ->
+        run_compact(flags, deps)
+
+      true ->
+        {:error, {:usage_error, %{message: "Usage: fam context --refresh [path] | --compact [--apply <indices>]"}}}
+    end
+  end
+
   defp run_with_daemon({"conventions", args, _}, deps) do
     with {:ok, port} <- deps.ensure_running_fn.(health_fn: deps.health_fn),
          {:ok, conventions} <-
@@ -170,6 +263,88 @@ defmodule Familiar.CLI.Main do
 
   defp run_with_daemon({command, _, _}, _deps) do
     {:error, {:unknown_command, %{command: command}}}
+  end
+
+  defp run_compact(flags, deps) do
+    candidates_fn = Map.get(deps, :compact_candidates_fn, &Management.find_consolidation_candidates/1)
+    compact_fn = Map.get(deps, :compact_fn, &Management.compact/2)
+
+    case Map.get(flags, :apply) do
+      nil ->
+        candidates_fn.([])
+
+      indices_str ->
+        with {:ok, %{candidates: candidates}} <- candidates_fn.([]),
+             {:ok, pairs} <- parse_apply_indices(indices_str, candidates) do
+          compact_fn.(pairs, [])
+        end
+    end
+  end
+
+  defp parse_apply_indices(indices_str, candidates) do
+    indices =
+      indices_str
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.map(&Integer.parse/1)
+
+    if Enum.any?(indices, &(&1 == :error)) do
+      {:error, {:usage_error, %{message: "Invalid indices: #{indices_str}. Use comma-separated numbers."}}}
+    else
+      pairs =
+        indices
+        |> Enum.map(fn {i, _} -> i - 1 end)
+        |> Enum.filter(&(&1 >= 0 and &1 < length(candidates)))
+        |> Enum.map(fn i ->
+          c = Enum.at(candidates, i)
+          {c.id_a, c.id_b}
+        end)
+
+      {:ok, pairs}
+    end
+  end
+
+  defp format_entry_detail(entry, freshness_fn) do
+    metadata =
+      case Jason.decode(entry.metadata || "{}") do
+        {:ok, decoded} -> decoded
+        {:error, _} -> %{}
+      end
+
+    freshness = resolve_freshness(entry, freshness_fn)
+
+    %{
+      id: entry.id,
+      text: entry.text,
+      type: entry.type,
+      source: entry.source,
+      source_file: entry.source_file,
+      metadata: metadata,
+      freshness: freshness,
+      inserted_at: entry.inserted_at,
+      updated_at: entry.updated_at
+    }
+  end
+
+  defp resolve_freshness(entry, freshness_fn) do
+    case freshness_fn.([entry], []) do
+      {:ok, %{fresh: fresh, stale: stale, deleted: deleted}} ->
+        cond do
+          entry in fresh -> :fresh
+          entry in stale -> :stale
+          entry in deleted -> :deleted
+          true -> :unknown
+        end
+
+      _ ->
+        :unknown
+    end
+  end
+
+  defp find_path_arg(args) do
+    args
+    |> Enum.reject(&String.starts_with?(&1, "--"))
+    |> List.first()
   end
 
   defp handle_conventions(conventions, args, deps) do
@@ -336,7 +511,86 @@ defmodule Familiar.CLI.Main do
     fn config -> format_config_text(config) end
   end
 
+  defp text_formatter("entry") do
+    fn entry ->
+      freshness_tag = if entry[:freshness], do: " [#{entry.freshness}]", else: ""
+
+      lines = [
+        "Entry ##{entry.id}#{freshness_tag}",
+        "  Type: #{entry.type}",
+        "  Source: #{entry.source}",
+        "  Text: #{entry.text}"
+      ]
+
+      lines =
+        if entry.source_file,
+          do: lines ++ ["  File: #{entry.source_file}"],
+          else: lines
+
+      lines = lines ++ ["  Created: #{entry.inserted_at}"]
+
+      lines =
+        if entry.metadata != %{},
+          do: lines ++ ["  Metadata: #{inspect(entry.metadata)}"],
+          else: lines
+
+      Enum.join(lines, "\n")
+    end
+  end
+
+  defp text_formatter("edit") do
+    fn %{id: id} -> "Entry ##{id} updated" end
+  end
+
+  defp text_formatter("delete") do
+    fn %{id: id} -> "Entry ##{id} deleted" end
+  end
+
+  defp text_formatter("context") do
+    fn
+      %{scanned: s, updated: u, created: c, removed: r, preserved: p} ->
+        lines = [
+          "Context refresh complete:",
+          "  Scanned: #{s}",
+          "  Updated: #{u}",
+          "  Created: #{c}",
+          "  Removed: #{r}",
+          "  Preserved (user): #{p}"
+        ]
+
+        Enum.join(lines, "\n")
+
+      %{candidates: []} ->
+        "No consolidation candidates found"
+
+      %{candidates: candidates} ->
+        format_compact_candidates(candidates)
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
   defp text_formatter(_), do: nil
+
+  defp format_compact_candidates(candidates) do
+    header = "Consolidation candidates (#{length(candidates)}):\n"
+
+    lines =
+      candidates
+      |> Enum.with_index(1)
+      |> Enum.map(fn {c, idx} ->
+        "  #{idx}. [#{c.type}] \"#{truncate(c.text_a, 40)}\" ↔ \"#{truncate(c.text_b, 40)}\" (distance: #{Float.round(c.distance, 3)})"
+      end)
+
+    header <> Enum.join(lines, "\n")
+  end
+
+  defp truncate(text, max) do
+    if String.length(text) > max,
+      do: String.slice(text, 0, max) <> "...",
+      else: text
+  end
 
   defp format_conventions_text([], _review_mode) do
     "No conventions discovered yet. Run `fam init` first."
@@ -438,16 +692,21 @@ defmodule Familiar.CLI.Main do
     Usage: fam <command> [options]
 
     Commands:
-      init             Initialize Familiar on this project
-      search <query>   Search knowledge store by semantic similarity
-      config           Show current configuration
-      conventions      List discovered conventions
-      conventions review  Review and approve conventions
-      health           Check daemon health and version
-      version          Show CLI version
-      daemon start     Start the daemon
-      daemon stop      Stop the daemon
-      daemon status    Show daemon status
+      init               Initialize Familiar on this project
+      search <query>     Search knowledge store by semantic similarity
+      entry <id>         Inspect a knowledge entry
+      edit <id> <text>   Edit a knowledge entry (re-embeds, tags as user)
+      delete <id>        Delete a knowledge entry
+      context --refresh [path]  Re-scan project or path
+      context --compact  Find and consolidate duplicate entries
+      config             Show current configuration
+      conventions        List discovered conventions
+      conventions review Review and approve conventions
+      health             Check daemon health and version
+      version            Show CLI version
+      daemon start       Start the daemon
+      daemon stop        Stop the daemon
+      daemon status      Show daemon status
 
     Options:
       --json, -j       Output as JSON

@@ -314,6 +314,245 @@ defmodule Familiar.CLI.MainTest do
     end
   end
 
+  describe "run/2 with entry command" do
+    test "returns entry detail for valid ID" do
+      Paths.ensure_familiar_dir!()
+
+      mock_entry = %Familiar.Knowledge.Entry{
+        id: 42,
+        text: "Auth uses JWT",
+        type: "fact",
+        source: "init_scan",
+        source_file: "lib/auth.ex",
+        metadata: ~s({"key": "value"}),
+        inserted_at: ~U[2026-04-01 00:00:00Z],
+        updated_at: ~U[2026-04-01 12:00:00Z]
+      }
+
+      entry_deps =
+        deps(
+          fetch_entry_fn: fn 42 -> {:ok, mock_entry} end,
+          freshness_fn: fn [^mock_entry], _opts ->
+            {:ok, %{fresh: [mock_entry], stale: [], deleted: [], warnings: []}}
+          end
+        )
+
+      result = Main.run({"entry", ["42"], %{}}, entry_deps)
+      assert {:ok, entry} = result
+      assert entry.id == 42
+      assert entry.text == "Auth uses JWT"
+      assert entry.type == "fact"
+      assert entry.metadata == %{"key" => "value"}
+      assert entry.freshness == :fresh
+    end
+
+    test "returns not_found for missing entry" do
+      Paths.ensure_familiar_dir!()
+
+      entry_deps =
+        deps(fetch_entry_fn: fn 999 -> {:error, {:not_found, %{id: 999}}} end)
+
+      result = Main.run({"entry", ["999"], %{}}, entry_deps)
+      assert {:error, {:not_found, %{id: 999}}} = result
+    end
+
+    test "returns usage error for non-numeric ID" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"entry", ["abc"], %{}}, deps())
+      assert {:error, {:usage_error, %{message: msg}}} = result
+      assert msg =~ "Invalid entry ID"
+    end
+
+    test "returns usage error when no ID provided" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"entry", [], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+  end
+
+  describe "run/2 with edit command" do
+    test "edits entry and returns result" do
+      Paths.ensure_familiar_dir!()
+
+      edit_deps =
+        deps(
+          fetch_entry_fn: fn 42 ->
+            {:ok,
+             %Familiar.Knowledge.Entry{
+               id: 42,
+               text: "Old text",
+               type: "fact",
+               source: "init_scan",
+               source_file: "lib/auth.ex",
+               metadata: "{}",
+               inserted_at: ~U[2026-04-01 00:00:00Z],
+               updated_at: ~U[2026-04-01 00:00:00Z]
+             }}
+          end,
+          update_entry_fn: fn _entry, %{text: "New knowledge text", source: "user"} ->
+            {:ok,
+             %Familiar.Knowledge.Entry{
+               id: 42,
+               text: "New knowledge text",
+               type: "fact",
+               source: "user",
+               source_file: "lib/auth.ex",
+               metadata: "{}",
+               inserted_at: ~U[2026-04-01 00:00:00Z],
+               updated_at: ~U[2026-04-02 00:00:00Z]
+             }}
+          end
+        )
+
+      result = Main.run({"edit", ["42", "New", "knowledge", "text"], %{}}, edit_deps)
+      assert {:ok, %{id: 42, text: "New knowledge text", status: "edited"}} = result
+    end
+
+    test "returns not_found for missing entry" do
+      Paths.ensure_familiar_dir!()
+
+      edit_deps =
+        deps(fetch_entry_fn: fn 999 -> {:error, {:not_found, %{id: 999}}} end)
+
+      result = Main.run({"edit", ["999", "text"], %{}}, edit_deps)
+      assert {:error, {:not_found, _}} = result
+    end
+
+    test "returns usage error when no text provided" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"edit", ["42"], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+
+    test "returns usage error when no args" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"edit", [], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+  end
+
+  describe "run/2 with delete command" do
+    test "deletes entry and returns result" do
+      Paths.ensure_familiar_dir!()
+
+      delete_deps =
+        deps(
+          fetch_entry_fn: fn 42 ->
+            {:ok,
+             %Familiar.Knowledge.Entry{
+               id: 42,
+               text: "To delete",
+               type: "fact",
+               source: "init_scan",
+               source_file: "lib/auth.ex",
+               metadata: "{}",
+               inserted_at: ~U[2026-04-01 00:00:00Z],
+               updated_at: ~U[2026-04-01 00:00:00Z]
+             }}
+          end,
+          delete_entry_fn: fn _entry -> :ok end
+        )
+
+      result = Main.run({"delete", ["42"], %{}}, delete_deps)
+      assert {:ok, %{id: 42, status: "deleted"}} = result
+    end
+
+    test "returns not_found for missing entry" do
+      Paths.ensure_familiar_dir!()
+
+      delete_deps =
+        deps(fetch_entry_fn: fn 999 -> {:error, {:not_found, %{id: 999}}} end)
+
+      result = Main.run({"delete", ["999"], %{}}, delete_deps)
+      assert {:error, {:not_found, _}} = result
+    end
+
+    test "returns usage error when no ID" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"delete", [], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+  end
+
+  describe "run/2 with context command" do
+    test "context --refresh calls refresh function" do
+      Paths.ensure_familiar_dir!()
+
+      ctx_deps =
+        deps(
+          refresh_fn: fn _dir, _opts ->
+            {:ok, %{scanned: 5, updated: 2, created: 1, removed: 0, preserved: 1}}
+          end
+        )
+
+      result = Main.run({"context", [], %{refresh: true}}, ctx_deps)
+      assert {:ok, %{scanned: 5, updated: 2}} = result
+    end
+
+    test "context --refresh with path passes filter" do
+      Paths.ensure_familiar_dir!()
+
+      ctx_deps =
+        deps(
+          refresh_fn: fn _dir, opts ->
+            assert Keyword.get(opts, :path) == "lib/auth"
+            {:ok, %{scanned: 1, updated: 1, created: 0, removed: 0, preserved: 0}}
+          end
+        )
+
+      result = Main.run({"context", ["lib/auth"], %{refresh: true}}, ctx_deps)
+      assert {:ok, %{scanned: 1}} = result
+    end
+
+    test "context --compact calls compact function" do
+      Paths.ensure_familiar_dir!()
+
+      ctx_deps =
+        deps(
+          compact_candidates_fn: fn _opts ->
+            {:ok, %{candidates: []}}
+          end
+        )
+
+      result = Main.run({"context", [], %{compact: true}}, ctx_deps)
+      assert {:ok, %{candidates: []}} = result
+    end
+
+    test "context --compact --apply merges specified candidates" do
+      Paths.ensure_familiar_dir!()
+
+      ctx_deps =
+        deps(
+          compact_candidates_fn: fn _opts ->
+            {:ok,
+             %{
+               candidates: [
+                 %{id_a: 1, id_b: 2, text_a: "A", text_b: "B", type: "fact", distance: 0.1}
+               ]
+             }}
+          end,
+          compact_fn: fn [{1, 2}], _opts ->
+            {:ok, %{merged: 1, failed: 0}}
+          end
+        )
+
+      result = Main.run({"context", [], %{compact: true, apply: "1"}}, ctx_deps)
+      assert {:ok, %{merged: 1}} = result
+    end
+
+    test "context without flags returns usage error" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"context", [], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+  end
+
   describe "run/2 with unknown command" do
     test "returns unknown_command error" do
       Paths.ensure_familiar_dir!()

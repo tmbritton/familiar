@@ -1,5 +1,5 @@
 # generated: 2026-04-01
-# last_updated: 2026-04-01
+# last_updated: '2026-04-02'
 # project: anthill
 # project_key: NOKEY
 # tracking_system: file-system
@@ -60,7 +60,7 @@ development_status:
   2-1-knowledge-entry-crud-semantic-search: done
   2-2-context-freshness-validation: done
   2-3-post-task-hygiene-loop: done
-  2-4-knowledge-store-management: backlog
+  2-4-knowledge-store-management: done
   2-5-backup-restore-health-monitoring: backlog
   2-6-secret-filtering: backlog
   2-7-knowledge-store-integration-test: backlog

@@ -138,6 +138,32 @@ defmodule Familiar.Knowledge do
     end
   end
 
+  @doc """
+  Update a knowledge entry's text and re-embed.
+
+  Validates FR19 knowledge-not-code rule on the new text.
+  Embed-before-persist: embed new text first, then update entry + replace embedding.
+  """
+  @spec update_entry(Entry.t(), map()) :: {:ok, Entry.t()} | {:error, {atom(), map()}}
+  def update_entry(entry, attrs) do
+    new_text = attrs[:text] || attrs["text"] || entry.text
+
+    with {:ok, _} <- ContentValidator.validate_not_code(new_text),
+         {:ok, vector} <- Familiar.Providers.embed(new_text),
+         changeset = Entry.changeset(entry, attrs),
+         {:ok, updated} <- Repo.update(changeset) do
+      case replace_embedding(updated.id, vector) do
+        :ok ->
+          {:ok, updated}
+
+        {:error, reason} ->
+          # Compensate: revert to original text to keep entry+embedding consistent
+          Repo.update(Entry.changeset(updated, Map.take(Map.from_struct(entry), [:text, :source])))
+          {:error, reason}
+      end
+    end
+  end
+
   @doc "Report knowledge store health metrics."
   @spec health() :: {:ok, map()} | {:error, {atom(), map()}}
   def health, do: {:error, {:not_implemented, %{}}}
