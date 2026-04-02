@@ -257,6 +257,75 @@ defmodule Familiar.Knowledge.KnowledgeTest do
     end
   end
 
+  describe "store/1 secret filtering" do
+    test "filters secrets from text before persisting" do
+      vector = deterministic_vector(1.0, 0.0)
+      expect(EmbedderMock, :embed, fn text ->
+        # The embedder should receive the filtered text
+        refute text =~ "AKIAIOSFODNN7EXAMPLE"
+        assert text =~ "[AWS_ACCESS_KEY]"
+        {:ok, vector}
+      end)
+
+      assert {:ok, entry} =
+               Knowledge.store(%{
+                 text: "Uses AKIAIOSFODNN7EXAMPLE for S3 access",
+                 type: "fact",
+                 source: "manual",
+                 source_file: "config/secrets.ex"
+               })
+
+      assert entry.text =~ "[AWS_ACCESS_KEY]"
+      refute entry.text =~ "AKIAIOSFODNN7EXAMPLE"
+    end
+
+    test "preserves text without secrets unchanged" do
+      vector = deterministic_vector(1.0, 0.0)
+      expect(EmbedderMock, :embed, fn _text -> {:ok, vector} end)
+
+      assert {:ok, entry} =
+               Knowledge.store(%{
+                 text: "Auth module uses JWT tokens",
+                 type: "convention",
+                 source: "manual"
+               })
+
+      assert entry.text == "Auth module uses JWT tokens"
+    end
+  end
+
+  describe "update_entry/2 secret filtering" do
+    test "filters secrets from new text on update" do
+      vector = deterministic_vector(1.0, 0.0)
+
+      # First embed for initial store
+      expect(EmbedderMock, :embed, fn _text -> {:ok, vector} end)
+
+      {:ok, entry} =
+        Knowledge.store_with_embedding(%{
+          text: "Original safe text",
+          type: "fact",
+          source: "manual",
+          source_file: "lib/test.ex"
+        })
+
+      # Second embed for update — should receive filtered text
+      expect(EmbedderMock, :embed, fn text ->
+        refute text =~ "sk_live_"
+        assert text =~ "[STRIPE_SECRET_KEY]"
+        {:ok, vector}
+      end)
+
+      assert {:ok, updated} =
+               Knowledge.update_entry(entry, %{
+                 text: "Uses sk_live_abcdefghijklmnopqrstuvwxyz for payments"
+               })
+
+      assert updated.text =~ "[STRIPE_SECRET_KEY]"
+      refute updated.text =~ "sk_live_"
+    end
+  end
+
   describe "health/1" do
     test "returns health metrics for empty store" do
       assert {:ok, health} = Knowledge.health()

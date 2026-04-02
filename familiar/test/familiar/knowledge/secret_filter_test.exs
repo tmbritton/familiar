@@ -39,7 +39,21 @@ defmodule Familiar.Knowledge.SecretFilterTest do
       assert result =~ "SECRET_KEY=[REDACTED]"
     end
 
-    test "strips long base64 tokens with padding" do
+    test "strips base64 tokens at exactly 40 chars with padding" do
+      token = String.duplicate("A", 40) <> "=="
+      text = "Token: #{token}"
+      result = SecretFilter.filter(text)
+      assert result =~ "[REDACTED_TOKEN]"
+      refute result =~ token
+    end
+
+    test "does not strip base64-like strings under 40 chars" do
+      token = String.duplicate("A", 39) <> "=="
+      text = "Short token: #{token}"
+      assert text == SecretFilter.filter(text)
+    end
+
+    test "strips long base64 tokens (80+ chars)" do
       token = String.duplicate("A", 80) <> "=="
       text = "Token: #{token}"
       result = SecretFilter.filter(text)
@@ -52,13 +66,87 @@ defmodule Familiar.Knowledge.SecretFilterTest do
     end
 
     test "does not redact short alphanumeric strings (no false positives)" do
-      # Git hashes, UUIDs, and moderate-length identifiers should be preserved
       text = "Commit abc123def456789012345678901234567890 in main branch"
       assert text == SecretFilter.filter(text)
     end
 
+    test "does not redact git hashes (40 hex chars, no = padding)" do
+      text = "Commit 5b29137abcdef1234567890abcdef1234567890ab resolved"
+      assert text == SecretFilter.filter(text)
+    end
+
+    test "does not redact env var names without values" do
+      text = "The DATABASE_URL variable is configured in production"
+      assert text == SecretFilter.filter(text)
+    end
+
+    test "filters multiple different secret types in one pass" do
+      text = "AWS key AKIAIOSFODNN7EXAMPLE and token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm"
+      result = SecretFilter.filter(text)
+      assert result =~ "[AWS_ACCESS_KEY]"
+      assert result =~ "[GITHUB_TOKEN]"
+      refute result =~ "AKIAIOSFODNN7EXAMPLE"
+      refute result =~ "ghp_"
+    end
+
+    test "idempotent — filtering already-filtered text produces same result" do
+      text = "Uses AKIAIOSFODNN7EXAMPLE for S3"
+      once = SecretFilter.filter(text)
+      twice = SecretFilter.filter(once)
+      assert once == twice
+    end
+
+    test "handles empty string" do
+      assert "" == SecretFilter.filter("")
+    end
+
+    test "handles whitespace-only string" do
+      assert "   " == SecretFilter.filter("   ")
+    end
+
     test "handles nil-like input gracefully" do
       assert nil == SecretFilter.filter(nil)
+    end
+  end
+
+  describe "contains_secrets?/1" do
+    test "returns true when text contains a secret" do
+      assert SecretFilter.contains_secrets?("Key is AKIAIOSFODNN7EXAMPLE")
+    end
+
+    test "returns false for safe text" do
+      refute SecretFilter.contains_secrets?("Normal text about authentication")
+    end
+
+    test "returns false for nil" do
+      refute SecretFilter.contains_secrets?(nil)
+    end
+
+    test "returns false for empty string" do
+      refute SecretFilter.contains_secrets?("")
+    end
+  end
+
+  describe "detect/1" do
+    test "returns matched pattern names and values" do
+      text = "Key is AKIAIOSFODNN7EXAMPLE"
+      detections = SecretFilter.detect(text)
+      assert length(detections) == 1
+      assert {"[AWS_ACCESS_KEY]", "AKIAIOSFODNN7EXAMPLE"} in detections
+    end
+
+    test "returns multiple detections for multiple secrets" do
+      text = "AWS AKIAIOSFODNN7EXAMPLE and Stripe sk_live_abcdefghijklmnopqrstuvwxyz"
+      detections = SecretFilter.detect(text)
+      assert length(detections) == 2
+    end
+
+    test "returns empty list for safe text" do
+      assert [] == SecretFilter.detect("Normal project description")
+    end
+
+    test "returns empty list for nil" do
+      assert [] == SecretFilter.detect(nil)
     end
   end
 end

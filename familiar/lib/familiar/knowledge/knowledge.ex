@@ -17,6 +17,7 @@ defmodule Familiar.Knowledge do
   alias Familiar.Knowledge.ContentValidator
   alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.Freshness
+  alias Familiar.Knowledge.SecretFilter
   alias Familiar.Repo
 
   @doc "List all knowledge entries of a given type."
@@ -134,8 +135,10 @@ defmodule Familiar.Knowledge do
     if is_nil(text) do
       store_with_embedding(attrs)
     else
-      with {:ok, _} <- ContentValidator.validate_not_code(text) do
-        store_with_embedding(attrs)
+      filtered_text = SecretFilter.filter(text)
+
+      with {:ok, _} <- ContentValidator.validate_not_code(filtered_text) do
+        store_with_embedding(attrs |> Map.delete("text") |> Map.put(:text, filtered_text))
       end
     end
   end
@@ -148,11 +151,13 @@ defmodule Familiar.Knowledge do
   """
   @spec update_entry(Entry.t(), map()) :: {:ok, Entry.t()} | {:error, {atom(), map()}}
   def update_entry(entry, attrs) do
-    new_text = attrs[:text] || attrs["text"] || entry.text
+    raw_text = attrs[:text] || attrs["text"] || entry.text
+    new_text = SecretFilter.filter(raw_text)
+    filtered_attrs = attrs |> Map.delete("text") |> Map.put(:text, new_text)
 
     with {:ok, _} <- ContentValidator.validate_not_code(new_text),
          {:ok, vector} <- Familiar.Providers.embed(new_text),
-         changeset = Entry.changeset(entry, attrs),
+         changeset = Entry.changeset(entry, filtered_attrs),
          {:ok, updated} <- Repo.update(changeset) do
       case replace_embedding(updated.id, vector) do
         :ok ->

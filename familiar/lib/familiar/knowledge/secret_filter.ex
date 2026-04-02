@@ -16,8 +16,8 @@ defmodule Familiar.Knowledge.SecretFilter do
     # GitHub tokens
     {~r/ghp_[a-zA-Z0-9]{36,}/, "[GITHUB_TOKEN]"},
     {~r/gho_[a-zA-Z0-9]{36,}/, "[GITHUB_OAUTH_TOKEN]"},
-    # Generic long base64 tokens (80+ chars, with trailing = padding)
-    {~r/[A-Za-z0-9+\/]{80,}={1,2}/, "[REDACTED_TOKEN]"},
+    # Generic long base64 tokens (40+ chars, with trailing = padding)
+    {~r/[A-Za-z0-9+\/]{40,}={1,2}/, "[REDACTED_TOKEN]"},
     # URLs with embedded credentials
     {~r{://[^:]+:[^@]+@}, "://[CREDENTIALS]@"},
     # Common env var values after =
@@ -36,4 +36,30 @@ defmodule Familiar.Knowledge.SecretFilter do
   end
 
   def filter(text), do: text
+
+  @doc """
+  Check whether text contains any secret patterns.
+  """
+  @spec contains_secrets?(String.t()) :: boolean()
+  def contains_secrets?(text) when is_binary(text) do
+    Enum.any?(@secret_patterns, fn {pattern, _} -> Regex.match?(pattern, text) end)
+  end
+
+  def contains_secrets?(_), do: false
+
+  @doc """
+  Detect secret patterns in text, returning matched pattern names and values.
+  """
+  @spec detect(String.t()) :: [{String.t(), String.t()}]
+  def detect(text) when is_binary(text) do
+    Enum.flat_map(@secret_patterns, &detect_pattern(&1, text))
+  end
+
+  def detect(_), do: []
+
+  defp detect_pattern({pattern, replacement}, text) do
+    pattern
+    |> Regex.scan(text)
+    |> Enum.map(fn [match | _] -> {replacement, match} end)
+  end
 end
