@@ -72,7 +72,7 @@ development_status:
   3-1-planning-conversation-engine: done
   3-2-spec-generation-verification: done
   3-3-streaming-reasoning-trail: done
-  3-4-spec-review-approval-cli: backlog
+  3-4-spec-review-approval-cli: done
   3-5-task-decomposition-dependency-mapping: backlog
   3-6-cross-plan-conflict-detection-plan-freshness: backlog
   3-7-planning-pipeline-integration-test: backlog

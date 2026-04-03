@@ -4,6 +4,7 @@ defmodule Familiar.Planning.EngineTest do
   alias Familiar.Planning.Engine
   alias Familiar.Planning.Message
   alias Familiar.Planning.Session
+  alias Familiar.Planning.Spec
 
   defmodule StubLibrarian do
     @moduledoc false
@@ -258,6 +259,63 @@ defmodule Familiar.Planning.EngineTest do
       {:error, {type, _}} = Engine.get_spec(999_999)
       assert type == :spec_not_found
     end
+  end
+
+  describe "approve_spec/2 and reject_spec/2" do
+    test "approve_spec returns error for non-existent spec" do
+      {:error, {:spec_not_found, _}} = Engine.approve_spec(999_999)
+    end
+
+    test "reject_spec returns error for non-existent spec" do
+      {:error, {:spec_not_found, _}} = Engine.reject_spec(999_999)
+    end
+
+    test "approve_spec updates spec status" do
+      {:ok, session} =
+        %Session{}
+        |> Session.changeset(%{description: "test", context: "ctx"})
+        |> Repo.insert()
+
+      {:ok, spec} =
+        %Spec{}
+        |> Spec.changeset(%{
+          session_id: session.id,
+          title: "Test",
+          body: "# Test",
+          file_path: ".familiar/specs/test.md"
+        })
+        |> Repo.insert()
+
+      {:ok, approved} = Engine.approve_spec(spec.id, file_system: __MODULE__.ReviewFS)
+      assert approved.status == "approved"
+    end
+
+    test "reject_spec updates spec status" do
+      {:ok, session} =
+        %Session{}
+        |> Session.changeset(%{description: "test", context: "ctx"})
+        |> Repo.insert()
+
+      {:ok, spec} =
+        %Spec{}
+        |> Spec.changeset(%{
+          session_id: session.id,
+          title: "Test",
+          body: "# Test",
+          file_path: ".familiar/specs/test.md"
+        })
+        |> Repo.insert()
+
+      {:ok, rejected} = Engine.reject_spec(spec.id, file_system: __MODULE__.ReviewFS)
+      assert rejected.status == "rejected"
+    end
+  end
+
+  defmodule ReviewFS do
+    @moduledoc false
+    def read(_path), do: {:ok, "---\nstatus: draft\n---\n\n# Body"}
+    def write(_path, _content), do: :ok
+    def stat(_path), do: {:ok, %{mtime: ~U[2026-04-02 10:00:00Z], size: 50}}
   end
 
   defmodule StubFileSystem do

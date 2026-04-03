@@ -845,6 +845,91 @@ defmodule Familiar.CLI.MainTest do
     end
   end
 
+  describe "run/2 with spec approve command" do
+    test "approves a spec by ID" do
+      Paths.ensure_familiar_dir!()
+
+      mock_spec = %{id: 1, title: "Add Auth", status: "approved", file_path: ".familiar/specs/1-auth.md"}
+
+      approve_deps = deps(approve_spec_fn: fn 1, _opts -> {:ok, mock_spec} end)
+
+      result = Main.run({"spec", ["approve", "1"], %{}}, approve_deps)
+      assert {:ok, %{id: 1, status: "approved"}} = result
+    end
+
+    test "returns error for non-existent spec" do
+      Paths.ensure_familiar_dir!()
+
+      approve_deps = deps(approve_spec_fn: fn 999, _opts -> {:error, {:spec_not_found, %{spec_id: 999}}} end)
+
+      result = Main.run({"spec", ["approve", "999"], %{}}, approve_deps)
+      assert {:error, {:spec_not_found, _}} = result
+    end
+
+    test "returns usage error for invalid ID" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"spec", ["approve", "abc"], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+  end
+
+  describe "run/2 with spec reject command" do
+    test "rejects a spec by ID" do
+      Paths.ensure_familiar_dir!()
+
+      mock_spec = %{id: 1, title: "Add Auth", status: "rejected", file_path: ".familiar/specs/1-auth.md"}
+
+      reject_deps = deps(reject_spec_fn: fn 1, _opts -> {:ok, mock_spec} end)
+
+      result = Main.run({"spec", ["reject", "1"], %{}}, reject_deps)
+      assert {:ok, %{id: 1, status: "rejected"}} = result
+    end
+  end
+
+  describe "run/2 with spec edit command" do
+    test "opens editor then prompts for approval" do
+      Paths.ensure_familiar_dir!()
+
+      mock_spec = %{id: 1, title: "Add Auth", status: "approved", file_path: ".familiar/specs/1-auth.md"}
+
+      edit_deps =
+        deps(
+          edit_spec_fn: fn 1, _opts -> {:ok, %{modified: true, file_mtime: ~U[2026-04-03 12:00:00Z]}} end,
+          approve_spec_fn: fn 1, _opts -> {:ok, mock_spec} end,
+          prompt_fn: fn _prompt -> "a" end
+        )
+
+      result = Main.run({"spec", ["edit", "1"], %{}}, edit_deps)
+      assert {:ok, %{id: 1, status: "approved", action: "approved"}} = result
+    end
+
+    test "returns error when editor fails" do
+      Paths.ensure_familiar_dir!()
+
+      edit_deps = deps(edit_spec_fn: fn 1, _opts -> {:error, {:editor_failed, %{exit_code: 1}}} end)
+
+      result = Main.run({"spec", ["edit", "1"], %{}}, edit_deps)
+      assert {:error, {:editor_failed, _}} = result
+    end
+
+    test "post-edit reject returns rejected status" do
+      Paths.ensure_familiar_dir!()
+
+      mock_spec = %{id: 1, title: "Add Auth", status: "rejected", file_path: ".familiar/specs/1-auth.md"}
+
+      edit_deps =
+        deps(
+          edit_spec_fn: fn 1, _opts -> {:ok, %{modified: false}} end,
+          reject_spec_fn: fn 1, _opts -> {:ok, mock_spec} end,
+          prompt_fn: fn _prompt -> "r" end
+        )
+
+      result = Main.run({"spec", ["edit", "1"], %{}}, edit_deps)
+      assert {:ok, %{id: 1, action: "rejected"}} = result
+    end
+  end
+
   describe "run/2 with librarian search" do
     test "uses librarian for non-raw search" do
       Paths.ensure_familiar_dir!()
@@ -895,14 +980,14 @@ defmodule Familiar.CLI.MainTest do
       assert {"generate-spec", ["42"], %{}} = Main.parse_args(["generate-spec", "42"])
     end
 
-    test "runs spec generation with trail events" do
+    test "runs spec generation with trail events and approval prompt" do
       Paths.ensure_familiar_dir!()
 
       mock_spec = %{
         id: 1,
         title: "Add Auth",
         body: "# Add Auth",
-        status: "draft",
+        status: "approved",
         file_path: ".familiar/specs/1-add-auth.md"
       }
 
@@ -911,7 +996,6 @@ defmodule Familiar.CLI.MainTest do
       gen_deps =
         deps(
           generate_spec_fn: fn session_id, _opts ->
-            # Broadcast a trail event to exercise the trail loop
             alias Familiar.Planning.Trail
             alias Familiar.Planning.Trail.Event
 
@@ -919,11 +1003,13 @@ defmodule Familiar.CLI.MainTest do
             Trail.broadcast(session_id, %Event{type: :spec_complete, result: "3 verified, 1 unverified", timestamp: DateTime.utc_now()})
 
             {:ok, %{spec: mock_spec, metadata: mock_metadata, tool_call_log: [], file_path: mock_spec.file_path}}
-          end
+          end,
+          approve_spec_fn: fn 1, _opts -> {:ok, mock_spec} end,
+          prompt_fn: fn _prompt -> "a" end
         )
 
       result = Main.run({"generate-spec", ["42"], %{}}, gen_deps)
-      assert {:ok, %{spec: %{title: "Add Auth"}, metadata: %{verified_count: 3}}} = result
+      assert {:ok, %{id: 1, action: "approved"}} = result
     end
   end
 

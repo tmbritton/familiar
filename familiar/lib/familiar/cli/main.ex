@@ -216,7 +216,14 @@ defmodule Familiar.CLI.Main do
 
     case Integer.parse(id_string) do
       {session_id, ""} ->
-        run_spec_generation_with_trail(session_id, generate_spec_fn, deps)
+        case run_spec_generation_with_trail(session_id, generate_spec_fn, deps) do
+          {:ok, result} ->
+            print_spec_summary(result)
+            run_approval_prompt(result.spec.id, deps)
+
+          {:error, _} = error ->
+            error
+        end
 
       _ ->
         {:error, {:usage_error, %{message: "Invalid session ID: #{id_string}"}}}
@@ -224,7 +231,32 @@ defmodule Familiar.CLI.Main do
   end
 
   defp run_with_daemon({"spec", [], _}, _deps) do
-    {:error, {:usage_error, %{message: "Usage: fam spec <id>"}}}
+    {:error, {:usage_error, %{message: "Usage: fam spec <id> | fam spec approve <id> | fam spec reject <id> | fam spec edit <id>"}}}
+  end
+
+  defp run_with_daemon({"spec", ["approve", id_string | _], _}, deps) do
+    approve_fn = Map.get(deps, :approve_spec_fn, &Engine.approve_spec/2)
+    run_spec_action(id_string, fn id -> approve_fn.(id, review_opts(deps)) end)
+  end
+
+  defp run_with_daemon({"spec", ["reject", id_string | _], _}, deps) do
+    reject_fn = Map.get(deps, :reject_spec_fn, &Engine.reject_spec/2)
+    run_spec_action(id_string, fn id -> reject_fn.(id, review_opts(deps)) end)
+  end
+
+  defp run_with_daemon({"spec", ["edit", id_string | _], _}, deps) do
+    edit_fn = Map.get(deps, :edit_spec_fn, &Engine.edit_spec/2)
+
+    case Integer.parse(id_string) do
+      {id, ""} ->
+        case edit_fn.(id, review_opts(deps)) do
+          {:ok, _stat_result} -> run_approval_prompt(id, deps)
+          {:error, _} = error -> error
+        end
+
+      _ ->
+        {:error, {:usage_error, %{message: "Invalid spec ID: #{id_string}"}}}
+    end
   end
 
   defp run_with_daemon({"spec", [id_string | _], _}, deps) do
@@ -387,6 +419,85 @@ defmodule Familiar.CLI.Main do
       {:error, _} ->
         run_raw_search(query, deps)
     end
+  end
+
+  defp run_spec_action(id_string, action_fn) do
+    case Integer.parse(id_string) do
+      {id, ""} ->
+        case action_fn.(id) do
+          {:ok, %{modified: _} = result} ->
+            {:ok, Map.put(result, :command, "spec")}
+
+          {:ok, spec} ->
+            {:ok, %{id: spec.id, title: spec.title, status: spec.status, file_path: spec.file_path}}
+
+          {:error, _} = error ->
+            error
+        end
+
+      _ ->
+        {:error, {:usage_error, %{message: "Invalid spec ID: #{id_string}"}}}
+    end
+  end
+
+  defp print_spec_summary(result) do
+    meta = result.metadata
+    IO.puts(:stderr, "")
+    IO.puts(:stderr, "Spec: #{result.spec.title}")
+    IO.puts(:stderr, "  File: #{result.file_path}")
+    IO.puts(:stderr, "  Verified: #{meta.verified_count}  Unverified: #{meta.unverified_count}  Conventions: #{meta.conventions_count}")
+    IO.puts(:stderr, "")
+  end
+
+  defp run_approval_prompt(spec_id, deps) do
+    prompt_fn = Map.get(deps, :prompt_fn, &IO.gets/1)
+    approve_fn = Map.get(deps, :approve_spec_fn, &Engine.approve_spec/2)
+    reject_fn = Map.get(deps, :reject_spec_fn, &Engine.reject_spec/2)
+    edit_fn = Map.get(deps, :edit_spec_fn, &Engine.edit_spec/2)
+    opts = review_opts(deps)
+
+    case prompt_fn.("[a]pprove  [e]dit  [r]eject: ") do
+      response when is_binary(response) ->
+        choice = response |> String.trim() |> String.downcase()
+        handle_approval_choice(choice, spec_id, approve_fn, reject_fn, edit_fn, opts, deps)
+
+      _ ->
+        {:error, {:approval_cancelled, %{}}}
+    end
+  end
+
+  defp handle_approval_choice("a", spec_id, approve_fn, _reject_fn, _edit_fn, opts, _deps) do
+    case approve_fn.(spec_id, opts) do
+      {:ok, spec} -> {:ok, %{id: spec.id, title: spec.title, status: spec.status, action: "approved"}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp handle_approval_choice("e", spec_id, _approve_fn, _reject_fn, edit_fn, opts, deps) do
+    case edit_fn.(spec_id, opts) do
+      {:ok, _stat_result} -> run_approval_prompt(spec_id, deps)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp handle_approval_choice("r", spec_id, _approve_fn, reject_fn, _edit_fn, opts, _deps) do
+    case reject_fn.(spec_id, opts) do
+      {:ok, spec} -> {:ok, %{id: spec.id, title: spec.title, status: spec.status, action: "rejected"}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp handle_approval_choice(_, _spec_id, _approve_fn, _reject_fn, _edit_fn, _opts, _deps) do
+    {:error, {:usage_error, %{message: "Invalid choice. Use 'a' to approve, 'e' to edit, or 'r' to reject."}}}
+  end
+
+  defp review_opts(deps) do
+    opts = []
+    opts = if Map.has_key?(deps, :file_system), do: [{:file_system, deps.file_system} | opts], else: opts
+    opts = if Map.has_key?(deps, :shell_mod), do: [{:shell_mod, deps.shell_mod} | opts], else: opts
+    opts = if Map.has_key?(deps, :confirm_fn), do: [{:confirm_fn, deps.confirm_fn} | opts], else: opts
+    opts = if Map.has_key?(deps, :editor_env), do: [{:editor_env, deps.editor_env} | opts], else: opts
+    opts
   end
 
   defp run_spec_generation_with_trail(session_id, generate_spec_fn, _deps) do
@@ -1048,6 +1159,9 @@ defmodule Familiar.CLI.Main do
       search --raw <q>   Search knowledge store directly (no curation)
       generate-spec <id> Generate spec from planning session (with trail)
       spec <id>          Display a generated specification
+      spec approve <id>  Approve a generated specification
+      spec reject <id>   Reject a generated specification
+      spec edit <id>     Open spec in $EDITOR for review
       entry <id>         Inspect a knowledge entry
       edit <id> <text>   Edit a knowledge entry (re-embeds, tags as user)
       delete <id>        Delete a knowledge entry

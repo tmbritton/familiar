@@ -33,4 +33,16 @@ defmodule Familiar.Planning do
   @doc "Fetch a spec by ID."
   @spec get_spec(integer()) :: {:ok, map()} | {:error, {atom(), map()}}
   def get_spec(spec_id), do: Engine.get_spec(spec_id)
+
+  @doc "Approve a spec by ID."
+  @spec approve_spec(integer(), keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
+  def approve_spec(spec_id, opts \\ []), do: Engine.approve_spec(spec_id, opts)
+
+  @doc "Reject a spec by ID."
+  @spec reject_spec(integer(), keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
+  def reject_spec(spec_id, opts \\ []), do: Engine.reject_spec(spec_id, opts)
+
+  @doc "Open a spec in the user's editor."
+  @spec edit_spec(integer(), keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
+  def edit_spec(spec_id, opts \\ []), do: Engine.edit_spec(spec_id, opts)
 end
