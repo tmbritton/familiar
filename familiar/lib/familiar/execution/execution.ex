@@ -21,7 +21,8 @@ defmodule Familiar.Execution do
       Familiar.Execution.ToolRegistry,
       Familiar.Execution.AgentProcess,
       Familiar.Execution.AgentSupervisor,
-      Familiar.Execution.PromptAssembly
+      Familiar.Execution.PromptAssembly,
+      Familiar.Execution.FileWatcher
     ]
 
   @doc "Dispatch a task for execution."

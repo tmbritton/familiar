@@ -22,6 +22,10 @@ defmodule Familiar.Application do
         Familiar.Hooks,
         # Tool registry — must start before extensions register tools
         Familiar.Execution.ToolRegistry,
+        # File watcher — watches project directory for changes (disabled in test env)
+        if(Application.get_env(:familiar, :start_file_watcher, true),
+          do: Familiar.Execution.FileWatcher
+        ),
         # Agent supervisor — DynamicSupervisor for all agent processes
         Familiar.Execution.AgentSupervisor,
         # Daemon lifecycle — conditionally started (disabled in test env)

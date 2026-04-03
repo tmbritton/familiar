@@ -78,7 +78,8 @@ defmodule Familiar.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10"},
       {:toml, "~> 0.7"},
-      {:yaml_elixir, "~> 2.9"}
+      {:yaml_elixir, "~> 2.9"},
+      {:file_system, "~> 1.0"}
     ]
   end
 
