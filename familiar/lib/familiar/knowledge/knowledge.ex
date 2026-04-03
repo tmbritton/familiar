@@ -26,6 +26,12 @@ defmodule Familiar.Knowledge do
     queryable |> where([e], e.type == ^type) |> Repo.all()
   end
 
+  @doc "List all knowledge entries sourced from a given file path."
+  @spec list_by_source_file(String.t()) :: [Entry.t()]
+  def list_by_source_file(path) when is_binary(path) do
+    Entry |> where([e], e.source_file == ^path) |> Repo.all()
+  end
+
   @doc """
   Search the knowledge store by semantic similarity.
 
