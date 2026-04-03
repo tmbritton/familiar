@@ -758,258 +758,52 @@ defmodule Familiar.CLI.MainTest do
   end
 
   describe "run/2 with plan command" do
-    test "starts a planning session" do
+    test "returns not_implemented for plan with description" do
       Paths.ensure_familiar_dir!()
 
-      plan_deps =
-        deps(
-          plan_fn: fn "add user accounts", _opts ->
-            {:ok, %{session_id: 1, response: "What auth method?", status: :questioning}}
-          end
-        )
-
-      result = Main.run({"plan", ["add", "user", "accounts"], %{}}, plan_deps)
-      assert {:ok, %{session_id: 1, response: "What auth method?", command: "plan"}} = result
+      result = Main.run({"plan", ["add", "user", "accounts"], %{}}, deps())
+      assert {:error, {:not_implemented, %{message: msg}}} = result
+      assert msg =~ "workflow runner"
     end
 
-    test "resumes latest session with --resume" do
+    test "returns not_implemented for plan --resume" do
       Paths.ensure_familiar_dir!()
 
-      plan_deps =
-        deps(
-          plan_latest_fn: fn -> {:ok, 5} end,
-          plan_resume_fn: fn 5 ->
-            {:ok, %{session_id: 5, description: "test", status: "active", message_count: 3, last_response: "continued"}}
-          end
-        )
-
-      result = Main.run({"plan", [], %{resume: true}}, plan_deps)
-      assert {:ok, %{session_id: 5, description: "test"}} = result
+      result = Main.run({"plan", [], %{resume: true}}, deps())
+      assert {:error, {:not_implemented, _}} = result
     end
 
-    test "resumes specific session with --resume --session" do
-      Paths.ensure_familiar_dir!()
-
-      plan_deps =
-        deps(
-          plan_resume_fn: fn 42 ->
-            {:ok, %{session_id: 42, description: "test", status: "active", message_count: 1, last_response: "question"}}
-          end
-        )
-
-      result = Main.run({"plan", [], %{resume: true, session: 42}}, plan_deps)
-      assert {:ok, %{session_id: 42}} = result
-    end
-
-    test "returns usage error when no description or --resume" do
+    test "returns not_implemented for plan with no args" do
       Paths.ensure_familiar_dir!()
 
       result = Main.run({"plan", [], %{}}, deps())
-      assert {:error, {:usage_error, _}} = result
+      assert {:error, {:not_implemented, _}} = result
     end
   end
 
   describe "run/2 with spec command" do
-    test "returns spec details for valid ID" do
+    test "returns not_implemented" do
       Paths.ensure_familiar_dir!()
 
-      mock_spec = %{id: 1, title: "Add Auth", body: "# Add Auth\n\nSpec body", status: "draft", file_path: ".familiar/specs/1-add-auth.md"}
-
-      spec_deps = deps(spec_fn: fn 1 -> {:ok, mock_spec} end)
-
-      result = Main.run({"spec", ["1"], %{}}, spec_deps)
-      assert {:ok, %{id: 1, title: "Add Auth"}} = result
-    end
-
-    test "returns error for non-existent spec" do
-      Paths.ensure_familiar_dir!()
-
-      spec_deps = deps(spec_fn: fn 999 -> {:error, {:spec_not_found, %{spec_id: 999}}} end)
-
-      result = Main.run({"spec", ["999"], %{}}, spec_deps)
-      assert {:error, {:spec_not_found, _}} = result
-    end
-
-    test "returns usage error for invalid ID" do
-      Paths.ensure_familiar_dir!()
-
-      result = Main.run({"spec", ["abc"], %{}}, deps())
-      assert {:error, {:usage_error, _}} = result
-    end
-
-    test "returns usage error when no ID provided" do
-      Paths.ensure_familiar_dir!()
-
-      result = Main.run({"spec", [], %{}}, deps())
-      assert {:error, {:usage_error, _}} = result
-    end
-  end
-
-  describe "run/2 with spec approve command" do
-    test "approves a spec by ID" do
-      Paths.ensure_familiar_dir!()
-
-      mock_spec = %{id: 1, title: "Add Auth", status: "approved", file_path: ".familiar/specs/1-auth.md"}
-
-      approve_deps = deps(approve_spec_fn: fn 1, _opts -> {:ok, mock_spec} end)
-
-      result = Main.run({"spec", ["approve", "1"], %{}}, approve_deps)
-      assert {:ok, %{id: 1, status: "approved"}} = result
-    end
-
-    test "returns error for non-existent spec" do
-      Paths.ensure_familiar_dir!()
-
-      approve_deps = deps(approve_spec_fn: fn 999, _opts -> {:error, {:spec_not_found, %{spec_id: 999}}} end)
-
-      result = Main.run({"spec", ["approve", "999"], %{}}, approve_deps)
-      assert {:error, {:spec_not_found, _}} = result
-    end
-
-    test "returns usage error for invalid ID" do
-      Paths.ensure_familiar_dir!()
-
-      result = Main.run({"spec", ["approve", "abc"], %{}}, deps())
-      assert {:error, {:usage_error, _}} = result
-    end
-  end
-
-  describe "run/2 with spec reject command" do
-    test "rejects a spec by ID" do
-      Paths.ensure_familiar_dir!()
-
-      mock_spec = %{id: 1, title: "Add Auth", status: "rejected", file_path: ".familiar/specs/1-auth.md"}
-
-      reject_deps = deps(reject_spec_fn: fn 1, _opts -> {:ok, mock_spec} end)
-
-      result = Main.run({"spec", ["reject", "1"], %{}}, reject_deps)
-      assert {:ok, %{id: 1, status: "rejected"}} = result
-    end
-  end
-
-  describe "run/2 with spec edit command" do
-    test "opens editor then prompts for approval" do
-      Paths.ensure_familiar_dir!()
-
-      mock_spec = %{id: 1, title: "Add Auth", status: "approved", file_path: ".familiar/specs/1-auth.md"}
-
-      edit_deps =
-        deps(
-          edit_spec_fn: fn 1, _opts -> {:ok, %{modified: true, file_mtime: ~U[2026-04-03 12:00:00Z]}} end,
-          approve_spec_fn: fn 1, _opts -> {:ok, mock_spec} end,
-          prompt_fn: fn _prompt -> "a" end
-        )
-
-      result = Main.run({"spec", ["edit", "1"], %{}}, edit_deps)
-      assert {:ok, %{id: 1, status: "approved", action: "approved"}} = result
-    end
-
-    test "returns error when editor fails" do
-      Paths.ensure_familiar_dir!()
-
-      edit_deps = deps(edit_spec_fn: fn 1, _opts -> {:error, {:editor_failed, %{exit_code: 1}}} end)
-
-      result = Main.run({"spec", ["edit", "1"], %{}}, edit_deps)
-      assert {:error, {:editor_failed, _}} = result
-    end
-
-    test "post-edit reject returns rejected status" do
-      Paths.ensure_familiar_dir!()
-
-      mock_spec = %{id: 1, title: "Add Auth", status: "rejected", file_path: ".familiar/specs/1-auth.md"}
-
-      edit_deps =
-        deps(
-          edit_spec_fn: fn 1, _opts -> {:ok, %{modified: false}} end,
-          reject_spec_fn: fn 1, _opts -> {:ok, mock_spec} end,
-          prompt_fn: fn _prompt -> "r" end
-        )
-
-      result = Main.run({"spec", ["edit", "1"], %{}}, edit_deps)
-      assert {:ok, %{id: 1, action: "rejected"}} = result
-    end
-  end
-
-  describe "run/2 with librarian search" do
-    test "uses librarian for non-raw search" do
-      Paths.ensure_familiar_dir!()
-
-      lib_deps =
-        deps(
-          librarian_fn: fn "auth query", _opts ->
-            {:ok, %{summary: "Auth uses JWT [lib/auth.ex]", results: [%{id: 1, text: "Auth uses JWT", type: "convention"}]}}
-          end
-        )
-
-      result = Main.run({"search", ["auth query"], %{}}, lib_deps)
-      assert {:ok, %{summary: "Auth uses JWT [lib/auth.ex]", query: "auth query"}} = result
-    end
-
-    test "falls back to raw search when librarian fails" do
-      Paths.ensure_familiar_dir!()
-
-      fallback_deps =
-        deps(
-          librarian_fn: fn _query, _opts -> {:error, {:search_failed, %{}}} end,
-          search_fn: fn "auth" -> {:ok, [%{id: 1, text: "result", type: "fact"}]} end
-        )
-
-      result = Main.run({"search", ["auth"], %{}}, fallback_deps)
-      assert {:ok, %{results: [_ | _], query: "auth"}} = result
+      result = Main.run({"spec", ["1"], %{}}, deps())
+      assert {:error, {:not_implemented, %{message: msg}}} = result
+      assert msg =~ "workflow"
     end
   end
 
   # -- Test helpers --
 
   describe "run/2 with generate-spec command" do
-    test "returns usage error when no ID provided" do
+    test "returns not_implemented" do
       Paths.ensure_familiar_dir!()
 
-      result = Main.run({"generate-spec", [], %{}}, deps())
-      assert {:error, {:usage_error, _}} = result
-    end
-
-    test "returns usage error for invalid session ID" do
-      Paths.ensure_familiar_dir!()
-
-      result = Main.run({"generate-spec", ["abc"], %{}}, deps())
-      assert {:error, {:usage_error, _}} = result
+      result = Main.run({"generate-spec", ["42"], %{}}, deps())
+      assert {:error, {:not_implemented, %{message: msg}}} = result
+      assert msg =~ "workflow runner"
     end
 
     test "parses generate-spec command" do
       assert {"generate-spec", ["42"], %{}} = Main.parse_args(["generate-spec", "42"])
-    end
-
-    test "runs spec generation with trail events and approval prompt" do
-      Paths.ensure_familiar_dir!()
-
-      mock_spec = %{
-        id: 1,
-        title: "Add Auth",
-        body: "# Add Auth",
-        status: "approved",
-        file_path: ".familiar/specs/1-add-auth.md"
-      }
-
-      mock_metadata = %{verified_count: 3, unverified_count: 1, conventions_count: 2, total_claims: 4}
-
-      gen_deps =
-        deps(
-          generate_spec_fn: fn session_id, _opts ->
-            alias Familiar.Planning.Trail
-            alias Familiar.Planning.Trail.Event
-
-            Trail.broadcast(session_id, %Event{type: :spec_started, timestamp: DateTime.utc_now()})
-            Trail.broadcast(session_id, %Event{type: :spec_complete, result: "3 verified, 1 unverified", timestamp: DateTime.utc_now()})
-
-            {:ok, %{spec: mock_spec, metadata: mock_metadata, tool_call_log: [], file_path: mock_spec.file_path}}
-          end,
-          approve_spec_fn: fn 1, _opts -> {:ok, mock_spec} end,
-          prompt_fn: fn _prompt -> "a" end
-        )
-
-      result = Main.run({"generate-spec", ["42"], %{}}, gen_deps)
-      assert {:ok, %{id: 1, action: "approved"}} = result
     end
   end
 

@@ -1,6 +1,8 @@
 # generated: 2026-04-01
-# last_updated: '2026-04-02'
-# Note: Epic 3 started 2026-04-02, Story 3-3 created 2026-04-02
+# last_updated: '2026-04-03'
+# Note: Architectural reframing 2026-04-03 — Familiar is a multi-agent harness.
+# Epic 3 paused (stories 3-5 to 3-7 → Epic 3r in Phase 3). Epic 4 moved to post-MVP.
+# Execution order: Phase 2 (4.5 → 5), Phase 3 (3r, 6, 7, 8), Post-MVP (4).
 # project: anthill
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +38,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: '2026-04-01'
-last_updated: '2026-04-02'
+last_updated: '2026-04-03'
 project: familiar
 project_key: NOKEY
 tracking_system: file-system
@@ -67,59 +69,55 @@ development_status:
   2-7-knowledge-store-integration-test: done
   epic-2-retrospective: done
 
-  # Epic 3: Planning & Specification (7 stories)
-  epic-3: in-progress
+  # Epic 3: Planning & Specification (stories 3-1 through 3-4 done; 3-5 through 3-7 moved to Epic 3r)
+  # [Addendum 2026-04-03] Planning is a workflow on the agent harness, not a bespoke system.
+  # Stories 3-5, 3-6, 3-7 deferred to Phase 3 (Epic 3r) — require execution environment (Epic 5).
+  epic-3: paused  # infrastructure done; remaining stories await Epic 5
   3-1-planning-conversation-engine: done
   3-2-spec-generation-verification: done
   3-3-streaming-reasoning-trail: done
   3-4-spec-review-approval-cli: done
-  3-5-task-decomposition-dependency-mapping: backlog
-  3-6-cross-plan-conflict-detection-plan-freshness: backlog
-  3-7-planning-pipeline-integration-test: backlog
   epic-3-retrospective: optional
 
-  # Epic 4: Task Management (4 stories)
-  epic-4: backlog
-  4-1a-task-state-machine: backlog
-  4-1b-work-hierarchy-display: backlog
-  4-2-task-priority-removal: backlog
-  4-3-file-modification-tracking-epic-lifecycle: backlog
+  # Epic 4: Task Management (4 stories) — POST-MVP
+  # [Addendum 2026-04-03] Agents use markdown task files for MVP. Structured Ecto system deferred.
+  epic-4: post-mvp
+  4-1a-task-state-machine: post-mvp
+  4-1b-work-hierarchy-display: post-mvp
+  4-2-task-priority-removal: post-mvp
+  4-3-file-modification-tracking-epic-lifecycle: post-mvp
   epic-4-retrospective: optional
 
-  # Epic 5: Task Execution & Validation (9 stories)
+  # === PHASE 2: AGENT HARNESS ===
+
+  # Epic 4.5: Role & Skill File System (2 stories)
+  epic-4.5: in-progress
+  4.5-0-planning-code-cleanup: review
+  4.5-1-roles-context-file-loading: ready-for-dev
+  4.5-2-default-role-skill-files: backlog
+  epic-4.5-retrospective: optional
+
+  # Epic 5: Agent Harness (10 stories — rewritten 2026-04-03)
   epic-5: backlog
-  5-1-agent-runner-tool-call-loop: backlog
-  5-2-file-transaction-module: backlog
-  5-3-safety-enforcement: backlog
-  5-4-task-dispatch-execution-modes: backlog
-  5-5-multi-step-workflows: backlog
-  5-6-validation-pipeline: backlog
-  5-7-reliability-provider-resilience: backlog
-  5-8-thesis-validation: backlog
-  5-9-execution-pipeline-integration-test: backlog
+  5-1-extension-api-lifecycle-hooks: backlog
+  5-2-tool-registry: backlog
+  5-3-agent-process-tool-call-loop: backlog
+  5-4-prompt-assembly: backlog
+  5-5-file-watcher: backlog
+  5-6-safety-extension: backlog
+  5-7-knowledge-store-extension: backlog
+  5-8-workflow-runner: backlog
+  5-9-file-transaction-module: backlog
+  5-10-harness-integration-test: backlog
   epic-5-retrospective: optional
 
-  # Epic 6: Recovery (2 stories)
+  # === PHASE 3: WORKFLOWS & UI (stories TBD when Epic 5 nears completion) ===
+
+  # Epic 6: Default Workflows & CLI Integration (placeholder)
   epic-6: backlog
-  6-1-unified-recovery-fam-fix: backlog
-  6-2-autonomous-self-repair: backlog
-  epic-6-retrospective: optional
 
-  # Epic 7: Web UI (9 stories)
+  # Epic 7: Web UI Extension (placeholder)
   epic-7: backlog
-  7-1a-css-design-system-zero-chrome-layout: backlog
-  7-1b-status-bar-notifications-error-communication: backlog
-  7-2-liveview-test-infrastructure-integration-scaffold: backlog
-  7-3-spec-renderer-review: backlog
-  7-4-triage-dashboard-work-hierarchy: backlog
-  7-5-search-picker-telescope: backlog
-  7-6-keyboard-navigation-help: backlog
-  7-7-activity-feed-knowledge-browser: backlog
-  7-8-notifications-progressive-onboarding: backlog
-  epic-7-retrospective: optional
 
-  # Epic 8: Workflow & Role Configuration (2 stories)
+  # Epic 8: CLI Management & Session Handling (placeholder)
   epic-8: backlog
-  8-1-workflow-role-file-management: backlog
-  8-2-interactive-session-management-language-extensibility: backlog
-  epic-8-retrospective: optional

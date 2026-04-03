@@ -167,6 +167,8 @@ NFR34: Per-session frontier warning — first external API call prompts confirma
 - Agent runner safety limits: max tool calls per task (~100), task timeout, intended files list with warnings, full LLM response logging
 - Agent runner tool call loop: send prompt → receive response → parse tool calls → execute → append results → repeat
 - Prompt assembly as pure function returning `{prompt, metadata}` — thesis-critical transformation
+- **[Addendum 2026-04-03] Multi-agent orchestration promoted to MVP scope.** Single generic `AgentProcess` GenServer for all agents. All differentiation via user-editable role/skill markdown files. Project manager is an agent with its own role file. Parallel execution with configurable concurrency (default 3). See Architecture Addendum for full details.
+- **[Addendum 2026-04-03] Role & skill file system.** Three-tier model: Role (markdown) → Skills (markdown) → Tools (Elixir registry). `Familiar.Roles` context loads/validates files at runtime. Inline prompts in `librarian.ex` and `prompt_assembly.ex` migrated to `.familiar/roles/`. FR65-FR67 partially addressed in new Epic 4.5, remainder in Epic 8.
 - Planning conversation persistence in SQLite `planning_messages` table
 - Verification derived from tool call log — LLM cannot self-report verification status
 - Convention injection: semantic retrieval only for MVP, measured upgrade path to two-source injection
@@ -278,9 +280,9 @@ FR61: Epic 5 — Shell command restriction to language config
 FR62: Epic 2 — Secret filtering from knowledge store
 FR63: Epic 1 — Vendor/dependency skip enforcement
 FR64: Epic 5 — Frontier provider per-session warning
-FR65: Epic 8 — Create/edit/delete workflow definitions
-FR66: Epic 8 — Create/edit/delete role definitions
-FR67: Epic 8 — Validate workflow/role files on load
+FR65: Epic 4.5 — Create/edit/delete workflow definitions (foundation moved from Epic 8 per addendum 2026-04-03)
+FR66: Epic 4.5 — Create/edit/delete role definitions (foundation moved from Epic 8 per addendum 2026-04-03)
+FR67: Epic 4.5 — Validate workflow/role files on load (foundation moved from Epic 8 per addendum 2026-04-03)
 FR68: Epic 8 — Suspend/resume interactive workflow steps
 FR69: Epic 8 — Add language support via config file
 FR70: Epic 5 — Thesis validation (provider comparison, ablation)
@@ -300,6 +302,29 @@ FR79: Epic 7 — OS-native notifications
 User can install Familiar, initialize it on their project, and see it learn their codebase conventions. The daemon starts, providers are detected, files are scanned, and conventions are discovered with evidence — the first proof that the familiar "gets" the project.
 **FRs covered:** FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR7b, FR7c, FR7d, FR63, FR78
 **Includes:** Phoenix project setup (starter template), daemon lifecycle, provider behaviour + adapters, hexagonal port definitions, Ecto schemas + migrations, sqlite-vec spike, knowledge extraction spike, CLI entry point, --json from day one, error handling conventions, config loading (TOML + YAML frontmatter), test scaffold (6 Mox mocks, factories, case templates)
+
+### Architectural Reframing (Addendum 2026-04-03)
+Familiar is a **multi-agent harness** with an extension system and opinionated default workflows, roles, and skills. The Elixir code provides the agentic execution environment (AgentProcess, tool registry, workflow runner, extension API, lifecycle hooks). The Knowledge Store and Safety enforcement are **default extensions**, not hard-coded harness features. All agent behavior is defined in user-editable markdown files. **Planning is not a special system — it is a workflow executed by agents.**
+
+### Epic 4.5: Role & Skill File System Foundation
+User-editable markdown files define all agent behavior. `Familiar.Roles` context loads/validates role and skill files at runtime. Default files installed during init.
+**FRs covered:** FR65 (partial), FR66 (partial), FR67
+
+### Epic 5: Agent Harness (rewritten 2026-04-03)
+10 stories. Extension API with lifecycle hooks (alter + event). Tool registry. Single AgentProcess GenServer. Prompt assembly. File watcher (core). Safety extension. Knowledge Store extension. Workflow runner. File transactions. Integration test. See full breakdown below.
+
+### Phase 3 Placeholders (deferred — vision clarifies as work commences)
+- **Epic 6:** Default workflows & CLI integration — ship `feature-planning.md`, `feature-implementation.md`, `task-fix.md`, wire CLI commands
+- **Epic 7:** Web UI extension — LiveView for activity observation, knowledge browsing, workflow interaction. Optional — headless Familiar is valid.
+- **Epic 8:** CLI management & session handling — `fam roles/skills/workflows/extensions`, session timeout/resume
+
+### Execution Order
+```
+Phase 1 (done): Epic 1, Epic 2, Epic 3 (stories 3-1 through 3-4)
+Phase 2 — Agent Harness: Epic 4.5 (2 stories) → Epic 5 (10 stories)
+Phase 3 — Workflows & UI: Epic 6, Epic 7, Epic 8 (stories TBD)
+Post-MVP: Epic 4 (structured task management)
+```
 
 ## Epic 1: Project Foundation & Initialization
 
@@ -1028,7 +1053,9 @@ So that I can prove conversation, spec generation, verification, and decompositi
 
 **Epic 3 Summary:** 7 stories, covering FR20-FR31. All 13 FRs addressed.
 
-## Epic 4: Task Management
+## Epic 4: Task Management (Post-MVP)
+
+**[Addendum 2026-04-03] Moved to post-MVP.** The structured Ecto work hierarchy is a convenience upgrade, not a foundation. For MVP, agents track tasks in markdown files in `.familiar/tasks/` using `read_file`/`write_file`. The PM agent manages work the same way a human PM would — by reading and writing task files. When scale warrants it (post-MVP), this epic adds structured tracking with state machine enforcement, dependency resolution, and `fam tasks` CLI.
 
 User can organize, track, reorder, and manage work across features with a four-level hierarchy (Epic → Group → Task → Subtask), drill-down navigation, file modification tracking, and epic lifecycle management.
 
@@ -1139,826 +1166,203 @@ So that I can trace changes back to their source and keep my work tracker clean.
 
 ---
 
-**Epic 4 Summary:** 4 stories (4.1a, 4.1b, 4.2, 4.3), covering FR32-FR37. All 6 FRs addressed.
+**Epic 4 Summary:** 4 stories (4.1a, 4.1b, 4.2, 4.3), covering FR32-FR37. All 6 FRs addressed. **[Addendum 2026-04-03] Post-MVP.** Agents use markdown task files for MVP.
 
-## Epic 5: Task Execution & Validation
+## Epic 4.5: Role & Skill File System (2 stories)
 
-User can dispatch tasks and receive validated, convention-following code produced by context-aware agents. **Agents are Actors: each agent task is a GenServer under a DynamicSupervisor** — agent state (conversation history, task context, tool permissions) lives in GenServer state, the tool-call loop uses `handle_continue`/`handle_info` (not a recursive function), inter-agent coordination uses message passing, and supervisor strategies handle crash recovery. This is the core reason BEAM/OTP was chosen. Execution includes automatic self-validation (test/build/lint/coverage/duplicate checks), atomic rollback on failure, cascading dependency handling, provider resilience, and thesis validation through provider comparison and ablation testing. Safety constraints enforced throughout.
+User-editable markdown files in `.familiar/roles/` and `.familiar/skills/` define all agent behavior. The `Familiar.Roles` context loads, validates, and provides role/skill data at runtime. Default files installed during init. This is the prerequisite for Epic 5 — AgentProcess loads roles from these files.
 
-### Story 5.1: Agent Runner & Tool Call Loop
+**FRs covered:** FR65 (partial — file loading, not CLI CRUD), FR66 (partial — file loading, not CLI CRUD), FR67 (validation on load)
 
-As a user,
-I want the system to execute tasks by sending prompts to an LLM and iteratively calling tools until the work is done,
-So that code is generated through an intelligent, supervised execution loop.
+**Note:** Story 4.5-3 (Inline Prompt Migration) was completed as part of Story 4.5-0 (Planning Code Cleanup). The planning modules containing inline prompts were deleted entirely. Only 2 stories remain.
 
-**Acceptance Criteria:**
-
-**Given** a task is dispatched for execution
-**When** the agent runner starts
-**Then** a supervised agent process is spawned via `DynamicSupervisor`
-**And** the tool call loop executes: send prompt → receive response → if tool calls, parse and execute each → append results to message history → repeat until no more tool calls, max iterations reached, or error
-**And** the agent can read actual project files from the filesystem at execution time via `read_file` tool (FR41)
-**And** relevant knowledge entries are injected into the agent prompt before execution (FR42)
-**And** prompt assembly is a pure function returning `{prompt, %{truncated: boolean, dropped_entries: list, token_budget: map}}`
-
-**Given** the agent runner is executing
-**When** context injection prepares the prompt
-**Then** the prompt includes: task description, relevant knowledge entries, role definition, conventions, and provider-specific formatting (FR42, FR43)
-**And** context window budget is managed — most relevant context prioritized when approaching limits (NFR18)
-**And** truncation metadata is accurate
-
-**Given** safety limits are configured
-**When** the agent executes
-**Then** max tool calls per task (~100 default) are enforced — runner aborts if exceeded
-**And** per-task timeout triggers rollback on expiration
-**And** writes to files outside the intended files list produce warnings (logged, not blocked)
-**And** every LLM response is logged in full to `.familiar/logs/` for post-hoc review
-
-**Given** the agent runner is implemented
-**When** unit tests run
-**Then** tool call loop is tested with scripted LLM responses via Mox
-**And** safety limit enforcement (max calls, timeout) is tested
-**And** 100% coverage on `Planning.PromptAssembly` (critical module)
-**And** near-100% coverage on agent runner module
-
-**Note:** The agent runner's `write_file` tool handler uses direct file writes initially. Story 5.2 (File Transaction Module) replaces direct writes with atomic transaction-logged writes. Until 5.2 is complete, file writes are not crash-safe.
-
-### Story 5.2: File Transaction Module
+### Story 4.5-1: Roles Context & File Loading
 
 As a user,
-I want all file writes to be atomic with clean rollback on failure,
-So that a crashed or cancelled task never leaves my project in a broken state.
+I want agent roles and skills defined as markdown files that the system loads at runtime,
+So that I can customize agent behavior by editing files without touching code.
 
 **Acceptance Criteria:**
 
-**Given** the agent writes a file during execution
-**When** the file transaction module processes the write
-**Then** the strict write sequence is followed: (1) log write intent to SQLite → (2) write file to disk → (3) log completion to SQLite
-**And** crash between steps 1-2: rollback finds intent without file, nothing to clean
-**And** crash between steps 2-3: rollback finds intent without completion, deletes written file
-
-**Given** a file is about to be written
-**When** the pre-write stat check runs (immediately before step 2)
-**Then** if the file's current content hash differs from the hash recorded at task start → skip write, save as `.fam-pending`, log conflict (FR56b)
-**And** comparison uses content hash (not just mtime) to catch modifications between agent-read and agent-write
-**And** the agent receives a "file changed" signal and handles gracefully
-
-**Given** a rollback is triggered (task failure, cancellation, or crash recovery)
-**When** the rollback function executes
-**Then** each file's rollback has its own status (pending/rolled-back/skipped)
-**And** re-running rollback after partial completion finishes remaining files without double-reverting (idempotent)
-**And** file modifications are tracked per task for downstream analysis (FR55)
-
-**Given** `.fam-pending` files exist
-**When** `fam status` is run
-**Then** pending conflict files are reported in the output
-
-**Given** the file transaction module is implemented
-**When** unit tests run
-**Then** 100% coverage on `Files.TransactionLog` (critical module)
-**And** property-based tests with StreamData verify: rollback after any crash point leaves filesystem in a consistent state
-**And** idempotent rollback is tested with partial completion scenarios
-
-### Story 5.3: Safety Enforcement
-
-As a user,
-I want the system to enforce strict safety constraints on all agent actions,
-So that agents cannot damage my project, leak secrets, or perform unauthorized operations.
-
-**Acceptance Criteria:**
-
-**Given** an agent attempts to read or write a file
-**When** the tool handler processes the request
-**Then** the path is validated to be within the project directory only (FR58)
-**And** attempts to access paths outside the project directory are rejected with a clear error
-**And** the project directory is resolved to its canonical path — symlinks within the project are followed but the resolved path must still be within the canonical project directory
-
-**Given** an agent attempts to commit to git
-**When** the tool handler processes the request
-**Then** the commit is blocked unless explicit user approval was given (FR59)
-
-**Given** an agent attempts to delete a file
-**When** the tool handler processes the request
-**Then** deletion is allowed only for files created by the current task (FR60)
-**And** attempts to delete pre-existing files are rejected
-
-**Given** an agent attempts to execute a shell command
-**When** the tool handler processes the request
-**Then** only commands defined in the language configuration (test, build, lint) are allowed (FR61)
-**And** arbitrary shell commands are rejected
-
-**Given** the user dispatches a task with `--provider anthropic` (external provider)
-**When** it's the first external API call in this session
-**Then** a confirmation warning is shown (FR64)
-**And** the warning re-prompts after >1 hour of inactivity
-
-**Given** safety enforcement is implemented
-**When** unit tests run
-**Then** every safety constraint is tested with both allowed and rejected cases
-**And** near-100% coverage on tool handler and safety modules
-
-### Story 5.4: Task Dispatch & Execution Modes
-
-As a user,
-I want to execute tasks individually, in batches, or all at once with real-time streaming,
-So that I can choose the right execution strategy for my workflow.
-
-**Acceptance Criteria:**
-
-**Given** tasks are ready in the tracker
-**When** the user runs execution commands (FR38)
-**Then** `fam do` executes the highest-priority ready task
-**And** `fam do #N` executes a specific task by ID
-**And** `fam do --batch N` executes the next N ready tasks in sequence
-**And** `fam do --all` executes all tasks in dependency/priority order
-**And** `fam do --all` shows a brief status line before starting: "Executing: 15 tasks (User Accounts)" (UX-DR18)
-
-**Given** a task is executing
-**When** the user runs `fam cancel` (FR44)
-**Then** the running task is stopped
-**And** in-progress file changes are rolled back via the transaction module
-
-**Given** the user wants to use a specific provider
-**When** `fam do #N --provider anthropic` is run (FR45)
-**Then** the task executes with the specified provider instead of the default
-
-**Given** a task is executing
-**When** agent activity occurs
-**Then** activity is streamed to the user in real time via PubSub (FR46)
-**And** the streaming output works in a half-screen terminal pane
-
-**Given** a batch execution completes
-**When** all tasks finish or fail
-**Then** an execution summary is generated: tasks completed, retries, failures, tests added, files modified (FR47)
-
-**Given** a task has completed (success or failure)
-**When** the user runs `fam review #N`
-**Then** the post-task detail is displayed: file diff, context entries injected, tool calls made, self-repair status (if retried), and validation results
-**And** `--json` outputs the review data as structured JSON
-
-**Given** dispatch modes and review are implemented
-**When** unit tests run
-**Then** each dispatch mode is tested (single, batch, all, by ID)
-**And** cancel with rollback is tested
-**And** provider override is tested
-**And** `fam review` output formatting is tested
-**And** near-100% coverage on dispatch and execution mode logic
-
-### Story 5.5: Multi-Step Workflows
-
-As a user,
-I want tasks to execute multi-step workflows where each step builds on the previous,
-So that complex tasks are broken into manageable agent steps with appropriate interaction modes.
-
-**Acceptance Criteria:**
-
-**Given** a workflow definition with multiple steps
-**When** the system executes the workflow (FR39)
-**Then** each step's output is available to subsequent steps via an accumulated context map — each step receives `%{previous_steps: [%{step: name, output: result}]}` in its context
-**And** context accumulates through the workflow pipeline
-
-**Given** a workflow has both interactive and autonomous steps
-**When** execution reaches an interactive step (FR40)
-**Then** a multi-turn conversation with the user begins (via Phoenix Channel)
-**And** the user can respond, and the conversation continues until the step completes
-**When** execution reaches an autonomous step
-**Then** the step runs to completion without user input
-
-**Given** workflow execution is implemented
-**When** unit tests run
-**Then** step chaining with output passing is tested
-**And** interactive vs autonomous step modes are tested
-**And** near-100% coverage on workflow execution module
-
-### Story 5.6: Validation Pipeline
-
-As a user,
-I want every task's output automatically validated against tests, builds, lints, and requirements,
-So that I can trust that generated code meets quality standards before it's marked complete.
-
-**Acceptance Criteria:**
-
-**Given** a task has completed code generation
-**When** the validation pipeline runs (FR48)
-**Then** configured test command is executed and evaluated by exit code
-**And** configured build command is executed and evaluated by exit code
-**And** configured lint command is executed and evaluated by exit code
-**And** each element of the task description is checked for coverage (requirement coverage validation)
-**And** generated code is checked against existing codebase for unnecessary duplication
-
-**Given** validation fails on an autonomous step
-**When** the system handles the failure (FR49)
-**Then** the step is retried once with the failure context injected
-**And** if retry also fails, the task is aborted
-
-**Given** a workflow has multiple steps and one failed
-**When** the system needs to restart (FR51)
-**Then** execution resumes from the failed step without replaying completed steps
-
-**Given** the validation pipeline is implemented
-**When** unit tests run
-**Then** 100% coverage on `Execution.ValidationPipeline` (critical module)
-**And** property-based tests verify: pipeline runs all applicable validators and never silently skips one
-**And** retry logic and restart-from-failed-step are tested
-
-### Story 5.7: Reliability & Provider Resilience
-
-As a user,
-I want execution to handle cascading failures gracefully and recover from provider outages,
-So that unattended runs complete as much work as possible without corrupting state.
-
-**Acceptance Criteria:**
-
-**Given** a task fails that other tasks depend on
-**When** cascading dependency failure handling runs (FR52)
-**Then** dependent tasks are skipped (marked blocked)
-**And** independent tasks continue executing
-**And** the failure chain is reported clearly
-
-**Given** the LLM provider becomes unavailable during execution
-**When** the system detects the failure (FR53)
-**Then** retry with exponential backoff is attempted
-**And** after configurable retry threshold, execution pauses
-**And** paused tasks are marked as `⊘ provider unavailable`
-**And** when the provider returns, paused tasks resume automatically
-
-**Given** a task fails
-**When** the failure is detected (FR54)
-**Then** failure is reported within 30 seconds with explanation and rollback status
-**And** the error includes `{:error, {type, details}}` with structured information
-
-**Given** the daemon starts after an unclean shutdown
-**When** interrupted state detection runs (FR56)
-**Then** partial file changes are rolled back via the transaction module
-**And** tasks in `in-progress` or `validating` state are reconciled against the transaction log
-**And** tasks with no recovery data are marked as `failed: interrupted — no recovery data`
-
-**Given** reliability features are implemented
-**When** unit tests run
-**Then** cascading failure scenarios are tested with various dependency graphs
-**And** provider failure, retry, pause, and resume are tested with Mox
-**And** crash recovery with orphaned task reconciliation is tested
-**And** near-100% coverage on reliability modules
-
-### Story 5.8: Thesis Validation
-
-As a user,
-I want to compare local model output against frontier models with and without context injection,
-So that I can validate whether institutional memory actually improves code quality.
-
-**Acceptance Criteria:**
-
-**Given** the user wants to compare providers
-**When** `fam do #N --provider anthropic` is run alongside a local execution (FR70)
-**Then** both executions are logged with full details: provider, injected context, tool calls, validation results
-**And** results are reviewable via `fam review #N`
-
-**Given** the user wants to run an ablation test
-**When** context injection is disabled for a task execution
-**Then** the task executes without knowledge store context injected into the prompt
-**And** the execution is logged with `ablation: true` flag for comparison
-
-**Given** thesis validation executions complete
-**When** the user reviews results
-**Then** all data needed for comparison is available: injected context entries, provider used, execution details, validation pass/fail, acceptance decision
-**And** comparison is post-hoc analysis (manual during baseline phase), not automated scoring
-
-**Given** thesis validation is implemented
-**When** unit tests run
-**Then** ablation flag correctly disables context injection in prompt assembly
-**And** execution logging captures all required comparison data
-**And** near-100% coverage on thesis validation hooks
-
----
-
-### Story 5.9: Execution Pipeline Integration Test
-
-As a developer,
-I want an integration test that validates the full execution and validation pipeline end-to-end,
-So that I can prove dispatch, agent execution, file transactions, validation, and rollback work as a coherent system.
-
-**Acceptance Criteria:**
-
-**Given** the execution pipeline integration test runs
-**When** the golden path executes
-**Then** the full flow is validated: dispatch task → prompt assembly with context injection → tool call loop with mocked LLM (scripted file writes) → file writes via transaction module in real SQLite → validation pipeline runs (mocked shell for test/build/lint) → task marked complete with execution log
-**And** real SQLite via Ecto sandbox for transaction log, execution log, and task status
-**And** LLM, Shell, and FileSystem behaviours mocked via Mox
-
-**Given** failure scenarios are tested
-**When** the integration test exercises error paths
-**Then** task failure triggers atomic rollback — all file writes for the task are reverted via transaction log
-**And** cancel mid-execution triggers rollback of in-progress writes
-**And** validation failure triggers retry once, then abort with rollback
-**And** cascading dependency failure skips dependent tasks and continues independents
-**And** safety enforcement blocks writes outside project directory and unauthorized deletions
-**And** daemon responds to `GET /api/health` within 1 second while a task is executing (NFR4)
-
-**Given** the provider failure path is tested
-**When** the LLM mock simulates provider unavailability
-**Then** retry with backoff is attempted, then execution pauses
-**And** paused tasks resume when provider returns
-
-**Epic 5 Summary:** 9 stories, covering FR38-FR56b, FR58-FR61, FR64, FR70. All 26 FRs addressed.
-
-## Epic 6: Recovery
-
-User can fix failures at any hierarchy level with `fam fix` — the system pre-analyzes failures, identifies ambiguities, and proposes concrete resolution options. Autonomous self-repair handles what it can before involving the user.
-
-### Story 6.1: Unified Recovery (`fam fix`)
-
-As a user,
-I want to fix failures with a single command that already understands what went wrong,
-So that recovery is fast, informed, and doesn't require me to investigate the failure myself.
-
-**Acceptance Criteria:**
-
-**Given** a task has failed
-**When** `fam fix #N` is run (FR57)
-**Then** the fix conversation opens with the failure already analyzed
-**And** the failure analysis includes: error type, failed step/subtask, files involved, relevant knowledge entries that were injected, and the specific ambiguity or root cause
-**And** concrete resolution options are proposed with rationale (e.g., "Cookie-based sessions (consistent with 3 web handlers) or Token-based (consistent with 2 API handlers)?")
-**And** the user selects an approach and the system generates a replacement task
-
-**Given** the user doesn't know which task to fix
-**When** `fam fix` is run without an argument (FR57)
-**Then** a Telescope-style picker opens showing all failed/blocked items
-**And** picker results include hierarchy level context: `[epic] User Accounts`, `[group] Authentication`, `[task] #5 Add login handler`
-**And** the user selects what to fix
-
-**Given** no tasks have failed or are blocked
-**When** `fam fix` is run
-**Then** the picker shows an empty state: "Nothing to fix — all tasks are complete or ready"
-
-**Given** the user fixes at the group or epic level
-**When** `fam fix` targets a group or epic
-**Then** all file changes for that scope are reverted via Familiar's transaction log (not git)
-**And** a planning conversation opens pre-loaded with failure context
-**And** a new spec is generated that avoids the same mistakes
-
-**Given** the fix conversation runs
-**When** the user interacts with the system
-**Then** the conversation runs over Phoenix Channel (interactive mode)
-**And** after the user selects a resolution, `fam do --all` can resume with the fix applied and blocked tasks unblocked
-
-**Given** unified recovery is implemented
-**When** unit tests run
-**Then** failure analysis and option generation are tested with various failure types
-**And** picker integration, hierarchy-level fix, and conversation flow are tested
-**And** near-100% coverage on recovery module
-
-### Story 6.2: Autonomous Self-Repair
-
-As a user,
-I want the system to automatically fix what it can before asking me for help,
-So that I only see failures that genuinely require my judgment.
-
-**Acceptance Criteria:**
-
-**Given** a task fails during unattended execution
-**When** the self-repair system evaluates the failure (FR57b)
-**Then** if the error is recoverable (stale context, transient provider issue): the system refreshes context and retries automatically
-**And** maximum 1 retry per failure — if retry fails, escalate immediately to ❌ (no retry loops)
-**And** if retry succeeds: the task is marked 🔧 (self-repaired), not ✅
-**And** if retry fails: the task is escalated to ❌ (needs input) for user triage
-
-**Given** self-repair runs during a batch execution
-**When** multiple tasks fail
-**Then** each failure is independently evaluated for recoverability via `recoverable?/1`
-**And** self-repair does not block independent task execution
-**And** the user sees only genuinely ambiguous failures when they return
-
-**Given** self-repair refreshes context before retry
-**When** the retry executes
-**Then** the refreshed context is injected into the new prompt
-**And** domain knowledge from the failed attempt is NOT captured (only failure gotchas from the failure reason)
-
-**Given** 3 or more tasks fail with the same error type during a batch execution
-**When** the self-repair system evaluates the next failure with the same error type
-**Then** retry is skipped — all remaining tasks with that error type are escalated to ❌ immediately (circuit breaker pattern)
-
-**Given** autonomous self-repair is implemented
-**When** unit tests run
-**Then** recoverable vs non-recoverable failure routing is tested
-**And** context refresh + retry flow is tested
-**And** self-repair during batch with independent task continuation is tested
-**And** circuit breaker triggers after 3 same-type failures
-**And** near-100% coverage on self-repair module
-
----
-
-**Epic 6 Summary:** 2 stories, covering FR57-FR57b. All 2 FRs addressed.
-
-## Epic 7: Web UI
-
-User can review specs in the browser with verification marks and keyboard shortcuts, triage work through a worst-first dashboard, search everything via Telescope-style picker, browse the knowledge store, and observe execution in real time — all through a zero-chrome, keyboard-first LiveView interface.
-
-**Parallelization note:** Stories 7.1a-7.6 (design system, test infrastructure, spec renderer, search picker, keyboard navigation) are buildable without Epic 5 (Execution). Stories 7.4 (triage), 7.7 (activity feed), and 7.8 (notifications) depend on execution data. This epic can be parallelized with Epics 5-6 during sprint planning if execution-dependent stories are scheduled after Epic 5 completes.
-
-### Story 7.1a: CSS Design System & Zero-Chrome Layout
-
-As a user,
-I want a clean, dark, terminal-adjacent web interface with no visual noise,
-So that the web UI feels like a natural extension of my terminal workflow.
-
-**Acceptance Criteria:**
-
-**Given** the web UI is accessed in a browser
-**When** the page loads
-**Then** the layout is zero-chrome — no sidebar, no top nav, no breadcrumbs (UX-DR22)
-**And** all default Phoenix layout elements are stripped
-**And** the only persistent UI element is the status bar fixed at the bottom
-**And** the LiveView web UI is served on a localhost port, auto-starting with the daemon — no separate setup required (FR71)
-
-**Given** the design system is implemented
-**When** CSS is inspected
-**Then** all styling uses CSS custom properties as design tokens (UX-DR1)
-**And** the color palette is semantic: green/amber/red for triage, health, verification (UX-DR3)
-**And** dual-density typography is applied: tool density (~0.8-0.85rem, line-height ~1.3) for dashboards, reading density (~0.95rem, line-height ~1.5-1.6) for prose (UX-DR4)
-**And** two font stacks are used: monospace for tool elements, system-ui sans-serif for reading (UX-DR5)
-**And** the five-step spacing scale (xs-xl) is defined (UX-DR6)
-
-**Given** accessibility requirements
-**When** the UI is audited
-**Then** primary text contrast ≥7:1 (AAA), muted text ≥4.5:1 (AA) (UX-DR7)
-**And** visible focus indicators use accent-blue outline
-**And** no keyboard traps — `Esc` always exits
-
-**Given** the design system is implemented
-**When** tests run
-**Then** LiveView component rendering tests verify correct CSS classes and token usage
-**And** accessibility contrast ratios are documented with computed values (visual regression is out of scope for MVP)
-**And** zero-chrome layout is verified (no default Phoenix elements present)
-
-### Story 7.1b: Status Bar, Notifications & Error Communication
-
-As a user,
-I want persistent status context, ephemeral feedback on my actions, and clear error communication,
-So that I always know what actions are available and what the system state is.
-
-**Acceptance Criteria:**
-
-**Given** the status bar component is rendered
-**When** the user is in any view
-**Then** the status bar shows context-specific keybindings (UX-DR8)
-**And** it has `role="status"` with live region for screen readers
-**And** global status indicator appears above the status bar only when there's a system-level state to communicate (UX-DR16)
-
-**Given** toast notifications fire
-**When** a user action completes
-**Then** ephemeral messages appear above the status bar and auto-dismiss (3-5s) (UX-DR16)
-**And** max 3 stacked, oldest dismissed first
-**And** toasts never steal keyboard focus
-
-**Given** a view has no content
-**When** it renders
-**Then** an empty state is shown with one-sentence explanation + one-sentence next action (UX-DR17)
-
-**Given** a system error occurs
-**When** the error is displayed
-**Then** severity levels are distinguished: recoverable (auto-retry indicator), blocking (global status), degraded (global status), fatal (full-screen with recovery command) (UX-DR20)
-
-**Given** status bar and notifications are implemented
-**When** tests run
-**Then** status bar content updates based on view context are tested
-**And** toast stacking, auto-dismiss timing, and max count are tested
-**And** empty state rendering for each view is tested
-**And** error severity display routing is tested
-**And** near-100% coverage on status bar, toast, and error communication components
-
-### Story 7.2: LiveView Test Infrastructure & Integration Scaffold
-
-As a developer,
-I want LiveView test helpers and integration scaffolding established before building components,
-So that every subsequent component story has reusable test utilities for keyboard events, PubSub assertions, and view transitions.
-
-**Acceptance Criteria:**
-
-**Given** the Web UI test infrastructure is being established
-**When** LiveView test helpers are created
-**Then** test helpers exist for: simulating keyboard events (phx-keydown), asserting PubSub-driven updates, and verifying view transitions
-**And** these helpers are reusable across all LiveView component tests
-**And** ExUnit case templates for LiveView tests with PubSub setup are available
-
-**Given** the integration scaffold runs
-**When** the golden path executes
-**Then** view navigation works end-to-end: `s` → spec view, `t` → triage view, `w` → watch view, `l` → library view, `?` → help overlay, `Esc` → return
-**And** `Space` opens the search picker from any view and `Esc` closes it
-**And** PubSub events trigger live updates in triage view (status change reflected within test assertion window)
-**And** spec review → approve triggers decomposition flow
-
-**Given** component interaction is tested
-**When** the triage view renders with test data
-**Then** worst-first sorting is correct, drill-down via `Enter` shows children, `Esc` returns
-**And** search picker returns results and preview updates on navigation
-
-**Given** failure scenarios are tested
-**When** the integration test exercises error paths
-**Then** system error states render the correct global status indicator
-**And** empty states render correctly for each view
-**And** toast notifications stack and auto-dismiss correctly
-
-**Note:** This story is intentionally positioned early in Epic 7. All subsequent component stories (7.3-7.9) use these test helpers. The integration assertions grow as components are built.
-
-### Story 7.3: Spec Renderer & Review
-
-As a user,
-I want to review generated specs in a beautifully rendered browser view with interactive controls,
-So that I can quickly evaluate spec quality and approve or reject with confidence.
-
-**Acceptance Criteria:**
-
-**Given** a spec has been generated by `fam plan`
-**When** the browser auto-opens to the spec review page (FR72)
-**Then** the page loads in under 1 second (NFR5)
-**And** auto-open is configurable; degrades gracefully if browser unavailable (URL printed to terminal)
-**And** subsequent specs in the same session update the existing tab via LiveView
-
-**Given** the spec is rendered
-**When** the user reads the content (FR73)
-**Then** markdown is rendered at reading density with max-width ~72ch
-**And** inline verification marks appear: ✓ green for verified, ⚠ amber for unverified (UX-DR11)
-**And** convention annotations appear in muted italic
-**And** knowledge links have dotted underline on keyboard focus, navigable via Tab
-**And** metadata line shows trust summary: "Generated [date] · N verified · N unverified · N conventions applied"
-
-**Given** the user wants to act on the spec
-**When** keyboard shortcuts are pressed (FR74)
-**Then** `a` approves the spec (triggers decomposition)
-**And** `e` opens spec in `$EDITOR` (or in-browser if configured)
-**And** `r` rejects the spec and returns to planning conversation
-**And** `d` shows diff from previous version
-**And** `c` shows all context entries that influenced the spec
-**And** the status bar shows all available actions
-
-**Given** spec review is implemented
-**When** tests run
-**Then** markdown rendering with verification marks is tested
-**And** keyboard shortcut dispatch is tested
-**And** auto-open and LiveView update logic is tested
-**And** near-100% coverage on spec renderer component
-
-### Story 7.4: Triage Dashboard & Work Hierarchy
-
-As a user,
-I want a triaged dashboard showing work status at a glance with drill-down navigation,
-So that after an unattended run I can quickly see what succeeded, what self-repaired, and what needs me.
-
-**Acceptance Criteria:**
-
-**Given** tasks exist with various statuses
-**When** the user navigates to the triage view (`t` keybinding) (FR75)
-**Then** items are grouped by feature/epic with worst-first sort: ❌ → 🔧 → ⊘ → ✅ (UX-DR10)
-**And** each group shows a summary line: "accounts (3/5 ✅ 1 🔧 1 ❌)"
-**And** items display: status icon, task ID, title, failure summary or self-repair note
-
-**Given** the triage dashboard is displayed
-**When** status changes occur during execution
-**Then** badges update in real-time via LiveView PubSub (UX-DR10)
-**And** updates are delivered within 100ms of server-side event (NFR6)
-**And** rows don't re-sort during live updates; re-entering the view refreshes sort
-
-**Given** the user navigates the hierarchy (UX-DR12)
-**When** `Enter` is pressed on a group or epic
-**Then** the view drills into that level showing its children
-**And** a depth indicator header shows position: "Epic: User Accounts > Group: Authentication"
-**And** `Esc` returns to the previous level
-**And** `j`/`k` navigates items within the current level
-**And** `f` on a failed task opens the fix flow
-
-**Given** the triage dashboard is implemented
-**When** tests run
-**Then** worst-first sorting is tested with various status combinations
-**And** drill-down navigation and hierarchy rendering are tested
-**And** PubSub-driven live updates are tested
-**And** near-100% coverage on triage and work hierarchy components
-
-### Story 7.5: Search Picker (Telescope)
-
-As a user,
-I want a universal search overlay that finds anything across context, tasks, specs, and files,
-So that I can navigate the entire system with one interaction pattern.
-
-**Acceptance Criteria:**
-
-**Given** the user is in any web UI view
-**When** `Space` is pressed (FR76)
-**Then** a Telescope-style search picker overlay appears (UX-DR9)
-**And** the overlay has a split pane: results on the left, preview on the right
-
-**Given** the user types a search query
-**When** characters are entered
-**Then** text matches appear instantly (<50ms) (UX-DR9)
-**And** semantic results stream in within 200ms
-**And** the list populates immediately and gets better — no loading spinner
-
-**Given** results are displayed
-**When** the user navigates with `j`/`k`
-**Then** the preview pane updates to show content plus linked knowledge trail
-**And** `Tab` follows a link within the picker (navigating the knowledge graph without leaving search)
-**And** `Enter` goes to the selected result
-**And** `Esc` closes the picker
-
-**Given** the search picker works across all entity types
-**When** results return
-**Then** results include context entries, tasks, specs, and files with type indicators
-**And** the same interaction model is used everywhere (CLI `fam search`, web UI picker)
-
-**Given** the search picker is implemented
-**When** tests run
-**Then** two-phase rendering (instant text + streaming semantic) is tested
-**And** keyboard navigation, linked preview, and cross-entity search are tested
-**And** near-100% coverage on search picker component
-
-### Story 7.6: Keyboard Navigation & Help
-
-As a user,
-I want every action reachable by keyboard with a discoverable help overlay,
-So that I never need to reach for the mouse and can learn the UI quickly.
-
-**Acceptance Criteria:**
-
-**Given** the web UI is loaded
-**When** the user presses view navigation keys (FR77)
-**Then** `s` goes to spec view, `t` to triage, `w` to watch, `l` to library, `?` to help, `Esc` closes/returns
-**And** `Space` opens the search picker from any view
-
-**Given** the user is within a view
-**When** vim-style navigation keys are pressed (UX-DR21)
-**Then** `j`/`k` moves between items, `Enter` selects/expands
-**And** view-specific actions are shown in the status bar
-
-**Given** the user presses `?`
-**When** the help overlay renders (UX-DR15)
-**Then** a single-screen keybinding reference is displayed organized by view context
-**And** all keybindings fit on one screen without scrolling
-**And** the overlay uses monospace, tool density formatting
-**And** `Esc` dismisses the overlay
-
-**Given** accessibility is implemented (UX-DR7)
-**When** a screen reader accesses the UI
-**Then** the picker overlay has `role="dialog"`
-**And** verification marks have aria-labels ("verified"/"unverified")
-**And** triage blocks have full status text labels
-**And** focus order follows visual order
-
-**Given** the user wants custom keybindings (UX-DR23)
-**When** `.familiar/config.toml` contains keybinding overrides
-**Then** all keybindings are remapped accordingly
-**And** colors are configurable via the same config
-
-**Given** keyboard navigation is implemented
-**When** tests run
-**Then** all view navigation shortcuts are tested
-**And** vim-style navigation within views is tested
-**And** help overlay rendering and dismissal are tested
-**And** accessibility ARIA attributes are verified
-**And** near-100% coverage on keyboard navigation and help modules
-
-### Story 7.7: Activity Feed & Knowledge Browser
-
-As a user,
-I want to watch execution in real time and browse the knowledge store visually,
-So that I have ambient awareness of what the familiar is doing and can explore what it knows.
-
-**Acceptance Criteria:**
-
-**Given** a task is executing
-**When** the user navigates to the watch view (`w` keybinding) (UX-DR13)
-**Then** streaming structured output shows: current task and group, file reads/writes, convention applications, subtask progress checklist (✅/◐/○)
-**And** completed tasks stack below the current activity
-**And** display uses tool density — every line is informational
-**And** updates are real-time via PubSub
-**And** if nothing is executing, the view shows last run summary
-
-**Given** the user navigates to the library view (`l` keybinding) (UX-DR14)
-**When** the knowledge browser renders
-**Then** entries are listed with type badge, one-line summary, and date
-**And** inline search filters as-you-type with two-phase rendering
-**And** type filter tabs toggle entry categories (all/decision/fact/convention/gotcha/relationship)
-**And** `Enter` shows full entry content with linked artifacts (referenced specs, tasks, source files)
-
-**Given** an entry is selected in the library
-**When** the preview renders
-**Then** it shows: entry type, source, freshness status, full content, and "Referenced by" links
-**And** `d` deletes the selected entry
-
-**Given** activity feed and knowledge browser are implemented
-**When** tests run
-**Then** streaming activity display and PubSub integration are tested
-**And** knowledge browser search, filtering, and preview are tested
-**And** near-100% coverage on activity feed and knowledge browser components
-
-### Story 7.8: Notifications & Progressive Onboarding
-
-As a user,
-I want OS-native notifications when execution completes and gentle onboarding guidance on first use,
-So that I'm informed without watching and the learning curve is smooth.
-
-**Acceptance Criteria:**
-
-**Given** the system supports OS notifications (FR79)
-**When** execution completes or pauses
-**Then** an OS-native notification is sent (auto-detect `terminal-notifier` on macOS, `notify-send` on Linux)
-**And** notification provider is configurable in `fam config`
-**And** if no provider is detected, notifications degrade gracefully (user pulls with `fam status`)
-
-**Given** `fam watch` is run in the terminal (UX-DR27)
-**When** a task is executing
-**Then** a structured real-time activity display shows in the terminal
-**And** the display works in a narrow tmux split
-**And** `q` detaches from watch; execution continues regardless
-
-**Given** it's the user's first few sessions (UX-DR24)
-**When** the web UI or CLI is used
-**Then** progressive hints show slightly more verbose output with inline guidance
-**And** first-run init explains each step (scanning, conventions, building knowledge store)
-**And** first `fam plan` includes brief orientation about the spec review process
-**And** hints fade after approximately 5 sessions
-
-**Given** notifications and onboarding are implemented
-**When** tests run
-**Then** notification provider detection and dispatch are tested via Mox (Notifications behaviour)
-**And** progressive hint display and fade logic are tested
-**And** `fam watch` terminal formatting is tested at 80 columns
-**And** near-100% coverage on notification and onboarding modules
-
----
-
-**Epic 7 Summary:** 9 stories (7.1a, 7.1b, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8), covering FR71-FR77, FR79 plus UX-DR1-DR27. All 8 FRs and 27 UX-DRs addressed. Story 7.2 (LiveView test infrastructure) is intentionally positioned early — all subsequent stories use its test helpers.
-
-## Epic 8: Workflow & Role Configuration
-
-User can customize agent behavior through markdown workflow and role definitions, add language support via configuration files, and manage interactive workflow session suspension and resumption.
-
-### Story 8.1: Workflow & Role File Management
-
-As a user,
-I want to create and customize workflow and role definitions as simple markdown files,
-So that I can tailor agent behavior without modifying system code.
-
-**Acceptance Criteria:**
-
-**Given** the `.familiar/workflows/` directory exists
-**When** the user creates, edits, or deletes a workflow markdown file (FR65)
-**Then** the system recognizes the change on next load
-**And** workflow files define: trigger command, sequential pipeline steps, step mode (interactive/autonomous), and step-specific instructions
-
-**Given** the `.familiar/roles/` directory exists
-**When** the user creates, edits, or deletes a role markdown file (FR66)
-**Then** the system recognizes the change on next load
-**And** role files define: agent behavior, model selection, available tools, and system prompt (body of the file)
-
-**Given** a workflow or role file is loaded
+**Given** role markdown files exist in `.familiar/roles/`
+**When** the system loads a role
+**Then** YAML frontmatter is parsed for metadata: name, description, model, lifecycle, skills list
+**And** the markdown body (below frontmatter) is the system prompt
+**And** `Roles.load_role("coder")` returns `{:ok, %Role{name, description, model, lifecycle, skills, system_prompt}}`
+**And** `Roles.list_roles()` returns all valid roles found in the directory
+**And** missing role returns `{:error, {:role_not_found, %{name: ...}}}`
+
+**Given** skill markdown files exist in `.familiar/skills/`
+**When** the system loads a skill
+**Then** YAML frontmatter is parsed for metadata: name, description, tools list, constraints map
+**And** the markdown body is the skill instructions (appended to prompt when skill is active)
+**And** `Roles.load_skill("implement")` returns `{:ok, %Skill{name, description, tools, constraints, instructions}}`
+**And** `Roles.list_skills()` returns all valid skills found in the directory
+
+**Given** a role or skill file is loaded
 **When** validation runs (FR67)
-**Then** valid files are loaded successfully
-**And** invalid files produce clear, specific error messages (e.g., "Workflow 'feature-planning.md': missing required field 'trigger'")
-**And** invalid files do not crash the system — they are skipped with the error reported
+**Then** valid files load successfully
+**And** invalid files produce clear, specific error messages (e.g., "Role 'my-role': missing required field 'skills'", "Role 'my-role' references skill 'foo' which does not exist in .familiar/skills/")
+**And** invalid files do not crash the system — they are skipped with the error logged
+**And** skills referencing tools not in the tool registry produce warnings (not errors — allows forward-declaration of custom tools)
 
-**Given** init completes for a new project
-**When** the `.familiar/` directory is created
-**Then** default MVP workflows (installed during init in Story 1.4) are recognized: feature-planning (`fam plan`), feature-implementation (`fam do`), task-fix (`fam fix`)
-**And** default MVP roles (installed during init in Story 1.4) are recognized: analyst (interactive planning/fix), coder (autonomous implementation), reviewer (autonomous validation/knowledge extraction)
-**And** users can create additional custom workflows and roles alongside the defaults
-**And** each role has one trigger per workflow, no overrides or inheritance
-
-**Given** workflow and role management is implemented
+**Given** the Roles context is implemented
 **When** unit tests run
-**Then** file loading, validation (valid and invalid), and default installation are tested
-**And** YAML frontmatter parsing for role/workflow metadata is tested
-**And** near-100% coverage on workflow and role management modules
+**Then** role loading, skill loading, listing, and validation are tested
+**And** YAML frontmatter parsing for all metadata fields is tested
+**And** error cases: missing file, malformed frontmatter, missing required fields, invalid skill references
+**And** near-100% coverage on `Familiar.Roles` context
 
-### Story 8.2: Interactive Session Management & Language Extensibility
+### Story 4.5-2: Default Role & Skill Files
 
 As a user,
-I want interactive workflow steps to handle idle timeouts gracefully and to add new language support without code changes,
-So that suspended conversations can resume and the system works with any programming language.
+I want the system to install well-crafted default role and skill files during project initialization,
+So that agents work out of the box while I can customize them later.
 
 **Acceptance Criteria:**
 
-**Given** an interactive workflow step is in progress (e.g., planning conversation)
-**When** the user goes idle past the configured timeout (FR68) — default 30 minutes, configurable in `.familiar/config.toml` under `[planning] idle_timeout_minutes`
-**Then** the session is suspended (not terminated)
-**And** the user can resume later via `fam plan --resume` or equivalent
-**And** all conversation state is preserved in the `planning_messages` table
+**Given** `fam init` runs on a new project
+**When** `.familiar/` directory is created
+**Then** `.familiar/roles/` contains MVP role files with proper YAML frontmatter:
+  - `analyst.md` — interactive planning conversation agent
+  - `coder.md` — autonomous code implementation agent
+  - `reviewer.md` — autonomous code review and knowledge extraction agent
+  - `librarian.md` — multi-hop knowledge retrieval and summarization agent
+  - `archivist.md` — post-task knowledge capture agent
+  - `project-manager.md` — batch orchestration, worker coordination, progress summarization agent
+**And** `.familiar/skills/` contains MVP skill files with proper YAML frontmatter and tool references
+**And** each role file body contains the full system prompt (not stubs)
+**And** `Knowledge.DefaultFiles.install/1` is updated to produce the new format
 
-**Given** the user wants to add support for a new language (e.g., Python, Rust)
-**When** they create a TOML configuration file in `.familiar/` (FR69)
-**Then** the system loads the language config without requiring any Elixir code changes
-**And** the config defines: test_command, build_command, lint_command, dep_file, skip_patterns, source_extensions
-**And** the new language is available for init scan, validation, and convention discovery
+**Given** default files already exist (re-init or upgrade)
+**When** `fam init` runs
+**Then** existing role/skill files are NOT overwritten (user edits preserved)
 
-**Given** an invalid language config is provided
-**When** the system loads it
-**Then** validation produces a clear error message identifying the issue
-**And** the system falls back to existing valid configs
-
-**Given** session management and language extensibility are implemented
+**Given** default files are installed
 **When** unit tests run
-**Then** idle timeout detection and session suspension/resumption are tested with Clock mock
-**And** language config loading, validation, and fallback are tested
-**And** near-100% coverage on session management and language config modules
+**Then** all installed role files pass `Roles.validate_role/1`
+**And** all installed skill files pass `Roles.validate_skill/1`
+**And** the librarian role's system prompt contains the search refinement and summarization instructions currently inline in `librarian.ex`
+**And** the analyst role's system prompt contains the planning conversation instructions currently in `prompt_assembly.ex`
 
 ---
 
-**Epic 8 Summary:** 2 stories, covering FR65-FR69. All 5 FRs addressed.
+**Epic 4.5 Summary:** 2 stories (4.5-1, 4.5-2), covering FR65 (partial), FR66 (partial), FR67. Story 4.5-3 completed during planning code cleanup (Story 4.5-0).
+
+## Epic 5: Agent Harness (10 stories — rewritten 2026-04-03)
+
+The core agentic execution environment. A single generic `AgentProcess` GenServer executes any agent role defined in markdown. An extension API (`Familiar.Extension` behaviour) with lifecycle hooks (alter pipeline for veto, event hooks via PubSub) allows extensions to register tools and react to lifecycle events. The Knowledge Store and Safety enforcement are default extensions. A file watcher keeps context fresh. A workflow runner sequences agents through markdown-defined workflows. **This is the core reason BEAM/OTP was chosen.**
+
+**Design principle:** Build only the harness infrastructure. All workflow opinions (what agents do, how planning works, what specs look like) belong in markdown files, not Elixir code. Near-term stories get full detail. Later stories stay as outlines — vision clarifies as work commences.
+
+### Story 5.1: Extension API & Lifecycle Hooks
+
+As a developer building the harness,
+I want an extension system with lifecycle hooks so that capabilities (tools, safety, knowledge) are pluggable,
+So that the harness core stays thin and extensions can react to agent lifecycle events.
+
+**Scope:** `Familiar.Extension` behaviour (name, tools, hooks, child_spec, init). `Familiar.Hooks` GenServer — alter pipeline (reduce_while + try/rescue + timeout + circuit breaker) and event dispatch (subscribes Activity PubSub on behalf of extensions). Extension loader in `Application.start/2` reads config, starts child specs, registers tools and hooks. Tests: alter pipeline ordering, veto, skip-on-error, timeout, circuit breaker. Event dispatch isolation.
+
+### Story 5.2: Tool Registry
+
+As a developer building the harness,
+I want a central registry mapping tool names to Elixir implementations that dispatches through the hooks pipeline,
+So that extensions can register tools and every tool call flows through safety checks.
+
+**Scope:** `Familiar.Execution.ToolRegistry` — GenServer or ETS-backed registry. `register/3` (name, function, description). `dispatch/3` (name, args, context) runs `before_tool_call` alter hook → executes tool → broadcasts `after_tool_call` event. Core built-in tools: `read_file`, `write_file`, `delete_file`, `list_files`, `run_command`, `spawn_agent`, `monitor_agents`, `broadcast_status`, `signal_ready`. Tool descriptions exported for LLM tool-call schemas.
+
+### Story 5.3: AgentProcess & Tool Call Loop
+
+As a developer building the harness,
+I want a single generic GenServer that loads any role from markdown and runs an LLM-driven tool call loop,
+So that all agents use one well-tested executor regardless of role.
+
+**Scope:** `Familiar.Execution.AgentProcess` GenServer under `Familiar.AgentSupervisor` (DynamicSupervisor). `start_link(role: name, task: data, parent: pid)`. On init: load role via `Roles.load_role/1`, resolve tools from skills. Tool-call loop via `handle_continue`/`handle_info`: assemble prompt → call LLM → parse tool calls → dispatch via ToolRegistry → append results → repeat. Status reporting to parent via `GenServer.cast`. Safety limits: max tool calls (~100), per-task timeout. Full LLM response logging. Activity event broadcasting.
+
+### Story 5.4: Prompt Assembly
+
+As a developer building the harness,
+I want a pure function that assembles role prompts, skill instructions, and context into LLM messages,
+So that prompt construction is testable, provider-agnostic, and manages token budgets.
+
+**Scope:** Pure function module. Inputs: role system prompt (from file) + skill instructions (from files) + context block + conversation history + provider config. Output: message list for `Providers.chat/2` + truncation metadata. Token budget management: measure each component, prioritize most relevant, truncation warnings. Provider-specific formatting. No hard-coded prompt content. 100% coverage required (thesis-critical).
+
+### Story 5.5: File Watcher
+
+As a developer building the harness,
+I want a core GenServer that watches the project directory for changes and broadcasts events,
+So that extensions can react to file modifications in real time.
+
+**Scope:** GenServer using `file_system` hex package (inotify/fsevents). Debounces rapid changes (500ms settle per file). Broadcasts `on_file_changed`, `on_file_created`, `on_file_deleted` via `Familiar.Activity`. Configurable ignore list from `.familiar/config.toml` `[watcher]` section (defaults: `.git/`, `_build/`, `deps/`, `node_modules/`, `.familiar/` internals). Core process in supervision tree — not an extension.
+
+### Story 5.6: Safety Extension
+
+As a developer building the harness,
+I want a default extension that vetoes dangerous tool calls via the alter hook pipeline,
+So that agents cannot escape the project directory, commit without approval, or execute arbitrary commands.
+
+**Scope:** Implements `Familiar.Extension`. Registers `before_tool_call` alter hook at priority 1. Validates: path within project directory (canonical after symlink resolution), no `.git/` writes, shell commands restricted to allow-list, delete only own-task files, secret detection. Configurable via `.familiar/config.toml` `[safety]` section. Returns `{:halt, reason}` to veto. Tested with both allowed and rejected cases for every constraint.
+
+### Story 5.7: Knowledge Store Extension
+
+As a developer building the harness,
+I want the existing Knowledge Store refactored to implement the Extension behaviour,
+So that it registers tools and hooks like any other extension and can be replaced or augmented.
+
+**Scope:** Wraps existing `Familiar.Knowledge` context in `Familiar.Extensions.KnowledgeStore` implementing `Familiar.Extension`. Registers `search_context` and `store_context` tools. Registers event hooks: `on_agent_complete` (post-task knowledge capture via hygiene loop), `on_file_changed` (update/invalidate entries). Supervision child spec for embedding worker pool. Existing Knowledge modules, schemas, and tests preserved — this story adds the extension wrapper.
+
+### Story 5.8: Workflow Runner
+
+As a developer building the harness,
+I want a module that reads workflow markdown definitions and sequences agents through steps,
+So that planning, implementation, fix, and custom workflows all execute through one mechanism.
+
+**Scope:** `Familiar.Execution.WorkflowRunner`. Reads workflow `.md` files (YAML frontmatter with steps list). For each step: spawns AgentProcess with step's role, passes accumulated context from previous steps. Interactive mode: multi-turn conversation via Channel. Autonomous mode: run to completion. Phase transitions via `signal_ready` tool call. `parallel: true` dispatches concurrent agents. Context accumulation: `%{previous_steps: [%{step: name, output: result}]}`. This is what makes `fam plan`, `fam do`, and `fam fix` all work.
+
+### Story 5.9: File Transaction Module
+
+As a developer building the harness,
+I want crash-safe file writes with rollback capability,
+So that agent file operations are atomic and parallel agents don't corrupt each other's work.
+
+**Scope:** SQLite-backed intent logging. Strict sequence: log intent → write file → log completion. Pre-write stat check by content hash (FR56b). Idempotent rollback. File claim registration: `Files.claimed_files/0` for PM to detect conflicts. `.fam-pending` for conflict files. 100% coverage + StreamData property tests.
+
+### Story 5.10: Harness Integration Test
+
+As a developer,
+I want an end-to-end test validating the complete harness,
+So that extensions, agents, tools, hooks, and workflows work as a coherent system.
+
+**Scope:** Golden path: load extensions → register tools/hooks → start workflow → spawn AgentProcess → tool-call loop with mocked LLM → file writes via transaction module → safety extension vetoes out-of-scope write → knowledge extension captures results → workflow completes. Failure paths: agent crash, tool timeout, file conflict. Real SQLite via Ecto sandbox; LLM/Shell/FileSystem mocked via Mox.
+
+---
+
+**Epic 5 Summary:** 10 stories. Builds the complete agent harness: extension API, tool registry, generic agent executor, prompt assembly, file watcher, safety extension, knowledge store extension, workflow runner, file transactions, and integration test.
+
+## Epic 6: Default Workflows & CLI Integration (Phase 3 — placeholder)
+
+**Deferred until Epic 5 is complete.** Stories will be defined based on what the workflow runner actually supports.
+
+Define and test the default workflow markdown files that ship with Familiar: `feature-planning.md`, `feature-implementation.md`, `task-fix.md`. Wire CLI commands (`fam plan`, `fam do`, `fam fix`) to dispatch workflows through the runner. This is where the "opinionated defaults" come to life — the harness is generic, the workflows are the product. Includes default role and skill file refinement based on real execution experience.
+
+Recovery (`fam fix`) is a workflow, not a separate system — the analyst agent opens a conversation pre-loaded with failure context. Self-repair (autonomous retry on stale context) is PM role behavior defined in the project-manager role file.
+
+---
+
+## Epic 7: Web UI Extension (Phase 3 — placeholder)
+
+**Deferred until Epic 5 is complete.** The Web UI is an extension implementing `Familiar.Extension`.
+
+LiveView interface for observing agent activity, browsing the knowledge store, and interacting with workflows. Subscribes to Activity PubSub for real-time updates. A headless Familiar (CLI-only) is valid — the web UI is optional. Scope will be refined based on what the harness and workflow runner actually expose. Keyboard-first, zero-chrome design per UX spec.
+
+---
+
+## Epic 8: CLI Management & Session Handling (Phase 3 — placeholder)
+
+**Deferred until Epic 5 is complete.**
+
+CLI commands for managing roles (`fam roles`), skills (`fam skills`), workflows (`fam workflows`), and extensions (`fam extensions`). Interactive session timeout/resume for multi-turn workflow steps. Language extensibility via config files. Scope depends on what Epic 5 and 6 reveal about the management surface area.
+
+---
+
+**Phase 3 note:** Epics 6-8 are intentionally light. Detailed story breakdowns will be written when Epic 5 nears completion and the harness capabilities are proven. Vision clarifies as work commences.

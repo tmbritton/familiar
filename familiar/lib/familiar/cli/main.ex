@@ -17,10 +17,6 @@ defmodule Familiar.CLI.Main do
   alias Familiar.Knowledge.InitScanner
   alias Familiar.Knowledge.Management
   alias Familiar.Knowledge.Prerequisites
-  alias Familiar.Planning.Engine
-  alias Familiar.Planning.Librarian
-  alias Familiar.Planning.Trail
-  alias Familiar.Planning.TrailFormatter
 
   @version Mix.Project.config()[:version]
 
@@ -176,119 +172,31 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp run_with_daemon({"plan", _, flags}, deps) when is_map_key(flags, :resume) do
-    plan_resume_fn = Map.get(deps, :plan_resume_fn, &Engine.resume/1)
-
-    case Map.get(flags, :session) do
-      sid when is_integer(sid) ->
-        plan_resume_fn.(sid)
-
-      nil ->
-        latest_fn = Map.get(deps, :plan_latest_fn, &Engine.latest_active_session/0)
-
-        case latest_fn.() do
-          {:ok, sid} -> plan_resume_fn.(sid)
-          {:error, _} = error -> error
-        end
-    end
+  defp run_with_daemon({"plan", _, _}, _deps) do
+    {:error,
+     {:not_implemented,
+      %{message: "Planning commands will be available when the workflow runner is built (Epic 5). Use the web UI or API directly."}}}
   end
 
-  defp run_with_daemon({"plan", [], _}, _deps) do
-    {:error, {:usage_error, %{message: "Usage: fam plan <description> | fam plan --resume [--session <id>]"}}}
+  defp run_with_daemon({"generate-spec", _, _}, _deps) do
+    {:error,
+     {:not_implemented,
+      %{message: "Spec generation will be available when the workflow runner is built (Epic 5)."}}}
   end
 
-  defp run_with_daemon({"plan", args, _}, deps) do
-    description = Enum.join(args, " ")
-    plan_fn = Map.get(deps, :plan_fn, &Engine.start_plan/2)
-
-    case plan_fn.(description, []) do
-      {:ok, result} -> {:ok, Map.put(result, :command, "plan")}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp run_with_daemon({"generate-spec", [], _}, _deps) do
-    {:error, {:usage_error, %{message: "Usage: fam generate-spec <session-id>"}}}
-  end
-
-  defp run_with_daemon({"generate-spec", [id_string | _], _}, deps) do
-    generate_spec_fn = Map.get(deps, :generate_spec_fn, &Engine.generate_spec/2)
-
-    case Integer.parse(id_string) do
-      {session_id, ""} ->
-        case run_spec_generation_with_trail(session_id, generate_spec_fn, deps) do
-          {:ok, result} ->
-            print_spec_summary(result)
-            run_approval_prompt(result.spec.id, deps)
-
-          {:error, _} = error ->
-            error
-        end
-
-      _ ->
-        {:error, {:usage_error, %{message: "Invalid session ID: #{id_string}"}}}
-    end
-  end
-
-  defp run_with_daemon({"spec", [], _}, _deps) do
-    {:error, {:usage_error, %{message: "Usage: fam spec <id> | fam spec approve <id> | fam spec reject <id> | fam spec edit <id>"}}}
-  end
-
-  defp run_with_daemon({"spec", ["approve", id_string | _], _}, deps) do
-    approve_fn = Map.get(deps, :approve_spec_fn, &Engine.approve_spec/2)
-    run_spec_action(id_string, fn id -> approve_fn.(id, review_opts(deps)) end)
-  end
-
-  defp run_with_daemon({"spec", ["reject", id_string | _], _}, deps) do
-    reject_fn = Map.get(deps, :reject_spec_fn, &Engine.reject_spec/2)
-    run_spec_action(id_string, fn id -> reject_fn.(id, review_opts(deps)) end)
-  end
-
-  defp run_with_daemon({"spec", ["edit", id_string | _], _}, deps) do
-    edit_fn = Map.get(deps, :edit_spec_fn, &Engine.edit_spec/2)
-
-    case Integer.parse(id_string) do
-      {id, ""} ->
-        case edit_fn.(id, review_opts(deps)) do
-          {:ok, _stat_result} -> run_approval_prompt(id, deps)
-          {:error, _} = error -> error
-        end
-
-      _ ->
-        {:error, {:usage_error, %{message: "Invalid spec ID: #{id_string}"}}}
-    end
-  end
-
-  defp run_with_daemon({"spec", [id_string | _], _}, deps) do
-    spec_fn = Map.get(deps, :spec_fn, &Engine.get_spec/1)
-
-    case Integer.parse(id_string) do
-      {id, ""} ->
-        case spec_fn.(id) do
-          {:ok, spec} ->
-            {:ok, %{id: spec.id, title: spec.title, body: spec.body, status: spec.status, file_path: spec.file_path}}
-
-          {:error, _} = error ->
-            error
-        end
-
-      _ ->
-        {:error, {:usage_error, %{message: "Invalid spec ID: #{id_string}"}}}
-    end
+  defp run_with_daemon({"spec", _, _}, _deps) do
+    {:error,
+     {:not_implemented,
+      %{message: "Spec commands will be available when workflows are defined (Epic 3r). Specs are markdown files managed by agents."}}}
   end
 
   defp run_with_daemon({"search", [], _}, _deps) do
     {:error, {:usage_error, %{message: "Usage: fam search <query>"}}}
   end
 
-  defp run_with_daemon({"search", args, flags}, deps) do
+  defp run_with_daemon({"search", args, _flags}, deps) do
     query = Enum.join(args, " ")
-
-    if Map.get(flags, :raw, false) do
-      run_raw_search(query, deps)
-    else
-      run_librarian_search(query, deps)
-    end
+    run_raw_search(query, deps)
   end
 
   defp run_with_daemon({"entry", [], _}, _deps) do
@@ -406,136 +314,6 @@ defmodule Familiar.CLI.Main do
     case search_fn.(query) do
       {:ok, results} -> {:ok, %{results: results, query: query}}
       {:error, _} = error -> error
-    end
-  end
-
-  defp run_librarian_search(query, deps) do
-    librarian_fn = Map.get(deps, :librarian_fn, &Librarian.query/2)
-
-    case librarian_fn.(query, []) do
-      {:ok, %{summary: summary, results: results}} ->
-        {:ok, %{results: results, query: query, summary: summary}}
-
-      {:error, _} ->
-        run_raw_search(query, deps)
-    end
-  end
-
-  defp run_spec_action(id_string, action_fn) do
-    case Integer.parse(id_string) do
-      {id, ""} ->
-        case action_fn.(id) do
-          {:ok, %{modified: _} = result} ->
-            {:ok, Map.put(result, :command, "spec")}
-
-          {:ok, spec} ->
-            {:ok, %{id: spec.id, title: spec.title, status: spec.status, file_path: spec.file_path}}
-
-          {:error, _} = error ->
-            error
-        end
-
-      _ ->
-        {:error, {:usage_error, %{message: "Invalid spec ID: #{id_string}"}}}
-    end
-  end
-
-  defp print_spec_summary(result) do
-    meta = result.metadata
-    IO.puts(:stderr, "")
-    IO.puts(:stderr, "Spec: #{result.spec.title}")
-    IO.puts(:stderr, "  File: #{result.file_path}")
-    IO.puts(:stderr, "  Verified: #{meta.verified_count}  Unverified: #{meta.unverified_count}  Conventions: #{meta.conventions_count}")
-    IO.puts(:stderr, "")
-  end
-
-  defp run_approval_prompt(spec_id, deps) do
-    prompt_fn = Map.get(deps, :prompt_fn, &IO.gets/1)
-    approve_fn = Map.get(deps, :approve_spec_fn, &Engine.approve_spec/2)
-    reject_fn = Map.get(deps, :reject_spec_fn, &Engine.reject_spec/2)
-    edit_fn = Map.get(deps, :edit_spec_fn, &Engine.edit_spec/2)
-    opts = review_opts(deps)
-
-    case prompt_fn.("[a]pprove  [e]dit  [r]eject: ") do
-      response when is_binary(response) ->
-        choice = response |> String.trim() |> String.downcase()
-        handle_approval_choice(choice, spec_id, approve_fn, reject_fn, edit_fn, opts, deps)
-
-      _ ->
-        {:error, {:approval_cancelled, %{}}}
-    end
-  end
-
-  defp handle_approval_choice("a", spec_id, approve_fn, _reject_fn, _edit_fn, opts, _deps) do
-    case approve_fn.(spec_id, opts) do
-      {:ok, spec} -> {:ok, %{id: spec.id, title: spec.title, status: spec.status, action: "approved"}}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp handle_approval_choice("e", spec_id, _approve_fn, _reject_fn, edit_fn, opts, deps) do
-    case edit_fn.(spec_id, opts) do
-      {:ok, _stat_result} -> run_approval_prompt(spec_id, deps)
-      {:error, _} = error -> error
-    end
-  end
-
-  defp handle_approval_choice("r", spec_id, _approve_fn, reject_fn, _edit_fn, opts, _deps) do
-    case reject_fn.(spec_id, opts) do
-      {:ok, spec} -> {:ok, %{id: spec.id, title: spec.title, status: spec.status, action: "rejected"}}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp handle_approval_choice(_, _spec_id, _approve_fn, _reject_fn, _edit_fn, _opts, _deps) do
-    {:error, {:usage_error, %{message: "Invalid choice. Use 'a' to approve, 'e' to edit, or 'r' to reject."}}}
-  end
-
-  defp review_opts(deps) do
-    opts = []
-    opts = if Map.has_key?(deps, :file_system), do: [{:file_system, deps.file_system} | opts], else: opts
-    opts = if Map.has_key?(deps, :shell_mod), do: [{:shell_mod, deps.shell_mod} | opts], else: opts
-    opts = if Map.has_key?(deps, :confirm_fn), do: [{:confirm_fn, deps.confirm_fn} | opts], else: opts
-    opts = if Map.has_key?(deps, :editor_env), do: [{:editor_env, deps.editor_env} | opts], else: opts
-    opts
-  end
-
-  defp run_spec_generation_with_trail(session_id, generate_spec_fn, _deps) do
-    {:ok, show_hints} = Trail.show_hints?()
-    {:ok, heartbeat_ref} = Trail.subscribe_with_heartbeat(session_id, interval_ms: 5_000)
-
-    task =
-      Task.Supervisor.async_nolink(Familiar.TaskSupervisor, fn ->
-        generate_spec_fn.(session_id, [])
-      end)
-
-    {result, final_ref} = receive_trail_events(task, heartbeat_ref, show_hints)
-    {:ok, :cancelled} = Trail.cancel_heartbeat(final_ref)
-    result
-  end
-
-  defp receive_trail_events(task, heartbeat_ref, show_hints) do
-    receive do
-      {:trail_event, event} ->
-        line = TrailFormatter.format(event, hint: show_hints)
-        IO.puts(:stderr, line)
-        new_ref = Trail.reset_heartbeat(heartbeat_ref, interval_ms: 5_000)
-        receive_trail_events(task, new_ref, show_hints)
-
-      {:trail_heartbeat, _pid} ->
-        IO.puts(:stderr, TrailFormatter.heartbeat())
-        new_ref = Trail.reset_heartbeat(heartbeat_ref, interval_ms: 5_000)
-        receive_trail_events(task, new_ref, show_hints)
-
-      {ref, result} when ref == task.ref ->
-        Process.demonitor(task.ref, [:flush])
-        {result, heartbeat_ref}
-
-      {:DOWN, ref, :process, _pid, reason} when ref == task.ref ->
-        {{:error, {:spec_generation_failed, %{reason: reason}}}, heartbeat_ref}
-    after
-      300_000 ->
-        {{:error, {:spec_generation_timeout, %{timeout_ms: 300_000}}}, heartbeat_ref}
     end
   end
 

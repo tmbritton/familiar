@@ -3,6 +3,7 @@ stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 lastStep: 8
 status: 'complete'
 completedAt: '2026-04-01'
+addendum: '2026-04-03'
 inputDocuments: [_bmad-output/planning-artifacts/prd.md, _bmad-output/planning-artifacts/prd-brief.md, _bmad-output/planning-artifacts/ux-design-specification.md, _bmad-output/planning-artifacts/prd-validation-report.md, docs/arch-sketch.md]
 workflowType: 'architecture'
 project_name: 'anthill'
@@ -1048,3 +1049,786 @@ familiar/
 4. 6 testing port behaviours + Mox mock definitions
 5. Ollama provider adapter (chat + embed)
 6. Init scanner — the first feature story and integration test of the foundation
+
+## Architecture Addendum (2026-04-03): Multi-Agent Harness Architecture
+
+### Architectural Reframing
+
+**Familiar is a multi-agent harness** that ships with an opinionated default set of workflows, roles, and skills for software development. The Elixir/OTP codebase provides the **agentic execution environment** — it is not a planning tool, a coding assistant, or a task runner. It is the runtime that hosts agents, provides tools, enforces safety, and manages state. What those agents do is defined entirely in user-editable markdown files.
+
+**The Elixir code provides:**
+- `AgentProcess` — a generic GenServer that executes any agent role via a tool-call loop
+- `WorkflowRunner` — sequences agents through workflow steps (interactive + autonomous)
+- `ToolRegistry` — maps tool names to Elixir implementations; the bridge between LLM intent and system action
+- `AgentSupervisor` — DynamicSupervisor for all agent processes (the core OTP primitive)
+- Safety enforcement at the tool layer (project sandboxing, git protection, deletion constraints)
+- Provider abstraction (Ollama, Anthropic) behind a common behaviour
+- PubSub event infrastructure for status streaming
+
+**Two systems provided to agents as tools/skills:**
+- **Knowledge Store** — semantic search, knowledge capture, freshness validation. Agents access this via tools (`search_context`, `store_context`, `list_entries`, `check_freshness`)
+- **Task Manager** (post-MVP) — structured Ecto work hierarchy, state machine, dependency resolution. MVP alternative: agents track tasks in markdown files via `read_file`/`write_file` in `.familiar/tasks/`
+
+**Additional tools provided by the execution environment:**
+- File operations (`read_file`, `write_file`, `delete_file`, `list_files`) via the file transaction module
+- Shell commands (`run_command`) restricted to configured test/build/lint commands
+- Agent orchestration (`spawn_agent`, `monitor_agents`, `broadcast_status`) for the PM role
+- Workflow signals (`signal_ready`, `signal_phase_transition`) for step transitions
+
+**Everything else is markdown:**
+- **Roles** (`.familiar/roles/*.md`) — agent personas, system prompts, skill references
+- **Skills** (`.familiar/skills/*.md`) — capability bundles, tool permissions, instructions
+- **Workflows** (`.familiar/workflows/*.md`) — step sequences, agent assignments, interaction modes
+
+This means **planning is not a special system** — it is a workflow (`feature-planning.md`) executed by agents (analyst, librarian, spec-writer, reviewer) using the same AgentProcess and tool-call loop that executes code implementation, task fixing, and any user-defined workflow. There is no `Engine` module that knows about planning phases. There is a generic workflow runner that sequences agents through steps defined in markdown.
+
+**Context:** During Epic 3 implementation, architectural review identified that: (1) multi-agent orchestration is a core differentiator of the BEAM/OTP platform choice and must be MVP scope, (2) agent prompts hard-coded in Elixir should load from user-editable markdown files, and (3) the execution environment must be built before domain-specific workflows (including planning) can run on top of it.
+
+### Superseded Decisions
+
+The following statements from the original architecture document are **superseded** by this addendum:
+
+| Original | Superseded By |
+|---|---|
+| Line 61: "MVP spawns one agent process at a time. Sequential by policy, not by architecture." | Decision A1: Parallel execution is MVP scope with configurable concurrency |
+| Line 242: "Sequential execution only (MVP)" | Decision A1: Parallel execution is MVP scope |
+| Line 253: "Single coding agent (analyst/coder/reviewer roles via role files)" | Decision A1: Multiple concurrent agents, each an AgentProcess with a role file |
+| Line 261: "Do NOT pre-build behaviours. Build the MVP coding implementation first as concrete modules" | Decision A2: One generic AgentProcess, no per-role Elixir modules needed |
+| Line 278: "Parsed but ignored for MVP: `parallel: true` flag on workflow steps" | Decision A1: Parallel flag honored in MVP |
+| Line 1031: "Multi-agent supervision topology (Registry + DynamicSupervisor when extending)" | Decision A1: Built now, not deferred |
+| Lines 58-64: Planning Engine as a core process with conversation loop | Decision A3: Planning is a workflow, not a bespoke system. No `Engine` module — the workflow runner sequences agents. |
+| Line 64: "Prompt Assembly Pipeline — pure function module" with hard-coded prompt | Decision A3: System prompts come from role files. PromptAssembly assembles role prompt + context + history — it does not define the prompt content. |
+| Epic ordering: Epic 3 (Planning) before Epic 5 (Execution) | Decision A4: Execution environment built first. Planning runs on top as a workflow. |
+
+### Decision A1: Multi-Agent Orchestration Topology (MVP)
+
+**Decision:** Single generic agent executor (`AgentProcess` GenServer) under one shared `DynamicSupervisor`. All agent differentiation lives in role markdown files, not Elixir code. A project-manager role orchestrates parallel worker agents.
+
+**Core principle:** One GenServer module, many role files. Creating a new agent type means creating a markdown file — no Elixir code required.
+
+**Supervision topology:**
+
+```
+Familiar.Supervisor (one_for_one)
+├── ... (existing: Telemetry, Repo, TaskSupervisor, Migrator, RecoveryGate, PubSub, etc.)
+│
+├── Familiar.AgentSupervisor (DynamicSupervisor)     ← NEW (consolidates LibrarianSupervisor)
+│   ├── AgentProcess (role: "project-manager", task: batch_spec)
+│   │     ├── AgentProcess (role: "coder", task: implement_auth)
+│   │     ├── AgentProcess (role: "coder", task: add_tests)
+│   │     ├── AgentProcess (role: "librarian", task: context_query)
+│   │     └── AgentProcess (role: "archivist", task: knowledge_capture)
+│   └── ... (any user-defined role)
+```
+
+All agents — project manager, coder, reviewer, librarian, archivist, and any user-created custom roles — are instances of the same `AgentProcess` GenServer, differentiated entirely by their loaded role file.
+
+**AgentProcess GenServer:**
+
+```elixir
+# Conceptual structure — one module for ALL agents
+defmodule Familiar.Execution.AgentProcess do
+  use GenServer
+
+  # init/1: load role file, initialize state
+  # handle_continue(:execute, state): enter tool-call loop
+  # handle_info({:tool_result, ...}, state): process tool result, continue loop
+  # handle_info({:DOWN, ...}, state): handle monitored child crash
+  # terminate/2: clean shutdown, report final status
+end
+```
+
+The GenServer code is identical regardless of role. The LLM sees a different system prompt (from the role file), has access to different tools (from the role's skill references), and operates under different constraints (from skill metadata). The Elixir execution loop is the same.
+
+**Agent spawning:**
+
+```elixir
+# All agents start the same way — role file is the only differentiator
+AgentProcess.start_link(role: "coder", task: task, parent: pm_pid, opts: opts)
+AgentProcess.start_link(role: "project-manager", task: batch, parent: nil, opts: opts)
+AgentProcess.start_link(role: "librarian", task: query, parent: caller_pid, opts: opts)
+AgentProcess.start_link(role: "my-custom-reviewer", task: review, parent: pm_pid, opts: opts)
+```
+
+**Project Manager as an agent:**
+
+The project manager is an AgentProcess loaded with the `project-manager` role. It has agentic responsibilities:
+- **Summarizes** worker results for the user ("3 tasks done, auth handler wrote 4 files")
+- **Makes decisions** about failure handling ("stale context → retry" vs "ambiguous → escalate")
+- **Decomposes** work when tasks need further breakdown
+- **Routes and transforms** status messages (not just raw forwarding)
+
+The PM's role file defines these responsibilities via its system prompt and available skills. Its tools include orchestration-specific operations (`spawn_agent`, `monitor_agents`, `broadcast_status`) plus standard file tools (`read_file`, `write_file`, `list_files`) for managing task markdown files. It participates in the same tool-call loop as any other agent — the LLM decides when to spawn workers, how to handle failures, and what to report to the user.
+
+**Message flow:**
+
+```
+Engine.dispatch_batch(task_ids, opts)
+  → DynamicSupervisor.start_child(AgentSupervisor,
+      {AgentProcess, role: "project-manager", task: %{task_ids: ids, ...}})
+
+  ProjectManager (AgentProcess, role: "project-manager"):
+    → LLM receives task graph, decides execution order
+    → Tool call: spawn_agent(role: "coder", task: task_1)
+    → Tool call: spawn_agent(role: "coder", task: task_2)   # parallel
+    → Receives: {:worker_status, pid, %{type: :reading_file, detail: "auth.ex"}}
+    → Tool call: broadcast_status("Reading auth.ex for task #1")
+    → Receives: {:worker_complete, pid, result}
+    → Tool call: spawn_agent(role: "archivist", task: result.artifacts)
+    → LLM evaluates: dependent tasks now unblocked?
+    → Tool call: spawn_agent(role: "coder", task: task_3)   # was blocked on task_1
+    → ... continues until batch complete
+    → Tool call: broadcast_status("Batch complete: 5/5 tasks, 12 files modified")
+    → Terminates
+```
+
+**File conflict prevention:**
+
+Before the PM spawns a worker, it checks the worker's intended files (from task decomposition) against files claimed by running workers. This is state in the PM's GenServer — a map of `%{pid => [file_paths]}`. If overlap exists, the PM defers the task until the holder completes. On PM crash, the file transaction module's pre-write stat check (Story 5.2) provides the safety net — double protection.
+
+**Concurrency configuration:**
+
+```toml
+# .familiar/config.toml
+[execution]
+max_parallel_agents = 3    # Default: 3. Set to 1 for sequential-only
+```
+
+Setting `max_parallel_agents = 1` reproduces sequential behavior. The architecture is always concurrent — the policy is configurable. The PM role file references this config when deciding how many workers to spawn simultaneously.
+
+**CLI/Web as UserManager:**
+
+The CLI process and Phoenix Channel already serve the UserManager function: they own the user session, receive status via PubSub, and format output. No separate UserManager GenServer is needed for MVP. The PM broadcasts status to PubSub; the CLI/Channel subscribes and displays. The GenServer version becomes relevant post-MVP when persistent session state across multiple CLI invocations is needed.
+
+**Consolidation of LibrarianSupervisor:**
+
+The existing `Familiar.LibrarianSupervisor` is replaced by `Familiar.AgentSupervisor`. The Librarian becomes an AgentProcess with `role: "librarian"` — same GenServer, same supervision, role file provides the multi-hop retrieval instructions.
+
+**Rationale:** The BEAM's process model makes N ephemeral agents as easy to supervise as 1. The Librarian GenServer (already implemented) proves the pattern. Making the PM an agent (not a special coordinator) means the orchestration logic is in the role file — users can customize PM behavior, and the system has exactly one execution model to maintain. One GenServer module is simpler to test, debug, and reason about than N specialized modules.
+
+### Decision A2: Role & Skill File System
+
+**Decision:** Agent behavior is defined entirely by user-editable markdown files in `.familiar/roles/` and `.familiar/skills/`. No agent-specific Elixir code. Three-tier capability model: Role → Skills → Tools.
+
+**Three-tier model:**
+
+```
+Role (persona + system prompt)     → defines WHO the agent is
+  └── Skills (capability bundles)  → defines WHAT the agent can do
+       └── Tools (atomic ops)      → defines HOW actions execute
+```
+
+A role references skills by name. A skill references tools by name. Tools are registered in the Elixir tool registry (the only part that requires code — tool implementations are Elixir functions). Roles and skills are pure markdown.
+
+**File format — roles:**
+
+```markdown
+# .familiar/roles/librarian.md
+---
+name: librarian
+description: Multi-hop knowledge retrieval and summarization
+model: default
+lifecycle: ephemeral
+skills:
+  - search_knowledge
+  - summarize_results
+---
+
+You are a knowledge librarian. Your job is to find and summarize relevant
+context from the project's knowledge store.
+
+## Search Refinement
+
+Given a query and search results, identify what information is missing.
+If results adequately cover the query, signal "SUFFICIENT".
+Otherwise, return a refined search query to fill the gaps.
+
+## Summarization
+
+Summarize search results into a concise context block relevant to the query.
+Cite sources using "[source_file]" after each claim.
+Keep the summary focused and actionable.
+```
+
+```markdown
+# .familiar/roles/project-manager.md
+---
+name: project-manager
+description: Orchestrates task execution, monitors workers, summarizes progress
+model: default
+lifecycle: batch
+skills:
+  - dispatch_tasks
+  - monitor_workers
+  - summarize_progress
+  - evaluate_failures
+---
+
+You are a project manager coordinating task execution for a software project.
+
+## Task Orchestration
+- You receive a batch of tasks with dependency information
+- Dispatch independent tasks in parallel (up to the configured concurrency limit)
+- Track completion and unblock dependent tasks when their dependencies finish
+
+## Status Reporting
+- Provide concise status updates as workers progress
+- Translate technical details into actionable summaries
+- Report completion with: tasks done, files modified, tests added
+
+## Failure Evaluation
+- When a worker fails, evaluate whether the failure is recoverable
+- Stale context or transient provider issues: retry automatically (max 1 retry)
+- Ambiguous failures: escalate to user with your analysis and options
+- 3+ same-type failures in a batch: stop retrying that type (circuit breaker)
+```
+
+```markdown
+# .familiar/roles/coder.md
+---
+name: coder
+description: Implements features and fixes following project conventions
+model: default
+lifecycle: ephemeral
+skills:
+  - implement
+  - test
+  - research
+---
+
+You are a software developer implementing features and fixes.
+
+## Approach
+- Follow established code patterns and conventions from the knowledge store
+- Write tests alongside implementation
+- Keep changes focused and minimal — do not refactor surrounding code
+- Document significant decisions for the knowledge store
+
+## Safety
+- Only modify files within the project directory
+- Only create files that are necessary for the task
+- Run tests after making changes to verify correctness
+```
+
+```markdown
+# .familiar/roles/archivist.md
+---
+name: archivist
+description: Extracts and captures knowledge from completed work
+model: default
+lifecycle: ephemeral
+skills:
+  - extract_knowledge
+  - capture_gotchas
+---
+
+You are an archivist responsible for capturing institutional knowledge
+from completed work.
+
+## Knowledge Extraction
+- From successful task output: extract conventions applied, decisions made,
+  relationships discovered
+- From failure context: extract gotchas, edge cases, patterns that caused confusion
+- NEVER capture raw code — capture the knowledge ABOUT the code
+
+## Quality Rules
+- Each knowledge entry must be a natural language description, not code
+- Cite source files using "[file_path]" format
+- Keep entries focused and actionable — one concept per entry
+- Check for duplicates before storing — update existing entries rather than
+  creating near-duplicates
+```
+
+**Role frontmatter fields:**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | yes | Unique identifier, matches filename without extension |
+| `description` | yes | One-line description shown in `fam roles` listing |
+| `model` | no | Model preference: `default`, `local`, `frontier`, or specific model name. Default: `default` (uses config) |
+| `lifecycle` | no | `ephemeral` (dies after one task, default), `batch` (lives for batch duration), `session` (lives for user session) |
+| `skills` | yes | List of skill names this role can use |
+
+**File format — skills:**
+
+```markdown
+# .familiar/skills/search_knowledge.md
+---
+name: search_knowledge
+description: Semantic search across the knowledge store
+tools:
+  - search_context
+  - read_file
+constraints:
+  max_iterations: 5
+  read_only: true
+---
+
+Search the knowledge store for entries relevant to the given query.
+Use semantic embedding to find related entries. If initial results
+are sparse (fewer than 3 results), refine the query and search again.
+Return raw results with source citations.
+```
+
+```markdown
+# .familiar/skills/dispatch_tasks.md
+---
+name: dispatch_tasks
+description: Spawn and coordinate worker agents for task execution
+tools:
+  - spawn_agent
+  - broadcast_status
+  - read_file
+  - write_file
+  - list_files
+constraints:
+  max_parallel: config.execution.max_parallel_agents
+---
+
+Dispatch tasks to worker agents respecting dependency ordering.
+Read task files from .familiar/tasks/ to determine dependencies
+and status. Only dispatch tasks whose dependencies are complete.
+Track intended files per worker to prevent conflicts.
+Update task file status as workers complete.
+```
+
+**Skill frontmatter fields:**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | yes | Unique identifier, matches filename without extension |
+| `description` | yes | One-line description |
+| `tools` | yes | List of tool names from the tool registry this skill may invoke |
+| `constraints` | no | Map of constraint key-values: `read_only`, `max_iterations`, `max_parallel`, etc. |
+
+The skill body is appended to the agent's prompt when that skill is active, providing specific instructions for how to use the skill's tools.
+
+**Tool registry (Elixir code — the only non-markdown layer):**
+
+Tools are the atomic operations that agents invoke via the LLM tool-call interface. Each tool is an Elixir function registered in the tool registry. This is the only part that requires code changes to extend.
+
+MVP tool registry:
+
+| Tool | Context | Description |
+|---|---|---|
+| `read_file` | Files | Read a project file (also used by PM for task markdown) |
+| `write_file` | Files | Write via transaction module (also used by PM for task status updates) |
+| `delete_file` | Files | Delete (own-task files only) |
+| `run_command` | System | Execute allowed shell commands (test/build/lint) |
+| `search_context` | Knowledge | Semantic search of knowledge store |
+| `store_context` | Knowledge | Insert knowledge entry |
+| `list_files` | Files | List project files matching pattern |
+| `spawn_agent` | Execution | Start a new AgentProcess under AgentSupervisor |
+| `monitor_agents` | Execution | Query status of running agents |
+| `broadcast_status` | Execution | Push status update to PubSub |
+| `signal_ready` | Execution | Signal workflow runner that current step is complete |
+
+Tools enforce safety constraints at the implementation level (project directory sandboxing, git protection, deletion restrictions per Story 5.3). A role/skill file cannot grant permissions that the tool implementation doesn't allow.
+
+**Runtime loading module:**
+
+A new module `Familiar.Roles` provides:
+
+```elixir
+# Public API
+Familiar.Roles.load_role(name)      # → {:ok, %Role{}} | {:error, {:role_not_found, ...}}
+Familiar.Roles.load_skill(name)     # → {:ok, %Skill{}} | {:error, {:skill_not_found, ...}}
+Familiar.Roles.list_roles()         # → {:ok, [%Role{}]}
+Familiar.Roles.list_skills()        # → {:ok, [%Skill{}]}
+Familiar.Roles.validate_role(name)  # → :ok | {:error, {:invalid_role, %{reason: ...}}}
+Familiar.Roles.validate_skill(name) # → :ok | {:error, {:invalid_skill, %{reason: ...}}}
+```
+
+Role and skill structs:
+
+```elixir
+%Familiar.Roles.Role{
+  name: "coder",
+  description: "Implements features and fixes following project conventions",
+  model: "default",
+  lifecycle: :ephemeral,
+  skills: ["implement", "test", "research"],
+  system_prompt: "You are a software developer..."   # body of the markdown file
+}
+
+%Familiar.Roles.Skill{
+  name: "implement",
+  description: "Write and modify code files",
+  tools: ["read_file", "write_file", "run_command", "search_context"],
+  constraints: %{},
+  instructions: "..."   # body of the markdown file
+}
+```
+
+**Integration with prompt assembly:**
+
+`PromptAssembly` currently uses a hard-coded `@planning_system_prompt` module attribute. This changes to accept a loaded role:
+
+```elixir
+# Before (hard-coded):
+PromptAssembly.assemble(context_block, conversation_history)
+
+# After (role-driven):
+{:ok, role} = Roles.load_role("analyst")
+PromptAssembly.assemble(context_block, conversation_history, role: role)
+```
+
+The `@planning_system_prompt` module attribute is removed. The prompt comes from `.familiar/roles/analyst.md`.
+
+**Integration with Librarian:**
+
+The two inline prompts in `librarian.ex` (search refinement + summarization) move to `.familiar/roles/librarian.md`. When the Librarian is migrated to AgentProcess, it loads this role file on init. Until that migration (Epic 5), the Librarian can use `Roles.load_role("librarian")` to read its prompt from the file instead of the inline string.
+
+**Default files update:**
+
+`Knowledge.DefaultFiles.install/1` is updated to install:
+- `.familiar/roles/` — analyst, coder, reviewer, librarian, archivist, project-manager (with proper YAML frontmatter)
+- `.familiar/skills/` — implement, test, research, review_code, search_knowledge, summarize_results, extract_knowledge, capture_gotchas, dispatch_tasks, monitor_workers, summarize_progress, evaluate_failures
+
+These replace the current stub role files (which lack frontmatter and skill references).
+
+**User customization:**
+
+Users can:
+- Edit any existing role/skill file to customize agent behavior
+- Create new roles by adding a `.md` file to `.familiar/roles/`
+- Create new skills by adding a `.md` file to `.familiar/skills/`
+- A custom role is immediately usable: `fam do #N --role my-custom-role`
+- Reference custom roles in workflow step definitions
+
+**Critical boundary — skills define intent, safety enforces permission:**
+
+Skills define what an agent is *instructed* to do. Safety enforcement (Story 5.3) defines what an agent is *permitted* to do. A skill file lists tools the agent may request — the tool implementation validates each invocation against safety constraints. A malicious or misconfigured skill file cannot bypass project directory sandboxing, git protection, or deletion restrictions. Skill files are prompt content, not permission grants.
+
+**Validation on load:**
+
+When the daemon starts (or when a role/skill file is modified), validation runs:
+- Role references skills that exist in `.familiar/skills/`
+- Skills reference tools that exist in the tool registry
+- Required frontmatter fields present (`name`, `description`, `skills`/`tools`)
+- YAML frontmatter parses without errors
+- Clear error messages per FR67: "Role 'my-role' references skill 'foo' which does not exist in .familiar/skills/"
+
+**Rationale:** Hard-coding agent behavior in Elixir means every new agent type requires a code change, a compilation, and a release. Markdown files are editable in any text editor, versionable in git, and inspectable without Elixir knowledge. The three-tier model (Role → Skills → Tools) separates persona from capability from implementation. This directly addresses FR65-FR66 and makes the agent system user-extensible from day one.
+
+### Decision A3: Planning as a Workflow
+
+**Decision:** Planning is not a bespoke system. It is a workflow definition executed by agents through the generic workflow runner. The `Engine`, `PromptAssembly` (prompt content), and `Librarian` (GenServer) modules are replaced by AgentProcess instances loaded with role files.
+
+**The planning workflow:**
+
+```markdown
+# .familiar/workflows/feature-planning.md
+---
+name: feature-planning
+description: Plan a new feature from description to approved spec
+trigger: plan
+steps:
+  - name: context-retrieval
+    role: librarian
+    mode: autonomous
+    output: context_block
+  - name: planning-conversation
+    role: analyst
+    mode: interactive
+    input: context_block
+    output: conversation_decisions
+  - name: spec-generation
+    role: spec-writer
+    mode: autonomous
+    input: [context_block, conversation_decisions]
+    output: spec_draft
+  - name: verification
+    role: reviewer
+    mode: autonomous
+    input: spec_draft
+    output: verified_spec
+  - name: approval
+    mode: interactive
+    input: verified_spec
+    output: approved_spec
+---
+```
+
+Each step is an AgentProcess with a role file, using the same tool-call loop as code implementation. The workflow runner:
+1. Starts the first step's agent with the workflow context
+2. Passes each step's output as input to subsequent steps
+3. Handles interactive mode (multi-turn conversation via Channel) vs. autonomous mode (run to completion)
+4. Manages step transitions — agents signal readiness via a `signal_ready` tool call instead of magic string prefixes
+
+**What survives from Epic 3 (already built):**
+
+| Module | Lines | Survival | Notes |
+|---|---|---|---|
+| `verification.ex` | 216 | 100% | Pure functional, zero coupling to conversation model |
+| `trail.ex` | 125 | 100% | PubSub infrastructure, used by workflow runner for events |
+| `trail_formatter.ex` | 110 | 100% | Pure formatter, gains new event type clauses |
+| `spec_review.ex` | 259 | ~95% | Approval logic independent of orchestration |
+| `spec_generator.ex` | 465 | ~40% | Tool handlers (`file_read`, `knowledge_search`) extract to tool registry; frontmatter/title/slug utils survive; tool loop and prompt die |
+| `librarian.ex` | 237 | ~30% | Search merge/format helpers extract; GenServer + prompts replaced by AgentProcess + role file |
+| `engine.ex` | 273 | ~15% | Only DB helper functions survive |
+| `prompt_assembly.ex` | 97 | ~5% | Only `normalize_history/1` survives; prompt content moves to role files |
+
+**~700 lines of infrastructure survive.** Verification, trail, review, and tool handler implementations carry forward into the new system. **~550 lines of orchestration and hard-coded prompts are replaced** by the workflow runner + role files.
+
+**How LLM reasoning replaces programmatic logic:**
+
+| Current Code | Replaced By |
+|---|---|
+| `length(results) < @gap_threshold` (numeric check) | Librarian LLM evaluates "do these results cover the query domain?" |
+| `String.starts_with?(response, "[SPEC_READY]")` (magic string) | Analyst calls `signal_ready` tool when it judges conversation is complete |
+| `@planning_system_prompt` question count rules (`3-5` / `0-2`) | Analyst role file says "ask as many questions as needed, no more" — LLM calibrates |
+| `Verification.extract_claims/1` regex for file paths | Reviewer agent identifies verifiable claims semantically (can still use `verification.ex` as a tool) |
+| `@max_hops 3` compiled constant | Librarian role file suggests "refine up to 3 times" — LLM stops sooner if coverage is good |
+| `@spec_generation_prompt` fixed section requirements | Spec-writer role file describes good spec structure — user can customize per project |
+
+**PromptAssembly survives as infrastructure, not content:**
+
+`PromptAssembly` is not deleted — it is refactored. It no longer defines the system prompt (that comes from the role file). It becomes a pure function that assembles: role system prompt (from file) + skill instructions (from files) + context block + conversation history + provider-specific formatting → message list. The assembly logic survives. The prompt content does not.
+
+**Rationale:** The BMAD framework that built Familiar demonstrates the pattern: workflows defined in markdown, executed by LLMs, with the LLM as the reasoning engine for decisions that are currently hard-coded. Familiar should implement the same pattern. Planning, implementation, review, and fix are all workflows. The Elixir code is the execution environment — not the domain logic.
+
+### Decision A4: Execution-First Epic Ordering
+
+**Decision:** The agentic execution environment must be built before domain-specific workflows (including planning) can run on top of it.
+
+**Revised epic order:**
+
+```
+Phase 1 — Foundation (done):
+  Epic 1: Project Foundation & Initialization (done)
+  Epic 2: Knowledge Store & Context Management (done)
+  Epic 3: Planning (stories 3-1 through 3-4 done — infrastructure survives)
+
+Phase 2 — Agent Harness:
+  Epic 4.5: Role & Skill File System (load/validate roles, skills; migrate inline prompts)
+  Epic 5:   Agent Execution (AgentProcess, tool registry, workflow runner, PM agent, safety)
+
+Phase 3 — Workflows on the Harness:
+  Epic 3r: Planning Workflow (migrate planning to workflow runner; stories 3-5, 3-6, 3-7 run here)
+  Epic 6:  Recovery Workflow (fam fix as a workflow)
+  Epic 7:  Web UI
+  Epic 8:  CLI Management & Session Handling
+
+Post-MVP:
+  Epic 4:  Task Management (structured Ecto hierarchy, state machine, dependency resolver)
+```
+
+**Key changes:**
+- **Epic 4 (Task Management) moved to post-MVP.** The structured Ecto-based work hierarchy (state machine, dependency resolver, four-level hierarchy) is a convenience, not a foundation. Agents can track tasks in markdown files using `read_file`/`write_file` — the same tools they use for code. The PM agent manages work by reading and writing `.familiar/tasks/` markdown files, just as a human PM would. The structured task system becomes a nice upgrade when warranted, not a prerequisite.
+- Epic 3 stories 3-5 through 3-7 move to Phase 3 as "Epic 3r" (planning revisited) — they run planning as a workflow on the execution environment
+- Epic 5 must complete before any workflow can execute, including planning
+- Epic 4.5 (role/skill files) is the sole prerequisite for Epic 5 (AgentProcess loads roles)
+- The planning workflow definition (`feature-planning.md`) becomes the integration test of Epic 5 — validating the execution environment against a real workflow that already has working test infrastructure
+- **PM agent tools simplified:** No `query_task_graph` or `update_task_status` tools needed for MVP. The PM uses `read_file`, `write_file`, `list_files` on task markdown files. The `spawn_agent`, `monitor_agents`, and `broadcast_status` tools remain.
+
+**What happens to already-built Epic 3 code:**
+- Stories 3-1 through 3-4 are committed and tested. The infrastructure (verification, trail, review, tool handlers) is reusable.
+- When Epic 3r runs, it migrates the surviving code into the new architecture and replaces the orchestration layer.
+- Tests survive and are adapted — they validate the same behavior through the new execution model.
+- No code is deleted until Epic 3r replaces it with equivalent workflow-driven behavior.
+
+**Rationale:** The agent harness is the product. The task manager is a feature. Build the harness first, validate it with real workflows, then add structured task tracking when the overhead is justified by scale. Markdown task files are sufficient for the 50-task baseline phase.
+
+### Updated Supervision Tree
+
+```
+Familiar.Supervisor (one_for_one)
+├── FamiliarWeb.Telemetry
+├── Familiar.Repo
+├── {Task.Supervisor, name: Familiar.TaskSupervisor}
+├── Familiar.AgentSupervisor (DynamicSupervisor)     ← REPLACES LibrarianSupervisor
+│   └── AgentProcess instances (any role)
+├── {Ecto.Migrator, ...}
+├── Familiar.Daemon.RecoveryGate
+├── {DNSCluster, ...}
+├── {Phoenix.PubSub, name: Familiar.PubSub}
+├── Familiar.Daemon.Server
+└── FamiliarWeb.Endpoint
+```
+
+Changes from current `application.ex`:
+- `Familiar.LibrarianSupervisor` renamed to `Familiar.AgentSupervisor` (same DynamicSupervisor, broader scope)
+- No other supervision tree changes needed — the DynamicSupervisor pattern is already in place
+
+### Updated Directory Structure (Additions Only)
+
+```
+lib/familiar/
+  roles/                          # NEW context — role & skill file loading
+  │ ├── roles.ex                  # Public API: load_role/1, list_roles/0, validate_role/1
+  │ ├── role.ex                   # Struct: %Role{name, description, model, lifecycle, skills, system_prompt}
+  │ └── skill.ex                  # Struct: %Skill{name, description, tools, constraints, instructions}
+  │
+  execution/
+  │ ├── agent_process.ex          # NEW — Generic agent GenServer (one module for ALL roles)
+  │ ├── tool_registry.ex          # NEW — Maps tool names to implementation functions
+  │ ...
+
+.familiar/
+  roles/                          # UPDATED — proper frontmatter, system prompts as body
+  │ ├── analyst.md                # Planning conversation agent
+  │ ├── coder.md                  # Code implementation agent
+  │ ├── reviewer.md               # Code review agent
+  │ ├── librarian.md              # Knowledge retrieval agent
+  │ ├── archivist.md              # Knowledge capture agent
+  │ └── project-manager.md        # Batch orchestration agent
+  │
+  skills/                         # NEW — capability bundle definitions
+  │ ├── implement.md
+  │ ├── test.md
+  │ ├── research.md
+  │ ├── review_code.md
+  │ ├── search_knowledge.md
+  │ ├── summarize_results.md
+  │ ├── extract_knowledge.md
+  │ ├── capture_gotchas.md
+  │ ├── dispatch_tasks.md
+  │ ├── monitor_workers.md
+  │ ├── summarize_progress.md
+  │ └── evaluate_failures.md
+```
+
+### Impact on Existing Epics
+
+**Epic 3 (Planning) — completed stories 3-1 through 3-4:**
+Infrastructure survives: `verification.ex` (100%), `trail.ex` (100%), `trail_formatter.ex` (100%), `spec_review.ex` (~95%), tool handler implementations from `spec_generator.ex`. Orchestration and prompts (`engine.ex`, `prompt_assembly.ex` prompt content, `librarian.ex` GenServer) are replaced when planning migrates to a workflow in Epic 3r. No code is deleted until Epic 3r provides equivalent workflow-driven behavior. Tests survive and validate the same behavior through the new execution model.
+
+**Epic 3 stories 3-5 through 3-7 → become Epic 3r (Phase 3):**
+These stories (task decomposition, conflict detection, integration test) move to after Epic 5 completes. They execute planning as a workflow on the execution environment. The integration test (3-7) becomes the validation that the workflow runner correctly executes the `feature-planning.md` workflow end-to-end.
+
+**Epic 4 (Task Management) — moved to post-MVP.** The structured Ecto work hierarchy is a convenience, not a prerequisite. Agents track tasks in markdown files using `read_file`/`write_file`. The PM reads `.familiar/tasks/` to determine dependencies and status. When the structured system is built (post-MVP), it replaces markdown task files with Ecto schemas and adds `query_task_graph`, `update_task_status` tools to the registry.
+
+**Epic 4.5 (Role & Skill File System):** Unchanged — prerequisite for Epic 5. Roles context, file loading, default files, inline prompt migration.
+
+**Epic 5 (Agent Execution):**
+- **Story 5.1:** Builds `Execution.AgentProcess` — the single generic GenServer for all agents. Tool-call loop via `handle_continue`/`handle_info`. Role loaded from `.familiar/roles/` on init. `ToolRegistry` maps tool names to Elixir implementations.
+- **Story 5.2:** File transaction module + file claim registration for parallel conflict prevention.
+- **Story 5.3:** Safety enforcement at the tool layer.
+- **Story 5.4:** Task dispatch. PM is an AgentProcess with `role: "project-manager"`. Parallel execution with configurable concurrency.
+- **Story 5.5:** Workflow runner. Sequences agents through workflow step definitions. Handles interactive/autonomous modes, context passing between steps, phase transition signals. **The `feature-planning.md` workflow is the first test case** — it validates the runner against a real pipeline with existing test infrastructure.
+
+**Epic 6 (Recovery):** `fam fix` becomes a workflow (`task-fix.md`) — the fix conversation is an analyst agent step, rollback is a tool call. Same execution environment.
+
+**Epic 8 (CLI Management):** Scope reduced to CLI commands (`fam roles`, `fam skills`, `fam workflows`) and interactive session timeout/resume. File loading infrastructure is in Epic 4.5.
+
+### Addendum Validation
+
+**No new Elixir behaviours needed:** One generic `AgentProcess`, one implementation. Agent differentiation is in markdown.
+
+**Backward compatibility:** Setting `max_parallel_agents = 1` reproduces sequential execution. Single-task `fam do` spawns a worker directly without a PM.
+
+**Testing:** `AgentProcess` is tested once with scripted LLM responses (Mox). Different roles exercise different tool subsets but the same GenServer code. Role/skill file loading is tested with fixture files. The PM's orchestration behavior is tested by mocking the LLM to produce specific `spawn_agent` tool calls. The planning workflow migration (Epic 3r) validates the system end-to-end against existing test assertions.
+
+**Safety:** Tool implementations enforce safety constraints regardless of what the role file instructs. A role file cannot escalate permissions. Safety enforcement operates at the tool layer, below the role/skill layer.
+
+**The harness principle:** Familiar is a multi-agent harness. The Elixir code provides the execution environment, tools, and state systems. The markdown files define what agents do. This separation means: (1) users customize behavior without code, (2) new domains (not just coding) require only new markdown files, (3) the execution environment is testable independently of any specific workflow.
+
+### Decision A5: Extension System & Lifecycle Hooks
+
+**Decision:** The harness provides an extension API. Extensions are Elixir modules implementing `Familiar.Extension` behaviour. They register tools, supervision children, and lifecycle hook handlers. The Knowledge Store and Safety enforcement are default extensions, not hard-coded harness features.
+
+**Extension behaviour:**
+
+```elixir
+defmodule Familiar.Extension do
+  @type hook_registration :: %{
+    hook: atom(),
+    handler: module(),
+    priority: integer(),  # lower = runs first (default 100)
+    type: :alter | :event
+  }
+
+  @callback name() :: String.t()
+  @callback tools() :: [{atom(), function(), String.t()}]
+  @callback hooks() :: [hook_registration()]
+  @callback child_spec(opts :: keyword()) :: Supervisor.child_spec() | nil
+  @callback init(opts :: keyword()) :: :ok | {:error, term()}
+end
+```
+
+**Two hook types:**
+
+| Type | Mechanism | Use Case | Failure Mode |
+|---|---|---|---|
+| **Alter** | Synchronous pipeline (`Enum.reduce_while`) | `before_tool_call` — safety veto, arg modification | Skip broken handler, continue with unmodified value |
+| **Event** | Async via `Familiar.Activity` PubSub | `on_agent_complete` — knowledge capture, logging | Process isolation — subscriber crash doesn't affect core |
+
+**Alter hook pipeline:**
+
+```elixir
+# Core calls:
+case Hooks.alter(:before_tool_call, %{tool: name, args: args}, %{agent: pid}) do
+  {:ok, %{tool: name, args: possibly_modified_args}} -> execute_tool(name, args)
+  {:halt, reason} -> {:error, {:tool_blocked, reason}}
+end
+
+# Pipeline runs handlers in priority order (lower first):
+# Priority 1:  SafetyExtension.before_tool_call → validates paths, rejects dangerous ops
+# Priority 50: AuditExtension.before_tool_call → logs the call
+# Priority 100: CustomExtension.before_tool_call → custom checks
+```
+
+**Error isolation for alter hooks:**
+- Each handler call wrapped in `Task.async` with 5-second timeout
+- `try/rescue` catches exceptions — broken handler is skipped, value passes through unmodified
+- Circuit breaker: 3 consecutive failures on same hook → handler disabled until extension reload
+- Core never crashes because an extension misbehaved
+
+**Event hooks via Activity PubSub:**
+- The `Familiar.Hooks` module subscribes to Activity topics on behalf of extensions
+- Extensions declare which events they care about via `hooks/0`
+- PubSub process isolation means a crashing subscriber doesn't affect core or other subscribers
+- No new mechanism needed — Activity is the unified event bus, hooks are organized subscribers
+
+**MVP lifecycle hooks:**
+
+| Hook | Type | Purpose |
+|---|---|---|
+| `before_tool_call` | alter | Safety enforcement, arg validation, audit logging |
+| `after_tool_call` | event | Result logging, knowledge capture from tool outputs |
+| `on_agent_complete` | event | Post-task knowledge hygiene, cleanup, notifications |
+| `on_agent_error` | event | Error logging, failure analysis |
+| `on_file_changed` | event | Knowledge store freshness (file watcher → KS update) |
+
+**Post-MVP hooks** (added as extensions need them): `before_agent_start` (alter), `on_workflow_complete` (event), `on_message` (event), `on_init`/`on_shutdown` (events).
+
+**Default extensions:**
+
+| Extension | Tools | Hooks | Supervision |
+|---|---|---|---|
+| Knowledge Store | `search_context`, `store_context` | `after_tool_call`, `on_agent_complete`, `on_file_changed` | Embedding pool, file watcher |
+| Safety | (none — operates via hooks only) | `before_tool_call` (priority 1) | None |
+
+**Safety as an extension:**
+Safety enforcement moves from being hard-coded in tool implementations to being a default extension with priority 1 on `before_tool_call`. The alter pipeline runs safety checks before any tool executes:
+- Path validation (no traversal, project directory only)
+- Git protection (no commits without approval)
+- Delete constraints (own-task files only)
+- Shell command restriction (configured allow-list)
+- Secret detection (before knowledge storage)
+
+Because safety is an extension: (1) users can add stricter rules, (2) users can customize for different domains, (3) the safety policy is inspectable and testable independently of tool implementations. Tools become thin — they just execute. Safety is a cross-cutting concern handled by the hook pipeline.
+
+**Extension configuration (MVP):**
+```elixir
+# config/config.exs
+config :familiar, :extensions, [
+  Familiar.Extensions.Safety,
+  Familiar.Extensions.KnowledgeStore
+]
+```
+
+Extensions are loaded in `Application.start/2`. Their child specs are added to the supervision tree. Their tools are registered with the ToolRegistry. Their hooks are registered with the Hooks module. Post-MVP: extensions discoverable from hex packages with CLI management (`fam extensions list/add/remove`).
+
+**Harness core (not extensions):**
+- AgentProcess — generic executor
+- ToolRegistry — tool discovery and dispatch
+- WorkflowRunner — step sequencing
+- Hooks — alter pipeline + event dispatch
+- Activity — PubSub event broadcasting
+- Conversations — runner-managed conversation state
+- Providers — LLM abstraction
+- Repo, PubSub — infrastructure
+
+**The test:** if an agent directly invokes it as a tool call, it's an extension capability. If the runner manages it internally, it's harness core.

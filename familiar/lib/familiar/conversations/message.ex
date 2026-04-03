@@ -1,35 +1,35 @@
-defmodule Familiar.Planning.Message do
+defmodule Familiar.Conversations.Message do
   @moduledoc """
-  Ecto schema for planning messages.
+  Ecto schema for conversation messages.
 
-  Each message is one turn in a planning conversation — user input,
-  assistant response, or system context. Messages are append-only
-  within a session.
+  Each message is one turn in a conversation — user input, assistant
+  response, or system context. Messages are append-only within a
+  conversation.
   """
 
   use Ecto.Schema
   import Ecto.Changeset
 
-  @valid_roles ~w(user assistant system)
+  @valid_roles ~w(user assistant system tool)
 
-  schema "planning_messages" do
+  schema "conversation_messages" do
     field :role, :string
     field :content, :string
     field :tool_calls, :string, default: "[]"
 
-    belongs_to :session, Familiar.Planning.Session
+    belongs_to :conversation, Familiar.Conversations.Conversation
 
     timestamps(type: :utc_datetime, updated_at: false)
   end
 
-  @doc "Changeset for creating a planning message."
+  @doc "Changeset for creating a message."
   def changeset(message, attrs) do
     message
-    |> cast(attrs, [:session_id, :role, :content, :tool_calls])
-    |> validate_required([:session_id, :role, :content])
+    |> cast(attrs, [:conversation_id, :role, :content, :tool_calls])
+    |> validate_required([:conversation_id, :role, :content])
     |> validate_inclusion(:role, @valid_roles)
     |> validate_json(:tool_calls)
-    |> foreign_key_constraint(:session_id)
+    |> foreign_key_constraint(:conversation_id)
   end
 
   defp validate_json(changeset, field) do
