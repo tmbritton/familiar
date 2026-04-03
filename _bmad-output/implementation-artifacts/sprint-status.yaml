@@ -98,8 +98,8 @@ development_status:
   epic-4.5-retrospective: optional
 
   # Epic 5: Agent Harness (10 stories — rewritten 2026-04-03)
-  epic-5: backlog
-  5-1-extension-api-lifecycle-hooks: backlog
+  epic-5: in-progress
+  5-1-extension-api-lifecycle-hooks: done
   5-2-tool-registry: backlog
   5-3-agent-process-tool-call-loop: backlog
   5-4-prompt-assembly: backlog

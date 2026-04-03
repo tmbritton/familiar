@@ -3,6 +3,8 @@ defmodule Familiar.Application do
 
   use Application
 
+  require Logger
+
   @impl true
   def start(_type, _args) do
     children =
@@ -16,6 +18,8 @@ defmodule Familiar.Application do
         Familiar.Daemon.RecoveryGate,
         {DNSCluster, query: Application.get_env(:familiar, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Familiar.PubSub},
+        # Hooks GenServer — must start before extensions load
+        Familiar.Hooks,
         # Daemon lifecycle — conditionally started (disabled in test env)
         if(Application.get_env(:familiar, :start_daemon, true),
           do: Familiar.Daemon.Server
@@ -26,7 +30,17 @@ defmodule Familiar.Application do
       |> Enum.reject(&is_nil/1)
 
     opts = [strategy: :one_for_one, name: Familiar.Supervisor]
-    Supervisor.start_link(children, opts)
+    result = Supervisor.start_link(children, opts)
+
+    # Load extensions after supervisor is up (Hooks and TaskSupervisor are running)
+    case result do
+      {:ok, _pid} ->
+        load_extensions()
+        result
+
+      _ ->
+        result
+    end
   end
 
   @impl true
@@ -37,5 +51,46 @@ defmodule Familiar.Application do
 
   defp skip_migrations? do
     System.get_env("RELEASE_NAME") == nil
+  end
+
+  defp load_extensions do
+    alias Familiar.Execution.ExtensionLoader
+
+    extensions = Application.get_env(:familiar, :extensions, [])
+
+    case ExtensionLoader.load_extensions(extensions) do
+      {:ok, %{loaded: loaded, failed: failed, child_specs: child_specs}} ->
+        start_extension_children(child_specs)
+        log_extension_results(loaded, failed)
+        Familiar.Hooks.event(:on_startup, %{extensions: loaded})
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp start_extension_children(child_specs) do
+    for spec <- child_specs do
+      case Supervisor.start_child(Familiar.Supervisor, spec) do
+        {:ok, _pid} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("[Application] Failed to start extension child: #{inspect(reason)}")
+      end
+    end
+  end
+
+  defp log_extension_results(loaded, failed) do
+    if failed != [] do
+      Logger.warning(
+        "[Application] #{length(failed)} extension(s) failed to load: " <>
+          inspect(Enum.map(failed, &elem(&1, 0)))
+      )
+    end
+
+    if loaded != [] do
+      Logger.info("[Application] Loaded extensions: #{Enum.join(loaded, ", ")}")
+    end
   end
 end

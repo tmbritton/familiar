@@ -8,7 +8,7 @@ defmodule Familiar.Execution do
 
   use Boundary,
     deps: [Familiar.Knowledge, Familiar.Work, Familiar.Files, Familiar.Providers],
-    exports: []
+    exports: [Familiar.Extension, Familiar.Hooks]
 
   @doc "Dispatch a task for execution."
   @spec dispatch(integer()) :: {:ok, map()} | {:error, {atom(), map()}}

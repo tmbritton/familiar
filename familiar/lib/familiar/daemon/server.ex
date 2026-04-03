@@ -83,6 +83,8 @@ defmodule Familiar.Daemon.Server do
   @impl true
   def terminate(reason, state) do
     Logger.info("[Daemon] Shutting down (reason: #{inspect(reason)})")
+    # Notify extensions of shutdown before cleanup
+    Familiar.Hooks.event(:on_shutdown, %{reason: reason})
     # Cleanup runtime files first, marker last (marker signals cleanup completed)
     StateFile.cleanup()
     PidFile.cleanup()
