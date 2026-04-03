@@ -93,8 +93,8 @@ development_status:
   # Epic 4.5: Role & Skill File System (2 stories)
   epic-4.5: in-progress
   4.5-0-planning-code-cleanup: review
-  4.5-1-roles-context-file-loading: ready-for-dev
-  4.5-2-default-role-skill-files: backlog
+  4.5-1-roles-context-file-loading: done
+  4.5-2-default-role-skill-files: done
   epic-4.5-retrospective: optional
 
   # Epic 5: Agent Harness (10 stories — rewritten 2026-04-03)
