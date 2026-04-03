@@ -22,6 +22,8 @@ defmodule Familiar.Application do
         Familiar.Hooks,
         # Tool registry — must start before extensions register tools
         Familiar.Execution.ToolRegistry,
+        # Agent supervisor — DynamicSupervisor for all agent processes
+        Familiar.Execution.AgentSupervisor,
         # Daemon lifecycle — conditionally started (disabled in test env)
         if(Application.get_env(:familiar, :start_daemon, true),
           do: Familiar.Daemon.Server
