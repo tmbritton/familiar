@@ -100,7 +100,7 @@ development_status:
   # Epic 5: Agent Harness (10 stories — rewritten 2026-04-03)
   epic-5: in-progress
   5-1-extension-api-lifecycle-hooks: done
-  5-2-tool-registry: backlog
+  5-2-tool-registry: done
   5-3-agent-process-tool-call-loop: backlog
   5-4-prompt-assembly: backlog
   5-5-file-watcher: backlog

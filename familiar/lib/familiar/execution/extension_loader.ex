@@ -25,7 +25,7 @@ defmodule Familiar.Execution.ExtensionLoader do
   @spec load_extensions([module()], keyword()) ::
           {:ok,
            %{
-             tools: [{atom(), function(), String.t()}],
+             tools: [{atom(), function(), String.t(), String.t()}],
              child_specs: [Supervisor.child_spec()],
              loaded: [String.t()],
              failed: [{module(), term()}]
@@ -62,7 +62,10 @@ defmodule Familiar.Execution.ExtensionLoader do
     with :ok <- validate_behaviour(mod),
          :ok <- call_init(mod, opts) do
       name = mod.name()
-      tools = mod.tools()
+
+      tools =
+        mod.tools() |> Enum.map(fn {tool_name, fun, desc} -> {tool_name, fun, desc, name} end)
+
       hooks = mod.hooks()
 
       child_specs = collect_child_spec(mod, opts)
