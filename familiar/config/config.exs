@@ -22,8 +22,8 @@ config :familiar, FamiliarWeb.Endpoint,
   pubsub_server: Familiar.PubSub,
   live_view: [signing_salt: "tYbtlqSM"]
 
-# Extensions (loaded at startup — Stories 5.6/5.7 add defaults)
-config :familiar, :extensions, []
+# Extensions (loaded at startup)
+config :familiar, :extensions, [Familiar.Extensions.Safety]
 
 # Provider adapter configuration (overridden by test.exs for mocks)
 config :familiar, Familiar.Providers.LLM, Familiar.Providers.OllamaAdapter

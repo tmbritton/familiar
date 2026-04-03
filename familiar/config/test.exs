@@ -17,9 +17,10 @@ config :familiar, FamiliarWeb.Endpoint,
   secret_key_base: "9tsm5XAAgR6d0XE4fL57rB+dqMpyVdcmJML1aMrhNmwnoW5A19DkpPY5nTmT17ub",
   server: false
 
-# Disable daemon and file watcher auto-start in test (tests start them manually)
+# Disable daemon, file watcher, and extensions auto-start in test (tests start them manually)
 config :familiar, start_daemon: false
 config :familiar, start_file_watcher: false
+config :familiar, :extensions, []
 
 # Print only warnings and errors during test
 config :logger, level: :warning
