@@ -876,6 +876,57 @@ defmodule Familiar.CLI.MainTest do
 
   # -- Test helpers --
 
+  describe "run/2 with generate-spec command" do
+    test "returns usage error when no ID provided" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"generate-spec", [], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+
+    test "returns usage error for invalid session ID" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"generate-spec", ["abc"], %{}}, deps())
+      assert {:error, {:usage_error, _}} = result
+    end
+
+    test "parses generate-spec command" do
+      assert {"generate-spec", ["42"], %{}} = Main.parse_args(["generate-spec", "42"])
+    end
+
+    test "runs spec generation with trail events" do
+      Paths.ensure_familiar_dir!()
+
+      mock_spec = %{
+        id: 1,
+        title: "Add Auth",
+        body: "# Add Auth",
+        status: "draft",
+        file_path: ".familiar/specs/1-add-auth.md"
+      }
+
+      mock_metadata = %{verified_count: 3, unverified_count: 1, conventions_count: 2, total_claims: 4}
+
+      gen_deps =
+        deps(
+          generate_spec_fn: fn session_id, _opts ->
+            # Broadcast a trail event to exercise the trail loop
+            alias Familiar.Planning.Trail
+            alias Familiar.Planning.Trail.Event
+
+            Trail.broadcast(session_id, %Event{type: :spec_started, timestamp: DateTime.utc_now()})
+            Trail.broadcast(session_id, %Event{type: :spec_complete, result: "3 verified, 1 unverified", timestamp: DateTime.utc_now()})
+
+            {:ok, %{spec: mock_spec, metadata: mock_metadata, tool_call_log: [], file_path: mock_spec.file_path}}
+          end
+        )
+
+      result = Main.run({"generate-spec", ["42"], %{}}, gen_deps)
+      assert {:ok, %{spec: %{title: "Add Auth"}, metadata: %{verified_count: 3}}} = result
+    end
+  end
+
   defp deps(overrides \\ []) do
     base = %{
       ensure_running_fn:

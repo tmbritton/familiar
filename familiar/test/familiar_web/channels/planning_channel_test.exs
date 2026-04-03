@@ -108,4 +108,48 @@ defmodule FamiliarWeb.PlanningChannelTest do
       assert payload.session_id == sid
     end
   end
+
+  describe "trail events" do
+    test "pushes trail events to socket", %{socket: socket} do
+      alias Familiar.Planning.Trail.Event
+
+      # The channel process subscribes to trail topic when generate_spec is called.
+      # We can simulate by sending trail events directly to the channel process.
+      event = %Event{type: :file_read, path: "lib/auth.ex", timestamp: DateTime.utc_now()}
+
+      # Send the trail event message directly to the channel process
+      send(socket.channel_pid, {:trail_event, event})
+
+      assert_push "trail:event", payload
+      assert payload.type == "file_read"
+      assert payload.text =~ "Reading lib/auth.ex"
+    end
+
+    test "pushes verification trail events", %{socket: socket} do
+      alias Familiar.Planning.Trail.Event
+
+      event = %Event{
+        type: :verification_result,
+        result: "verified: users table schema",
+        timestamp: DateTime.utc_now()
+      }
+
+      send(socket.channel_pid, {:trail_event, event})
+
+      assert_push "trail:event", payload
+      assert payload.type == "verification_result"
+      assert payload.text =~ "✓ Verified"
+    end
+
+    test "pushes spec lifecycle trail events", %{socket: socket} do
+      alias Familiar.Planning.Trail.Event
+
+      event = %Event{type: :spec_started, timestamp: DateTime.utc_now()}
+      send(socket.channel_pid, {:trail_event, event})
+
+      assert_push "trail:event", payload
+      assert payload.type == "spec_started"
+      assert payload.text == "Generating spec..."
+    end
+  end
 end

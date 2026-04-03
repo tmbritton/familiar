@@ -1,6 +1,6 @@
 # generated: 2026-04-01
 # last_updated: '2026-04-02'
-# Note: Epic 3 started 2026-04-02
+# Note: Epic 3 started 2026-04-02, Story 3-3 created 2026-04-02
 # project: anthill
 # project_key: NOKEY
 # tracking_system: file-system
@@ -71,7 +71,7 @@ development_status:
   epic-3: in-progress
   3-1-planning-conversation-engine: done
   3-2-spec-generation-verification: done
-  3-3-streaming-reasoning-trail: backlog
+  3-3-streaming-reasoning-trail: done
   3-4-spec-review-approval-cli: backlog
   3-5-task-decomposition-dependency-mapping: backlog
   3-6-cross-plan-conflict-detection-plan-freshness: backlog

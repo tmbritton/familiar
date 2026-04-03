@@ -42,6 +42,11 @@ defmodule Familiar.Planning.SpecGeneratorTest do
     end
   end
 
+  defmodule StubTrail do
+    @moduledoc false
+    def broadcast(_session_id, _event), do: :ok
+  end
+
   setup do
     spec_text = @spec_markdown
 
@@ -102,7 +107,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       assert result.spec.title == "Add User Accounts"
@@ -119,7 +125,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       file_reads = Enum.filter(result.tool_call_log, &(&1.type == "file_read"))
@@ -133,7 +140,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       context_queries = Enum.filter(result.tool_call_log, &(&1.type == "context_query"))
@@ -147,7 +155,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       assert result.spec.title == "Add User Accounts"
@@ -161,7 +170,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       assert [spec] = Repo.all(Spec)
@@ -175,7 +185,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       updated = Repo.get!(Session, session.id)
@@ -189,7 +200,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       assert type == :llm_failed
@@ -202,7 +214,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       assert result.spec.body =~ "Generated"
@@ -216,7 +229,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       # With no tool calls, all claims should be ⚠
@@ -258,7 +272,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       # lib/auth.ex is :enoent in StubFileSystem.stat → should be downgraded to ⚠
@@ -283,7 +298,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(completed,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       assert type == :session_not_specifiable
@@ -311,7 +327,8 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       assert type == :tool_loop_exhausted
@@ -335,10 +352,93 @@ defmodule Familiar.Planning.SpecGeneratorTest do
         SpecGenerator.generate(session,
           providers_mod: providers,
           file_system: StubFileSystem,
-          knowledge_mod: StubKnowledge
+          knowledge_mod: StubKnowledge,
+          trail_mod: StubTrail
         )
 
       # Should not crash — path traversal returns error string to LLM
+      assert result.spec
+    end
+
+    test "broadcasts trail events during tool dispatch", %{session: session, spec_text: spec_text} do
+      test_pid = self()
+
+      trail_mod = %{
+        broadcast: fn session_id, event ->
+          send(test_pid, {:trail, session_id, event})
+          :ok
+        end
+      }
+
+      providers = wrap_fn(stub_providers_with_tools(spec_text))
+
+      {:ok, _result} =
+        SpecGenerator.generate(session,
+          providers_mod: providers,
+          file_system: StubFileSystem,
+          knowledge_mod: StubKnowledge,
+          trail_mod: trail_mod
+        )
+
+      # Should receive spec_started
+      sid = session.id
+      assert_received {:trail, ^sid, %{type: :spec_started}}
+
+      # Should receive file_read event
+      assert_received {:trail, _, %{type: :file_read, path: "db/migrations/001_init.sql"}}
+
+      # Should receive knowledge_search event
+      assert_received {:trail, _, %{type: :knowledge_search}}
+
+      # Should receive verification results
+      assert_received {:trail, _, %{type: :verification_result}}
+
+      # Should receive spec_complete
+      assert_received {:trail, _, %{type: :spec_complete}}
+    end
+
+    test "trail events include session_id", %{session: session, spec_text: spec_text} do
+      test_pid = self()
+
+      trail_mod = %{
+        broadcast: fn session_id, event ->
+          send(test_pid, {:trail, session_id, event})
+          :ok
+        end
+      }
+
+      providers = wrap_fn(stub_providers_no_tools(spec_text))
+
+      {:ok, _result} =
+        SpecGenerator.generate(session,
+          providers_mod: providers,
+          file_system: StubFileSystem,
+          knowledge_mod: StubKnowledge,
+          trail_mod: trail_mod
+        )
+
+      sid = session.id
+      assert_received {:trail, ^sid, %{type: :spec_started}}
+      assert_received {:trail, ^sid, %{type: :spec_complete}}
+    end
+
+    test "trail broadcasts do not block on failure", %{session: session, spec_text: spec_text} do
+      # Trail module that raises — should not crash spec generation
+      trail_mod = %{
+        broadcast: fn _sid, _event -> raise "trail broken" end
+      }
+
+      providers = wrap_fn(stub_providers_no_tools(spec_text))
+
+      # Should succeed despite trail module raising
+      {:ok, result} =
+        SpecGenerator.generate(session,
+          providers_mod: providers,
+          file_system: StubFileSystem,
+          knowledge_mod: StubKnowledge,
+          trail_mod: trail_mod
+        )
+
       assert result.spec
     end
   end

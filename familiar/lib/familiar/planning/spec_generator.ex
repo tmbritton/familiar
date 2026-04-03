@@ -17,6 +17,8 @@ defmodule Familiar.Planning.SpecGenerator do
   alias Familiar.Planning.PromptAssembly
   alias Familiar.Planning.Session
   alias Familiar.Planning.Spec
+  alias Familiar.Planning.Trail
+  alias Familiar.Planning.Trail.Event
   alias Familiar.Planning.Verification
   alias Familiar.Repo
 
@@ -82,6 +84,9 @@ defmodule Familiar.Planning.SpecGenerator do
       {_system, messages} = PromptAssembly.assemble(session.context, history)
       messages = messages ++ [%{role: "user", content: @spec_generation_prompt}]
 
+      opts = Keyword.put(opts, :session_id, session.id)
+      trail_broadcast(opts, :spec_started)
+
       case generate_with_tools(messages, providers, opts) do
         {:ok, spec_markdown, tool_call_log} ->
           finalize_spec(session, spec_markdown, tool_call_log, opts)
@@ -143,6 +148,7 @@ defmodule Familiar.Planning.SpecGenerator do
     {results, log_entries} =
       Enum.map_reduce(tool_calls, [], fn call, acc ->
         {result, log_entry} = dispatch_single_tool(call, fs, knowledge)
+        trail_broadcast_tool(opts, log_entry, result)
         {result, [log_entry | acc]}
       end)
 
@@ -230,6 +236,10 @@ defmodule Familiar.Planning.SpecGenerator do
     with :ok <- write_spec_file(file_path, full_content, opts),
          {:ok, spec} <- persist_spec(session, title, body, metadata, file_path),
          :ok <- complete_session(session) do
+      trail_broadcast(opts, :spec_complete,
+        result: "#{metadata.verified_count} verified, #{metadata.unverified_count} unverified"
+      )
+
       {:ok, %{spec: spec, metadata: metadata, tool_call_log: tool_call_log, file_path: file_path}}
     end
   end
@@ -237,7 +247,14 @@ defmodule Familiar.Planning.SpecGenerator do
   defp verify_with_freshness(claims, tool_call_log, opts) do
     freshness_map = build_freshness_map(tool_call_log, opts)
     verified = Verification.verify_claims(claims, tool_call_log)
-    Enum.map(verified, &apply_freshness(&1, freshness_map))
+
+    results = Enum.map(verified, &apply_freshness(&1, freshness_map))
+
+    Enum.each(results, fn result ->
+      trail_broadcast_verification(opts, result)
+    end)
+
+    results
   end
 
   defp build_freshness_map(tool_call_log, opts) do
@@ -391,6 +408,54 @@ defmodule Familiar.Planning.SpecGenerator do
 
   defp call_provider(%{chat: fun}, messages, opts) when is_function(fun, 2), do: fun.(messages, opts)
   defp call_provider(module, messages, opts) when is_atom(module), do: module.chat(messages, opts)
+
+  # -- Trail broadcasting (fire-and-forget) --
+
+  defp trail_broadcast(opts, type, extra \\ []) do
+    session_id = Keyword.get(opts, :session_id)
+
+    if session_id do
+      event = %Event{
+        type: type,
+        path: Keyword.get(extra, :path),
+        result: Keyword.get(extra, :result),
+        timestamp: DateTime.utc_now()
+      }
+
+      call_trail(opts, session_id, event)
+    end
+
+    :ok
+  end
+
+  defp call_trail(opts, session_id, event) do
+    case Keyword.get(opts, :trail_mod, Trail) do
+      %{broadcast: fun} when is_function(fun, 2) -> fun.(session_id, event)
+      module when is_atom(module) -> module.broadcast(session_id, event)
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp trail_broadcast_tool(opts, log_entry, _result) do
+    type =
+      case log_entry.type do
+        "file_read" -> :file_read
+        "context_query" -> :knowledge_search
+        _ -> :unknown
+      end
+
+    trail_broadcast(opts, type, path: log_entry.path)
+  end
+
+  defp trail_broadcast_verification(opts, %{status: status, claim: claim, source: source}) do
+    trail_broadcast(opts, :verification_result,
+      path: source,
+      result: "#{status}: #{claim}"
+    )
+  end
+
+  defp trail_broadcast_verification(_opts, _result), do: :ok
 
   defp file_system(opts) do
     Keyword.get_lazy(opts, :file_system, fn ->

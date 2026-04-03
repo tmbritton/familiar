@@ -19,6 +19,8 @@ defmodule Familiar.CLI.Main do
   alias Familiar.Knowledge.Prerequisites
   alias Familiar.Planning.Engine
   alias Familiar.Planning.Librarian
+  alias Familiar.Planning.Trail
+  alias Familiar.Planning.TrailFormatter
 
   @version Mix.Project.config()[:version]
 
@@ -205,6 +207,22 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp run_with_daemon({"generate-spec", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam generate-spec <session-id>"}}}
+  end
+
+  defp run_with_daemon({"generate-spec", [id_string | _], _}, deps) do
+    generate_spec_fn = Map.get(deps, :generate_spec_fn, &Engine.generate_spec/2)
+
+    case Integer.parse(id_string) do
+      {session_id, ""} ->
+        run_spec_generation_with_trail(session_id, generate_spec_fn, deps)
+
+      _ ->
+        {:error, {:usage_error, %{message: "Invalid session ID: #{id_string}"}}}
+    end
+  end
+
   defp run_with_daemon({"spec", [], _}, _deps) do
     {:error, {:usage_error, %{message: "Usage: fam spec <id>"}}}
   end
@@ -368,6 +386,45 @@ defmodule Familiar.CLI.Main do
 
       {:error, _} ->
         run_raw_search(query, deps)
+    end
+  end
+
+  defp run_spec_generation_with_trail(session_id, generate_spec_fn, _deps) do
+    {:ok, show_hints} = Trail.show_hints?()
+    {:ok, heartbeat_ref} = Trail.subscribe_with_heartbeat(session_id, interval_ms: 5_000)
+
+    task =
+      Task.Supervisor.async_nolink(Familiar.TaskSupervisor, fn ->
+        generate_spec_fn.(session_id, [])
+      end)
+
+    {result, final_ref} = receive_trail_events(task, heartbeat_ref, show_hints)
+    {:ok, :cancelled} = Trail.cancel_heartbeat(final_ref)
+    result
+  end
+
+  defp receive_trail_events(task, heartbeat_ref, show_hints) do
+    receive do
+      {:trail_event, event} ->
+        line = TrailFormatter.format(event, hint: show_hints)
+        IO.puts(:stderr, line)
+        new_ref = Trail.reset_heartbeat(heartbeat_ref, interval_ms: 5_000)
+        receive_trail_events(task, new_ref, show_hints)
+
+      {:trail_heartbeat, _pid} ->
+        IO.puts(:stderr, TrailFormatter.heartbeat())
+        new_ref = Trail.reset_heartbeat(heartbeat_ref, interval_ms: 5_000)
+        receive_trail_events(task, new_ref, show_hints)
+
+      {ref, result} when ref == task.ref ->
+        Process.demonitor(task.ref, [:flush])
+        {result, heartbeat_ref}
+
+      {:DOWN, ref, :process, _pid, reason} when ref == task.ref ->
+        {{:error, {:spec_generation_failed, %{reason: reason}}}, heartbeat_ref}
+    after
+      300_000 ->
+        {{:error, {:spec_generation_timeout, %{timeout_ms: 300_000}}}, heartbeat_ref}
     end
   end
 
@@ -592,6 +649,24 @@ defmodule Familiar.CLI.Main do
       daemon_status_fn: &DaemonManager.daemon_status/1,
       stop_daemon_fn: &DaemonManager.stop_daemon/1
     }
+  end
+
+  defp text_formatter("generate-spec") do
+    fn
+      %{spec: spec, metadata: meta, file_path: path} ->
+        lines = [
+          "Spec generated: #{spec.title}",
+          "  File: #{path}",
+          "  Verified: #{meta.verified_count}",
+          "  Unverified: #{meta.unverified_count}",
+          "  Conventions: #{meta.conventions_count}"
+        ]
+
+        Enum.join(lines, "\n")
+
+      other ->
+        inspect(other, pretty: true)
+    end
   end
 
   defp text_formatter("spec") do
@@ -971,6 +1046,7 @@ defmodule Familiar.CLI.Main do
       plan --resume      Resume the latest planning conversation
       search <query>     Search knowledge store (curated by Librarian)
       search --raw <q>   Search knowledge store directly (no curation)
+      generate-spec <id> Generate spec from planning session (with trail)
       spec <id>          Display a generated specification
       entry <id>         Inspect a knowledge entry
       edit <id> <text>   Edit a knowledge entry (re-embeds, tags as user)
