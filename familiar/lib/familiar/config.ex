@@ -129,8 +129,7 @@ defmodule Familiar.Config do
 
       [{key, _} | _] ->
         {:error,
-         {:invalid_config,
-          %{field: "language.#{key}", reason: "expected a string or list value"}}}
+         {:invalid_config, %{field: "language.#{key}", reason: "expected a string or list value"}}}
     end
   end
 
@@ -177,8 +176,7 @@ defmodule Familiar.Config do
   defp validate_string(_field, value) when is_binary(value), do: :ok
 
   defp validate_string(field, value) do
-    {:error,
-     {:invalid_config, %{field: field, reason: "expected string, got #{inspect(value)}"}}}
+    {:error, {:invalid_config, %{field: field, reason: "expected string, got #{inspect(value)}"}}}
   end
 
   defp validate_positive_int(_field, nil), do: :ok

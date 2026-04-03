@@ -56,7 +56,10 @@ defmodule Familiar.CLI.Main do
     flag_map = Enum.into(flags, %{})
 
     format_flags = Map.take(flag_map, [:json, :quiet])
-    context_flags = Map.take(flag_map, [:refresh, :compact, :health, :force, :apply, :resume, :session, :raw])
+
+    context_flags =
+      Map.take(flag_map, [:refresh, :compact, :health, :force, :apply, :resume, :session, :raw])
+
     all_flags = Map.merge(format_flags, context_flags)
 
     if flag_map[:help] || args == [] do
@@ -175,7 +178,10 @@ defmodule Familiar.CLI.Main do
   defp run_with_daemon({"plan", _, _}, _deps) do
     {:error,
      {:not_implemented,
-      %{message: "Planning commands will be available when the workflow runner is built (Epic 5). Use the web UI or API directly."}}}
+      %{
+        message:
+          "Planning commands will be available when the workflow runner is built (Epic 5). Use the web UI or API directly."
+      }}}
   end
 
   defp run_with_daemon({"generate-spec", _, _}, _deps) do
@@ -187,7 +193,10 @@ defmodule Familiar.CLI.Main do
   defp run_with_daemon({"spec", _, _}, _deps) do
     {:error,
      {:not_implemented,
-      %{message: "Spec commands will be available when workflows are defined (Epic 3r). Specs are markdown files managed by agents."}}}
+      %{
+        message:
+          "Spec commands will be available when workflows are defined (Epic 3r). Specs are markdown files managed by agents."
+      }}}
   end
 
   defp run_with_daemon({"search", [], _}, _deps) do
@@ -292,7 +301,10 @@ defmodule Familiar.CLI.Main do
       true ->
         {:error,
          {:usage_error,
-          %{message: "Usage: fam context --refresh [path] | --compact [--apply <indices>] | --health"}}}
+          %{
+            message:
+              "Usage: fam context --refresh [path] | --compact [--apply <indices>] | --health"
+          }}}
     end
   end
 
@@ -318,7 +330,9 @@ defmodule Familiar.CLI.Main do
   end
 
   defp run_compact(flags, deps) do
-    candidates_fn = Map.get(deps, :compact_candidates_fn, &Management.find_consolidation_candidates/1)
+    candidates_fn =
+      Map.get(deps, :compact_candidates_fn, &Management.find_consolidation_candidates/1)
+
     compact_fn = Map.get(deps, :compact_fn, &Management.compact/2)
 
     case Map.get(flags, :apply) do
@@ -385,7 +399,8 @@ defmodule Familiar.CLI.Main do
       |> Enum.map(&Integer.parse/1)
 
     if Enum.any?(indices, &(&1 == :error)) do
-      {:error, {:usage_error, %{message: "Invalid indices: #{indices_str}. Use comma-separated numbers."}}}
+      {:error,
+       {:usage_error, %{message: "Invalid indices: #{indices_str}. Use comma-separated numbers."}}}
     else
       pairs =
         indices
@@ -563,7 +578,11 @@ defmodule Familiar.CLI.Main do
       %{title: title, body: body, status: status, file_path: path} ->
         full_body = body || ""
         preview = String.slice(full_body, 0, 2000)
-        truncated = if String.length(full_body) > 2000, do: "\n\n... (truncated — full spec at #{path})", else: ""
+
+        truncated =
+          if String.length(full_body) > 2000,
+            do: "\n\n... (truncated — full spec at #{path})",
+            else: ""
 
         lines = [
           "#{title} [#{status}]",

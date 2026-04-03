@@ -266,7 +266,9 @@ defmodule Familiar.Knowledge.Hygiene do
 
   defp store_new(entry, vector) do
     case Knowledge.store_with_vector(entry, vector) do
-      {:ok, stored} -> {:extracted, stored}
+      {:ok, stored} ->
+        {:extracted, stored}
+
       {:error, reason} ->
         Logger.warning("Hygiene store failed: #{inspect(reason)}")
         {:skipped, entry}

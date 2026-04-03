@@ -21,22 +21,44 @@ defmodule Familiar.ActivityFormatterTest do
     end
 
     test "formats tool_call event with result" do
-      event = %Event{type: :tool_call, detail: "search_context", result: "3 results", timestamp: DateTime.utc_now()}
+      event = %Event{
+        type: :tool_call,
+        detail: "search_context",
+        result: "3 results",
+        timestamp: DateTime.utc_now()
+      }
+
       assert ActivityFormatter.format(event) == "  Tool: search_context → 3 results"
     end
 
     test "formats knowledge_search event" do
-      event = %Event{type: :knowledge_search, detail: "auth patterns", timestamp: DateTime.utc_now()}
+      event = %Event{
+        type: :knowledge_search,
+        detail: "auth patterns",
+        timestamp: DateTime.utc_now()
+      }
+
       assert ActivityFormatter.format(event) == "  Searching knowledge: auth patterns"
     end
 
     test "formats step_started event" do
-      event = %Event{type: :step_started, detail: "context-retrieval", timestamp: DateTime.utc_now()}
+      event = %Event{
+        type: :step_started,
+        detail: "context-retrieval",
+        timestamp: DateTime.utc_now()
+      }
+
       assert ActivityFormatter.format(event) == "Starting: context-retrieval"
     end
 
     test "formats step_complete event" do
-      event = %Event{type: :step_complete, detail: "context-retrieval", result: "5 entries", timestamp: DateTime.utc_now()}
+      event = %Event{
+        type: :step_complete,
+        detail: "context-retrieval",
+        result: "5 entries",
+        timestamp: DateTime.utc_now()
+      }
+
       assert ActivityFormatter.format(event) == "Completed: context-retrieval (5 entries)"
     end
 
@@ -46,7 +68,13 @@ defmodule Familiar.ActivityFormatterTest do
     end
 
     test "formats agent_complete event" do
-      event = %Event{type: :agent_complete, detail: "coder", result: "4 files modified", timestamp: DateTime.utc_now()}
+      event = %Event{
+        type: :agent_complete,
+        detail: "coder",
+        result: "4 files modified",
+        timestamp: DateTime.utc_now()
+      }
+
       assert ActivityFormatter.format(event) == "  Agent done: coder — 4 files modified"
     end
 

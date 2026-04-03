@@ -86,7 +86,11 @@ defmodule Familiar.Knowledge.EntryTest do
 
     test "valid without checked_at" do
       changeset =
-        Entry.changeset(%Entry{}, %{text: "some knowledge", type: "convention", source: "init_scan"})
+        Entry.changeset(%Entry{}, %{
+          text: "some knowledge",
+          type: "convention",
+          source: "init_scan"
+        })
 
       assert changeset.valid?
       assert get_change(changeset, :checked_at) == nil

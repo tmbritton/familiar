@@ -36,7 +36,9 @@ defmodule Familiar.Knowledge.ContentValidatorTest do
 
     test "accepts short factual statements" do
       assert {:ok, _} =
-               ContentValidator.validate_not_code("Database uses PostgreSQL 15 with pg_vector extension.")
+               ContentValidator.validate_not_code(
+                 "Database uses PostgreSQL 15 with pg_vector extension."
+               )
     end
 
     test "accepts multi-line prose" do

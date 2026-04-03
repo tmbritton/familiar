@@ -16,21 +16,35 @@ defmodule FamiliarWeb.PlanningChannel do
 
   @impl true
   def handle_in("start_plan", _params, socket) do
-    {:reply, {:error, %{reason: "not_implemented", message: "Planning will use the workflow runner (Epic 5)"}}, socket}
+    {:reply,
+     {:error,
+      %{reason: "not_implemented", message: "Planning will use the workflow runner (Epic 5)"}},
+     socket}
   end
 
   @impl true
   def handle_in("respond", _params, socket) do
-    {:reply, {:error, %{reason: "not_implemented", message: "Planning will use the workflow runner (Epic 5)"}}, socket}
+    {:reply,
+     {:error,
+      %{reason: "not_implemented", message: "Planning will use the workflow runner (Epic 5)"}},
+     socket}
   end
 
   @impl true
   def handle_in("resume", _params, socket) do
-    {:reply, {:error, %{reason: "not_implemented", message: "Planning will use the workflow runner (Epic 5)"}}, socket}
+    {:reply,
+     {:error,
+      %{reason: "not_implemented", message: "Planning will use the workflow runner (Epic 5)"}},
+     socket}
   end
 
   @impl true
   def handle_in("generate_spec", _params, socket) do
-    {:reply, {:error, %{reason: "not_implemented", message: "Spec generation will use the workflow runner (Epic 5)"}}, socket}
+    {:reply,
+     {:error,
+      %{
+        reason: "not_implemented",
+        message: "Spec generation will use the workflow runner (Epic 5)"
+      }}, socket}
   end
 end

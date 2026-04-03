@@ -20,7 +20,8 @@ defmodule Familiar.System.FileUtils do
   Options:
   - `:file_system` — FileSystem behaviour module (DI)
   """
-  @spec stat_check(String.t(), DateTime.t() | nil, keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
+  @spec stat_check(String.t(), DateTime.t() | nil, keyword()) ::
+          {:ok, map()} | {:error, {atom(), map()}}
   def stat_check(nil, _reference_time, _opts) do
     {:error, {:no_file_path, %{}}}
   end
@@ -49,7 +50,8 @@ defmodule Familiar.System.FileUtils do
   - `:file_system` — FileSystem behaviour module (DI)
   - `:editor_env` — override editor command (DI, for testing)
   """
-  @spec open_in_editor(String.t(), DateTime.t() | nil, keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
+  @spec open_in_editor(String.t(), DateTime.t() | nil, keyword()) ::
+          {:ok, map()} | {:error, {atom(), map()}}
   def open_in_editor(nil, _reference_time, _opts) do
     {:error, {:no_file_path, %{}}}
   end

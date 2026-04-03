@@ -112,7 +112,10 @@ defmodule Familiar.Knowledge.Management do
 
   defp load_existing_entries(nil) do
     entries = from(e in Entry, limit: @max_entries_load) |> Repo.all()
-    if length(entries) >= @max_entries_load, do: Logger.warning("Entry load capped at #{@max_entries_load} — results may be incomplete")
+
+    if length(entries) >= @max_entries_load,
+      do: Logger.warning("Entry load capped at #{@max_entries_load} — results may be incomplete")
+
     entries
   end
 
@@ -123,7 +126,9 @@ defmodule Familiar.Knowledge.Management do
       from(e in Entry, where: like(e.source_file, ^"#{escaped}%"), limit: @max_entries_load)
       |> Repo.all()
 
-    if length(entries) >= @max_entries_load, do: Logger.warning("Entry load capped at #{@max_entries_load} — results may be incomplete")
+    if length(entries) >= @max_entries_load,
+      do: Logger.warning("Entry load capped at #{@max_entries_load} — results may be incomplete")
+
     entries
   end
 
@@ -219,7 +224,10 @@ defmodule Familiar.Knowledge.Management do
 
       _ ->
         attrs = %{text: new_text, type: type, source: "init_scan", source_file: relative_path}
-        if match?({:ok, _}, Knowledge.store_with_embedding(attrs)), do: {upd, cre + 1}, else: {upd, cre}
+
+        if match?({:ok, _}, Knowledge.store_with_embedding(attrs)),
+          do: {upd, cre + 1},
+          else: {upd, cre}
     end
   end
 
@@ -239,7 +247,10 @@ defmodule Familiar.Knowledge.Management do
     scanned_paths = MapSet.new(files, &file_relative_path/1)
 
     existing_entries
-    |> Enum.reject(&(is_nil(&1.source_file) or &1.source == "user" or MapSet.member?(scanned_paths, &1.source_file)))
+    |> Enum.reject(
+      &(is_nil(&1.source_file) or &1.source == "user" or
+          MapSet.member?(scanned_paths, &1.source_file))
+    )
     |> Enum.filter(&file_deleted?(&1, fs))
     |> Enum.count(&match?(:ok, Knowledge.delete_entry(&1)))
   end

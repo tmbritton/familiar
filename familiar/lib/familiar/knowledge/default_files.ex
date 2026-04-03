@@ -50,10 +50,13 @@ defmodule Familiar.Knowledge.DefaultFiles do
 
   @roles %{
     "analyst.md" => """
+    ---
+    name: analyst
+    description: Research and understand requirements before implementation
+    skills:
+      - research
+    ---
     # Analyst Role
-
-    ## Purpose
-    Research and understand requirements before implementation.
 
     ## Approach
     - Ask clarifying questions before making assumptions
@@ -62,10 +65,13 @@ defmodule Familiar.Knowledge.DefaultFiles do
     - Focus on understanding the "why" behind requirements
     """,
     "coder.md" => """
+    ---
+    name: coder
+    description: Implement features and fixes following project conventions
+    skills:
+      - implement
+    ---
     # Coder Role
-
-    ## Purpose
-    Implement features and fixes following project conventions.
 
     ## Approach
     - Follow established code patterns and conventions
@@ -74,10 +80,13 @@ defmodule Familiar.Knowledge.DefaultFiles do
     - Document decisions in knowledge store
     """,
     "reviewer.md" => """
+    ---
+    name: reviewer
+    description: Review code changes for correctness, conventions, and quality
+    skills:
+      - review
+    ---
     # Reviewer Role
-
-    ## Purpose
-    Review code changes for correctness, conventions, and quality.
 
     ## Approach
     - Check for adherence to project conventions

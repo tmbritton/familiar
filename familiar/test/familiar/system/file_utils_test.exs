@@ -46,7 +46,9 @@ defmodule Familiar.System.FileUtilsTest do
       end)
 
       assert {:error, {:file_missing, %{path: "missing.md"}}} =
-               FileUtils.stat_check("missing.md", nil, file_system: Familiar.System.FileSystemMock)
+               FileUtils.stat_check("missing.md", nil,
+                 file_system: Familiar.System.FileSystemMock
+               )
     end
   end
 

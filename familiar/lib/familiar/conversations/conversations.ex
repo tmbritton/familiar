@@ -60,7 +60,8 @@ defmodule Familiar.Conversations do
   end
 
   @doc "Append a message to a conversation."
-  @spec add_message(integer(), String.t(), String.t(), keyword()) :: {:ok, Message.t()} | {:error, {atom(), map()}}
+  @spec add_message(integer(), String.t(), String.t(), keyword()) ::
+          {:ok, Message.t()} | {:error, {atom(), map()}}
   def add_message(conversation_id, role, content, opts \\ []) do
     tool_calls = Keyword.get(opts, :tool_calls, "[]")
 
@@ -92,7 +93,8 @@ defmodule Familiar.Conversations do
   end
 
   @doc "Update conversation status."
-  @spec update_status(integer(), String.t()) :: {:ok, Conversation.t()} | {:error, {atom(), map()}}
+  @spec update_status(integer(), String.t()) ::
+          {:ok, Conversation.t()} | {:error, {atom(), map()}}
   def update_status(id, new_status) do
     with {:ok, conv} <- get(id) do
       conv

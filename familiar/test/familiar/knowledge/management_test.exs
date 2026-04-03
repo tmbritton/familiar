@@ -295,7 +295,11 @@ defmodule Familiar.Knowledge.ManagementTest do
          %{
            content:
              Jason.encode!([
-               %{type: "file_summary", text: "Updated auth token", source_file: "lib/auth/token.ex"}
+               %{
+                 type: "file_summary",
+                 text: "Updated auth token",
+                 source_file: "lib/auth/token.ex"
+               }
              ])
          }}
       end)

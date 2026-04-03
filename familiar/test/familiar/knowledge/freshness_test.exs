@@ -160,12 +160,14 @@ defmodule Familiar.Knowledge.FreshnessTest do
 
       # Create entry with embedding
       expect(EmbedderMock, :embed, fn _ -> {:ok, vector} end)
-      {:ok, entry} = Knowledge.store_with_embedding(%{
-        text: "Old knowledge about auth",
-        type: "convention",
-        source: "init_scan",
-        source_file: "lib/auth.ex"
-      })
+
+      {:ok, entry} =
+        Knowledge.store_with_embedding(%{
+          text: "Old knowledge about auth",
+          type: "convention",
+          source: "init_scan",
+          source_file: "lib/auth.ex"
+        })
 
       # Mock file read for refresh
       expect(FileSystemMock, :read, fn "lib/auth.ex" ->
@@ -173,9 +175,15 @@ defmodule Familiar.Knowledge.FreshnessTest do
       end)
 
       # Mock LLM extraction
-      llm_response = Jason.encode!([
-        %{"type" => "convention", "text" => "Updated knowledge about auth", "source_file" => "lib/auth.ex"}
-      ])
+      llm_response =
+        Jason.encode!([
+          %{
+            "type" => "convention",
+            "text" => "Updated knowledge about auth",
+            "source_file" => "lib/auth.ex"
+          }
+        ])
+
       expect(LLMMock, :chat, fn _messages, _opts ->
         {:ok, %{content: llm_response}}
       end)
@@ -195,12 +203,14 @@ defmodule Familiar.Knowledge.FreshnessTest do
       vector = deterministic_vector(1.0, 0.0)
 
       expect(EmbedderMock, :embed, fn _ -> {:ok, vector} end)
-      {:ok, entry} = Knowledge.store_with_embedding(%{
-        text: "Original knowledge",
-        type: "convention",
-        source: "init_scan",
-        source_file: "lib/broken.ex"
-      })
+
+      {:ok, entry} =
+        Knowledge.store_with_embedding(%{
+          text: "Original knowledge",
+          type: "convention",
+          source: "init_scan",
+          source_file: "lib/broken.ex"
+        })
 
       # File read fails
       expect(FileSystemMock, :read, fn "lib/broken.ex" ->
@@ -222,12 +232,14 @@ defmodule Familiar.Knowledge.FreshnessTest do
       vector = deterministic_vector(1.0, 0.0)
 
       expect(EmbedderMock, :embed, fn _ -> {:ok, vector} end)
-      {:ok, entry} = Knowledge.store_with_embedding(%{
-        text: "Original knowledge",
-        type: "convention",
-        source: "init_scan",
-        source_file: "lib/embed_fail.ex"
-      })
+
+      {:ok, entry} =
+        Knowledge.store_with_embedding(%{
+          text: "Original knowledge",
+          type: "convention",
+          source: "init_scan",
+          source_file: "lib/embed_fail.ex"
+        })
 
       # File read succeeds
       expect(FileSystemMock, :read, fn "lib/embed_fail.ex" ->
@@ -235,9 +247,15 @@ defmodule Familiar.Knowledge.FreshnessTest do
       end)
 
       # LLM extraction succeeds
-      llm_response = Jason.encode!([
-        %{"type" => "convention", "text" => "New knowledge", "source_file" => "lib/embed_fail.ex"}
-      ])
+      llm_response =
+        Jason.encode!([
+          %{
+            "type" => "convention",
+            "text" => "New knowledge",
+            "source_file" => "lib/embed_fail.ex"
+          }
+        ])
+
       expect(LLMMock, :chat, fn _messages, _opts ->
         {:ok, %{content: llm_response}}
       end)
@@ -257,12 +275,14 @@ defmodule Familiar.Knowledge.FreshnessTest do
       vector = deterministic_vector(1.0, 0.0)
 
       expect(EmbedderMock, :embed, fn _ -> {:ok, vector} end)
-      {:ok, entry} = Knowledge.store_with_embedding(%{
-        text: "Knowledge about deleted file",
-        type: "convention",
-        source: "init_scan",
-        source_file: "lib/gone.ex"
-      })
+
+      {:ok, entry} =
+        Knowledge.store_with_embedding(%{
+          text: "Knowledge about deleted file",
+          type: "convention",
+          source: "init_scan",
+          source_file: "lib/gone.ex"
+        })
 
       assert {:ok, %{removed: 1}} = Freshness.remove_deleted([entry])
 
@@ -273,19 +293,21 @@ defmodule Familiar.Knowledge.FreshnessTest do
     test "removes multiple entries" do
       expect(EmbedderMock, :embed, 2, fn _ -> {:ok, deterministic_vector(1.0, 0.0)} end)
 
-      {:ok, entry1} = Knowledge.store_with_embedding(%{
-        text: "First deleted",
-        type: "convention",
-        source: "init_scan",
-        source_file: "lib/a.ex"
-      })
+      {:ok, entry1} =
+        Knowledge.store_with_embedding(%{
+          text: "First deleted",
+          type: "convention",
+          source: "init_scan",
+          source_file: "lib/a.ex"
+        })
 
-      {:ok, entry2} = Knowledge.store_with_embedding(%{
-        text: "Second deleted",
-        type: "convention",
-        source: "init_scan",
-        source_file: "lib/b.ex"
-      })
+      {:ok, entry2} =
+        Knowledge.store_with_embedding(%{
+          text: "Second deleted",
+          type: "convention",
+          source: "init_scan",
+          source_file: "lib/b.ex"
+        })
 
       assert {:ok, %{removed: 2}} = Freshness.remove_deleted([entry1, entry2])
 

@@ -82,10 +82,16 @@ defmodule Familiar.Knowledge do
     deleted = Enum.filter(entries, &(Map.get(freshness_map, &1.id) == :deleted))
 
     if stale != [],
-      do: Task.Supervisor.start_child(Familiar.TaskSupervisor, fn -> Freshness.refresh_stale(stale, opts) end)
+      do:
+        Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
+          Freshness.refresh_stale(stale, opts)
+        end)
 
     if deleted != [],
-      do: Task.Supervisor.start_child(Familiar.TaskSupervisor, fn -> Freshness.remove_deleted(deleted) end)
+      do:
+        Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
+          Freshness.remove_deleted(deleted)
+        end)
   end
 
   defp run_freshness_check(entries, opts) do
@@ -168,7 +174,10 @@ defmodule Familiar.Knowledge do
 
         {:error, reason} ->
           # Compensate: revert to original text to keep entry+embedding consistent
-          Repo.update(Entry.changeset(updated, Map.take(Map.from_struct(entry), [:text, :source])))
+          Repo.update(
+            Entry.changeset(updated, Map.take(Map.from_struct(entry), [:text, :source]))
+          )
+
           {:error, reason}
       end
     end
@@ -214,7 +223,9 @@ defmodule Familiar.Knowledge do
 
   defp compute_staleness_ratio(_count, opts) do
     # Sample entries rather than loading all — sufficient for health signal
-    entries = from(e in Entry, order_by: [desc: e.updated_at], limit: @staleness_sample_size) |> Repo.all()
+    entries =
+      from(e in Entry, order_by: [desc: e.updated_at], limit: @staleness_sample_size)
+      |> Repo.all()
 
     if entries == [] do
       0.0
@@ -315,8 +326,13 @@ defmodule Familiar.Knowledge do
       {:error, reason} ->
         # Compensating delete: remove the entry since embedding failed
         case Repo.delete(entry) do
-          {:ok, _} -> :ok
-          {:error, del_err} -> Logger.warning("Compensating delete failed for entry #{entry.id}: #{inspect(del_err)}")
+          {:ok, _} ->
+            :ok
+
+          {:error, del_err} ->
+            Logger.warning(
+              "Compensating delete failed for entry #{entry.id}: #{inspect(del_err)}"
+            )
         end
 
         {:error, reason}
@@ -331,8 +347,13 @@ defmodule Familiar.Knowledge do
       {:error, reason} ->
         # Compensating delete: remove the entry since vector storage failed
         case Repo.delete(entry) do
-          {:ok, _} -> :ok
-          {:error, del_err} -> Logger.warning("Compensating delete failed for entry #{entry.id}: #{inspect(del_err)}")
+          {:ok, _} ->
+            :ok
+
+          {:error, del_err} ->
+            Logger.warning(
+              "Compensating delete failed for entry #{entry.id}: #{inspect(del_err)}"
+            )
         end
 
         {:error, reason}

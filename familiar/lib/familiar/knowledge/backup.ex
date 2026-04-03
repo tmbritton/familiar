@@ -119,7 +119,10 @@ defmodule Familiar.Knowledge.Backup do
         :ok
 
       {:error, reason} ->
-        Logger.warning("[Backup] Safety backup failed: #{inspect(reason)} — proceeding with restore")
+        Logger.warning(
+          "[Backup] Safety backup failed: #{inspect(reason)} — proceeding with restore"
+        )
+
         :ok
     end
   end

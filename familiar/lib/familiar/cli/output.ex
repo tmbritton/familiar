@@ -130,7 +130,10 @@ defmodule Familiar.CLI.Output do
 
   defp error_message(:not_found, %{id: id}), do: "Entry not found: #{id}"
   defp error_message(:not_found, _), do: "Entry not found"
-  defp error_message(:knowledge_not_code, _), do: "Content rejected: appears to be code, not knowledge"
+
+  defp error_message(:knowledge_not_code, _),
+    do: "Content rejected: appears to be code, not knowledge"
+
   defp error_message(:delete_failed, _), do: "Failed to delete entry"
   defp error_message(:backup_failed, %{reason: r}), do: "Backup failed: #{r}"
   defp error_message(:restore_failed, %{reason: r}), do: "Restore failed: #{r}"

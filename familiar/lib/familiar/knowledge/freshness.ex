@@ -42,8 +42,11 @@ defmodule Familiar.Knowledge.Freshness do
       )
       |> Enum.zip(with_file)
       |> Enum.map(fn
-        {{:ok, result}, _entry} -> result
-        {{:exit, :timeout}, entry} -> {:warn, entry, "Freshness stat timed out for #{entry.source_file} — treated as fresh"}
+        {{:ok, result}, _entry} ->
+          result
+
+        {{:exit, :timeout}, entry} ->
+          {:warn, entry, "Freshness stat timed out for #{entry.source_file} — treated as fresh"}
       end)
       |> Enum.reduce({%{fresh: [], stale: [], deleted: []}, []}, &accumulate/2)
 
@@ -111,7 +114,8 @@ defmodule Familiar.Knowledge.Freshness do
   Returns `{:ok, %{refreshed: count, failed: count, warnings: [String.t()]}}`.
   """
   @spec refresh_stale([Entry.t()], keyword()) ::
-          {:ok, %{refreshed: non_neg_integer(), failed: non_neg_integer(), warnings: [String.t()]}}
+          {:ok,
+           %{refreshed: non_neg_integer(), failed: non_neg_integer(), warnings: [String.t()]}}
   def refresh_stale(entries, opts \\ []) do
     fs = file_system(opts)
 

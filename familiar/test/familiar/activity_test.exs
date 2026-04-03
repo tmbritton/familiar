@@ -13,7 +13,13 @@ defmodule Familiar.ActivityTest do
     end
 
     test "creates event with all fields" do
-      event = %Event{type: :tool_call, detail: "read_file", result: "ok", timestamp: DateTime.utc_now()}
+      event = %Event{
+        type: :tool_call,
+        detail: "read_file",
+        result: "ok",
+        timestamp: DateTime.utc_now()
+      }
+
       assert event.detail == "read_file"
       assert event.result == "ok"
     end

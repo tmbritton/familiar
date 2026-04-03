@@ -368,7 +368,12 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
       project_dir: tmp_dir
     } do
       create_file(tmp_dir, "lib/app.ex", "defmodule App do\n  def hello, do: :world\nend")
-      create_file(tmp_dir, "lib/app/server.ex", "defmodule App.Server do\n  def run, do: :ok\nend")
+
+      create_file(
+        tmp_dir,
+        "lib/app/server.ex",
+        "defmodule App.Server do\n  def run, do: :ok\nend"
+      )
 
       # LLM fails for all calls
       Mox.stub(Familiar.Providers.LLMMock, :chat, fn _messages, _opts ->
@@ -584,7 +589,11 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
 
   describe "edge cases" do
     test "scan_files handles non-existent project directory gracefully" do
-      result = InitScanner.scan_files("/tmp/nonexistent_#{System.unique_integer([:positive])}", file_system: @fs)
+      result =
+        InitScanner.scan_files("/tmp/nonexistent_#{System.unique_integer([:positive])}",
+          file_system: @fs
+        )
+
       assert {:ok, [], 0} = result
     end
 

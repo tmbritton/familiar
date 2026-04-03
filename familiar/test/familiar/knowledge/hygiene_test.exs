@@ -58,8 +58,16 @@ defmodule Familiar.Knowledge.HygieneTest do
     test "extracts entries with correct types and source from LLM response" do
       llm_response =
         Jason.encode!([
-          %{"type" => "fact", "text" => "Phoenix uses conn-based middleware", "source_file" => "lib/auth.ex"},
-          %{"type" => "decision", "text" => "Chose cookie sessions for web", "source_file" => "lib/auth.ex"}
+          %{
+            "type" => "fact",
+            "text" => "Phoenix uses conn-based middleware",
+            "source_file" => "lib/auth.ex"
+          },
+          %{
+            "type" => "decision",
+            "text" => "Chose cookie sessions for web",
+            "source_file" => "lib/auth.ex"
+          }
         ])
 
       stub(LLMMock, :chat, fn _messages, _opts ->
@@ -93,7 +101,11 @@ defmodule Familiar.Knowledge.HygieneTest do
     test "filters out invalid types like file_summary" do
       llm_response =
         Jason.encode!([
-          %{"type" => "file_summary", "text" => "This is a summary", "source_file" => "lib/foo.ex"},
+          %{
+            "type" => "file_summary",
+            "text" => "This is a summary",
+            "source_file" => "lib/foo.ex"
+          },
           %{"type" => "fact", "text" => "Valid fact entry", "source_file" => "lib/foo.ex"}
         ])
 
@@ -158,7 +170,11 @@ defmodule Familiar.Knowledge.HygieneTest do
     test "extracts gotcha entries from failure log" do
       llm_response =
         Jason.encode!([
-          %{"type" => "gotcha", "text" => "Session middleware has conflicting patterns", "source_file" => "lib/auth.ex"}
+          %{
+            "type" => "gotcha",
+            "text" => "Session middleware has conflicting patterns",
+            "source_file" => "lib/auth.ex"
+          }
         ])
 
       stub(LLMMock, :chat, fn _messages, _opts ->
@@ -365,12 +381,20 @@ defmodule Familiar.Knowledge.HygieneTest do
       success_response =
         Jason.encode!([
           %{"type" => "fact", "text" => "Auth uses JWT tokens", "source_file" => "lib/auth.ex"},
-          %{"type" => "decision", "text" => "Cookie sessions for web", "source_file" => "lib/session.ex"}
+          %{
+            "type" => "decision",
+            "text" => "Cookie sessions for web",
+            "source_file" => "lib/session.ex"
+          }
         ])
 
       failure_response =
         Jason.encode!([
-          %{"type" => "gotcha", "text" => "Session middleware conflicts", "source_file" => "lib/plug.ex"}
+          %{
+            "type" => "gotcha",
+            "text" => "Session middleware conflicts",
+            "source_file" => "lib/plug.ex"
+          }
         ])
 
       # LLM: first call for success, second for failure
@@ -528,13 +552,25 @@ defmodule Familiar.Knowledge.HygieneTest do
 
       success_response =
         Jason.encode!([
-          %{"type" => "convention", "text" => "Updated auth convention patterns", "source_file" => "lib/auth.ex"},
-          %{"type" => "fact", "text" => "New fact about routing", "source_file" => "lib/router.ex"}
+          %{
+            "type" => "convention",
+            "text" => "Updated auth convention patterns",
+            "source_file" => "lib/auth.ex"
+          },
+          %{
+            "type" => "fact",
+            "text" => "New fact about routing",
+            "source_file" => "lib/router.ex"
+          }
         ])
 
       failure_response =
         Jason.encode!([
-          %{"type" => "gotcha", "text" => "Watch out for nil sessions", "source_file" => "lib/session.ex"}
+          %{
+            "type" => "gotcha",
+            "text" => "Watch out for nil sessions",
+            "source_file" => "lib/session.ex"
+          }
         ])
 
       LLMMock

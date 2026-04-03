@@ -560,7 +560,13 @@ defmodule Familiar.CLI.MainTest do
       backup_deps =
         deps(
           backup_fn: fn _opts ->
-            {:ok, %{path: "/backups/familiar-20260402T120000.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}}
+            {:ok,
+             %{
+               path: "/backups/familiar-20260402T120000.db",
+               filename: "familiar-20260402T120000.db",
+               size: 4096,
+               timestamp: "20260402T120000"
+             }}
           end
         )
 
@@ -586,7 +592,15 @@ defmodule Familiar.CLI.MainTest do
       restore_deps =
         deps(
           backup_list_fn: fn _opts ->
-            {:ok, [%{path: "/b/f.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+            {:ok,
+             [
+               %{
+                 path: "/b/f.db",
+                 filename: "familiar-20260402T120000.db",
+                 size: 4096,
+                 timestamp: "20260402T120000"
+               }
+             ]}
           end
         )
 
@@ -600,7 +614,15 @@ defmodule Familiar.CLI.MainTest do
       restore_deps =
         deps(
           backup_list_fn: fn _opts ->
-            {:ok, [%{path: "/b/familiar-20260402T120000.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+            {:ok,
+             [
+               %{
+                 path: "/b/familiar-20260402T120000.db",
+                 filename: "familiar-20260402T120000.db",
+                 size: 4096,
+                 timestamp: "20260402T120000"
+               }
+             ]}
           end,
           restore_fn: fn _path, _opts -> :ok end,
           confirm_fn: fn _prompt -> "y\n" end
@@ -616,7 +638,15 @@ defmodule Familiar.CLI.MainTest do
       restore_deps =
         deps(
           backup_list_fn: fn _opts ->
-            {:ok, [%{path: "/b/f.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+            {:ok,
+             [
+               %{
+                 path: "/b/f.db",
+                 filename: "familiar-20260402T120000.db",
+                 size: 4096,
+                 timestamp: "20260402T120000"
+               }
+             ]}
           end,
           confirm_fn: fn _prompt -> "n\n" end
         )
@@ -631,7 +661,15 @@ defmodule Familiar.CLI.MainTest do
       restore_deps =
         deps(
           backup_list_fn: fn _opts ->
-            {:ok, [%{path: "/b/f.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+            {:ok,
+             [
+               %{
+                 path: "/b/f.db",
+                 filename: "familiar-20260402T120000.db",
+                 size: 4096,
+                 timestamp: "20260402T120000"
+               }
+             ]}
           end,
           restore_fn: fn _path, _opts -> :ok end
         )
@@ -646,7 +684,15 @@ defmodule Familiar.CLI.MainTest do
       restore_deps =
         deps(
           backup_list_fn: fn _opts ->
-            {:ok, [%{path: "/b/f.db", filename: "familiar-20260402T120000.db", size: 4096, timestamp: "20260402T120000"}]}
+            {:ok,
+             [
+               %{
+                 path: "/b/f.db",
+                 filename: "familiar-20260402T120000.db",
+                 size: 4096,
+                 timestamp: "20260402T120000"
+               }
+             ]}
           end,
           restore_fn: fn _path, _opts -> :ok end
         )
@@ -659,9 +705,7 @@ defmodule Familiar.CLI.MainTest do
       Paths.ensure_familiar_dir!()
 
       restore_deps =
-        deps(
-          backup_list_fn: fn _opts -> {:ok, []} end
-        )
+        deps(backup_list_fn: fn _opts -> {:ok, []} end)
 
       result = Main.run({"restore", ["99990101T000000"], %{force: true}}, restore_deps)
       assert {:error, {:not_found, %{timestamp: "99990101T000000"}}} = result
@@ -741,7 +785,8 @@ defmodule Familiar.CLI.MainTest do
 
   describe "parse_args/1 for plan command" do
     test "parses plan with description" do
-      assert {"plan", ["add", "user", "accounts"], %{}} = Main.parse_args(["plan", "add", "user", "accounts"])
+      assert {"plan", ["add", "user", "accounts"], %{}} =
+               Main.parse_args(["plan", "add", "user", "accounts"])
     end
 
     test "parses plan --resume" do
@@ -749,7 +794,8 @@ defmodule Familiar.CLI.MainTest do
     end
 
     test "parses plan --resume --session 42" do
-      assert {"plan", [], %{resume: true, session: 42}} = Main.parse_args(["plan", "--resume", "--session", "42"])
+      assert {"plan", [], %{resume: true, session: 42}} =
+               Main.parse_args(["plan", "--resume", "--session", "42"])
     end
 
     test "parses search --raw" do

@@ -77,7 +77,12 @@ defmodule Familiar.ConversationsTest do
 
     test "supports tool_calls" do
       {:ok, conv} = Conversations.create("test")
-      {:ok, msg} = Conversations.add_message(conv.id, "assistant", "thinking...", tool_calls: ~s([{"name":"read_file"}]))
+
+      {:ok, msg} =
+        Conversations.add_message(conv.id, "assistant", "thinking...",
+          tool_calls: ~s([{"name":"read_file"}])
+        )
+
       assert msg.tool_calls =~ "read_file"
     end
   end
@@ -127,7 +132,9 @@ defmodule Familiar.ConversationsTest do
 
     test "validates tool_calls is JSON array" do
       {:ok, conv} = Conversations.create("test")
-      {:error, _} = Conversations.add_message(conv.id, "assistant", "test", tool_calls: "not json")
+
+      {:error, _} =
+        Conversations.add_message(conv.id, "assistant", "test", tool_calls: "not json")
     end
   end
 end

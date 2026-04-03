@@ -138,7 +138,8 @@ defmodule Familiar.Knowledge.SecretFilterTest do
     end
 
     test "strips all env var pattern types" do
-      for var <- ~w(DATABASE_URL SECRET_KEY_BASE API_KEY SECRET_KEY PRIVATE_KEY ACCESS_TOKEN AUTH_TOKEN) do
+      for var <-
+            ~w(DATABASE_URL SECRET_KEY_BASE API_KEY SECRET_KEY PRIVATE_KEY ACCESS_TOKEN AUTH_TOKEN) do
         text = "#{var}=some_secret_value_123"
         result = SecretFilter.filter(text)
         assert result =~ "[REDACTED]", "Expected #{var} to be redacted"
@@ -212,13 +213,21 @@ defmodule Familiar.Knowledge.SecretFilterTest do
       # AWS
       assert [{"[AWS_ACCESS_KEY]", _}] = SecretFilter.detect("AKIAIOSFODNN7EXAMPLE")
       # Stripe secret
-      assert [{"[STRIPE_SECRET_KEY]", _}] = SecretFilter.detect("sk_live_abcdefghijklmnopqrstuvwxyz")
+      assert [{"[STRIPE_SECRET_KEY]", _}] =
+               SecretFilter.detect("sk_live_abcdefghijklmnopqrstuvwxyz")
+
       # Stripe publishable
-      assert [{"[STRIPE_PUBLISHABLE_KEY]", _}] = SecretFilter.detect("pk_live_abcdefghijklmnopqrstuvwxyz")
+      assert [{"[STRIPE_PUBLISHABLE_KEY]", _}] =
+               SecretFilter.detect("pk_live_abcdefghijklmnopqrstuvwxyz")
+
       # GitHub token
-      assert [{"[GITHUB_TOKEN]", _}] = SecretFilter.detect("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm")
+      assert [{"[GITHUB_TOKEN]", _}] =
+               SecretFilter.detect("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm")
+
       # GitHub OAuth
-      assert [{"[GITHUB_OAUTH_TOKEN]", _}] = SecretFilter.detect("gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm")
+      assert [{"[GITHUB_OAUTH_TOKEN]", _}] =
+               SecretFilter.detect("gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm")
+
       # URL credentials
       assert [{"://[CREDENTIALS]@", _}] = SecretFilter.detect("postgres://admin:secret@host")
       # Env var

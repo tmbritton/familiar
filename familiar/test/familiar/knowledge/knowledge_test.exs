@@ -84,11 +84,12 @@ defmodule Familiar.Knowledge.KnowledgeTest do
       end
       """
 
-      assert {:error, {:knowledge_not_code, %{reason: _}}} = Knowledge.store(%{
-               text: code,
-               type: "convention",
-               source: "manual"
-             })
+      assert {:error, {:knowledge_not_code, %{reason: _}}} =
+               Knowledge.store(%{
+                 text: code,
+                 type: "convention",
+                 source: "manual"
+               })
     end
 
     test "returns changeset validation error for missing type/source" do
@@ -260,6 +261,7 @@ defmodule Familiar.Knowledge.KnowledgeTest do
   describe "store/1 secret filtering" do
     test "filters secrets from text before persisting" do
       vector = deterministic_vector(1.0, 0.0)
+
       expect(EmbedderMock, :embed, fn text ->
         # The embedder should receive the filtered text
         refute text =~ "AKIAIOSFODNN7EXAMPLE"
