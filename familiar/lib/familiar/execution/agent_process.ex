@@ -26,6 +26,7 @@ defmodule Familiar.Execution.AgentProcess do
 
   alias Familiar.Activity
   alias Familiar.Conversations
+  alias Familiar.Execution.PromptAssembly
   alias Familiar.Execution.ToolRegistry
   alias Familiar.Hooks
   alias Familiar.Roles
@@ -119,7 +120,7 @@ defmodule Familiar.Execution.AgentProcess do
             }
 
             # Persist system + user messages for full conversation replay
-            system_prompt = build_system_prompt(role, skills)
+            system_prompt = PromptAssembly.build_system_prompt(role, skills)
             Conversations.add_message(conversation.id, "system", system_prompt)
             Conversations.add_message(conversation.id, "user", task)
 
@@ -219,7 +220,23 @@ defmodule Familiar.Execution.AgentProcess do
       complete_with_error(state, {:timeout, elapsed})
     else
       remaining_ms = state.task_timeout_ms - elapsed
-      messages = assemble_messages(state)
+
+      {messages, _tools, assembly_meta} =
+        PromptAssembly.assemble(%{
+          role: state.role,
+          skills: state.skills,
+          task: state.task,
+          messages: state.messages
+        })
+
+      if assembly_meta.truncated do
+        Logger.info(
+          "[AgentProcess] #{state.agent_id} prompt truncated: " <>
+            "dropped #{length(assembly_meta.dropped_entries)} messages, " <>
+            "budget=#{assembly_meta.token_budget.limit}, " <>
+            "after=#{assembly_meta.token_budget.after_truncation}"
+        )
+      end
 
       broadcast_activity(state.agent_id, :llm_call, "iteration #{state.tool_call_count}")
 
@@ -329,26 +346,6 @@ defmodule Familiar.Execution.AgentProcess do
   end
 
   # -- Private: Message Assembly --
-
-  defp assemble_messages(state) do
-    system_prompt = build_system_prompt(state.role, state.skills)
-    task_msg = %{role: "user", content: state.task}
-
-    [%{role: "system", content: system_prompt}, task_msg | state.messages]
-  end
-
-  defp build_system_prompt(role, skills) do
-    skill_text =
-      skills
-      |> Enum.map(fn skill -> skill.instructions end)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join("\n\n")
-
-    case skill_text do
-      "" -> role.system_prompt || ""
-      text -> "#{role.system_prompt || ""}\n\n#{text}"
-    end
-  end
 
   defp build_assistant_message(content, tool_calls) do
     base = %{role: "assistant", content: content || ""}
