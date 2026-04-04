@@ -20,7 +20,7 @@ defmodule Familiar.Execution.AgentProcess do
   * Per-task timeout (default: 5 minutes)
   """
 
-  use GenServer
+  use GenServer, restart: :temporary
 
   require Logger
 
@@ -48,6 +48,7 @@ defmodule Familiar.Execution.AgentProcess do
     * `:max_tool_calls` — max tool calls before stopping (optional)
     * `:task_timeout_ms` — timeout in milliseconds (optional)
   """
+
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
   end

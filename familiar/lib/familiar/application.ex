@@ -68,6 +68,10 @@ defmodule Familiar.Application do
     # Register core built-in tool stubs before extensions (extensions can override)
     ToolRegistry.register_builtins()
 
+    # Register real tool implementations (overrides stubs)
+    alias Familiar.Execution.WorkflowRunner
+    WorkflowRunner.register_signal_ready_tool()
+
     extensions = Application.get_env(:familiar, :extensions, [])
 
     case ExtensionLoader.load_extensions(extensions) do

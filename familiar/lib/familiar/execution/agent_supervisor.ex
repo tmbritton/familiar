@@ -27,7 +27,8 @@ defmodule Familiar.Execution.AgentSupervisor do
   """
   @spec start_agent(keyword()) :: DynamicSupervisor.on_start_child()
   def start_agent(opts) do
-    DynamicSupervisor.start_child(__MODULE__, {Familiar.Execution.AgentProcess, opts})
+    {supervisor, agent_opts} = Keyword.pop(opts, :supervisor, __MODULE__)
+    DynamicSupervisor.start_child(supervisor, {Familiar.Execution.AgentProcess, agent_opts})
   end
 
   @impl true

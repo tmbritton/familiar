@@ -106,7 +106,7 @@ development_status:
   5-5-file-watcher: done
   5-6-safety-extension: done
   5-7-knowledge-store-extension: done
-  5-8-workflow-runner: backlog
+  5-8-workflow-runner: review
   5-9-file-transaction-module: backlog
   5-10-harness-integration-test: backlog
   epic-5-retrospective: optional
