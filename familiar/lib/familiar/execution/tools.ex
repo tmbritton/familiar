@@ -11,6 +11,7 @@ defmodule Familiar.Execution.Tools do
   alias Familiar.Activity
   alias Familiar.Execution.AgentProcess
   alias Familiar.Execution.AgentSupervisor
+  alias Familiar.Files
 
   # -- File Tools --
 
@@ -25,24 +26,47 @@ defmodule Familiar.Execution.Tools do
   end
 
   @doc false
-  def write_file(args, _context) do
+  def write_file(args, context) do
     with {:ok, path} <- require_arg(args, :path) do
       content = get_arg(args, :content) || ""
+      do_write_file(path, content, Map.get(context, :task_id))
+    end
+  end
 
-      case file_system().write(path, content) do
-        :ok -> {:ok, %{path: path}}
-        {:error, _} = error -> error
-      end
+  defp do_write_file(path, content, nil) do
+    case file_system().write(path, content) do
+      :ok -> {:ok, %{path: path}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp do_write_file(path, content, task_id) do
+    case Files.write(path, content, task_id) do
+      {:ok, _transaction} -> {:ok, %{path: path}}
+      {:error, {:conflict, _}} -> {:ok, %{path: path <> ".fam-pending", conflict: true}}
+      {:error, _} = error -> error
     end
   end
 
   @doc false
-  def delete_file(args, _context) do
+  def delete_file(args, context) do
     with {:ok, path} <- require_arg(args, :path) do
-      case file_system().delete(path) do
-        :ok -> {:ok, %{path: path}}
-        {:error, _} = error -> error
-      end
+      do_delete_file(path, Map.get(context, :task_id))
+    end
+  end
+
+  defp do_delete_file(path, nil) do
+    case file_system().delete(path) do
+      :ok -> {:ok, %{path: path}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp do_delete_file(path, task_id) do
+    case Files.delete(path, task_id) do
+      {:ok, _transaction} -> {:ok, %{path: path}}
+      {:error, {:conflict, _}} -> {:error, {:conflict, %{path: path}}}
+      {:error, _} = error -> error
     end
   end
 

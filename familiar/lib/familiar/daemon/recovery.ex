@@ -8,7 +8,7 @@ defmodule Familiar.Daemon.Recovery do
 
   Three-phase recovery:
   1. Database integrity check (PRAGMA integrity_check)
-  2. File transaction rollback (stub — Story 5.2)
+  2. File transaction rollback (via Familiar.Files)
   3. Orphaned task reconciliation (stub — Story 4.1a)
   """
 
@@ -112,9 +112,8 @@ defmodule Familiar.Daemon.Recovery do
 
   @doc false
   def rollback_incomplete_transactions do
-    # Stub — real implementation in Story 5.2 (File Transaction Module)
-    Logger.info("[Recovery] No file transactions to rollback (stub)")
-    :ok
+    Logger.info("[Recovery] Rolling back incomplete file transactions")
+    Familiar.Files.rollback_incomplete()
   end
 
   @doc false
