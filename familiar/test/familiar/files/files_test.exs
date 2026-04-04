@@ -120,15 +120,18 @@ defmodule Familiar.FilesTest do
       assert txn.status == "rolled_back"
     end
 
-    test "unique constraint on task_id + file_path" do
+    test "same task can re-write file after completion" do
       Familiar.System.FileSystemMock
       |> stub(:read, fn _p -> {:error, {:file_error, %{reason: :enoent}}} end)
       |> stub(:write, fn _p, _c -> :ok end)
 
       assert {:ok, _} = Files.write("/project/a.ex", "content", "task_1")
+      assert {:ok, _} = Files.write("/project/a.ex", "v2", "task_1")
 
-      assert {:error, {:transaction_insert_failed, _}} =
-               Files.write("/project/a.ex", "v2", "task_1")
+      # Only the latest transaction remains
+      txns = Repo.all(from(t in Transaction, where: t.file_path == "/project/a.ex"))
+      assert length(txns) == 1
+      assert hd(txns).content_hash == Transaction.content_hash("v2")
     end
   end
 
@@ -808,6 +811,100 @@ defmodule Familiar.FilesTest do
           refute hash_a == Transaction.content_hash(b)
         end
       end
+    end
+  end
+
+  # == File Claim Checking ==
+
+  describe "claim checking" do
+    defp insert_pending_claim(path, task_id) do
+      %Transaction{}
+      |> Transaction.changeset(%{
+        task_id: task_id,
+        file_path: path,
+        content_hash: "abc123",
+        original_content_hash: nil,
+        status: "pending"
+      })
+      |> Familiar.Repo.insert!()
+    end
+
+    defp insert_claim(path, task_id, status) do
+      %Transaction{}
+      |> Transaction.changeset(%{
+        task_id: task_id,
+        file_path: path,
+        content_hash: "abc123",
+        original_content_hash: nil,
+        status: status
+      })
+      |> Familiar.Repo.insert!()
+    end
+
+    test "write rejects when file is claimed by another task" do
+      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+
+      insert_pending_claim("/project/foo.ex", "task_a")
+
+      assert {:error, {:file_claimed, %{path: "/project/foo.ex", owner: "task_a"}}} =
+               Files.write("/project/foo.ex", "content_b", "task_b")
+    end
+
+    test "delete rejects when file is claimed by another task" do
+      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+
+      insert_pending_claim("/project/bar.ex", "task_a")
+
+      assert {:error, {:file_claimed, %{path: "/project/bar.ex", owner: "task_a"}}} =
+               Files.delete("/project/bar.ex", "task_b")
+    end
+
+    test "same task can re-write its own file" do
+      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :write, fn _, _ -> :ok end)
+
+      # First write succeeds
+      assert {:ok, _} = Files.write("/project/same.ex", "v1", "task_a")
+
+      # Same task writes again — passes claim check, clears stale completed row, succeeds
+      assert {:ok, _} = Files.write("/project/same.ex", "v2", "task_a")
+    end
+
+    test "same task cannot re-write while previous write is still pending" do
+      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+
+      insert_pending_claim("/project/pending.ex", "task_a")
+
+      # Same task, but existing row is pending (not completed) — unique constraint fires
+      assert {:error, {:transaction_insert_failed, _}} =
+               Files.write("/project/pending.ex", "v2", "task_a")
+    end
+
+    test "completed transaction does not block new writes" do
+      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :write, fn _, _ -> :ok end)
+
+      insert_claim("/project/done.ex", "task_a", "completed")
+
+      assert {:ok, _} = Files.write("/project/done.ex", "v2", "task_b")
+    end
+
+    test "rolled_back transaction does not block new writes" do
+      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :write, fn _, _ -> :ok end)
+
+      insert_claim("/project/rollback.ex", "task_a", "rolled_back")
+
+      assert {:ok, _} = Files.write("/project/rollback.ex", "v2", "task_b")
+    end
+
+    test "conflict transaction blocks new writes (still active)" do
+      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+
+      insert_claim("/project/conflict.ex", "task_a", "conflict")
+
+      assert {:error, {:file_claimed, %{path: "/project/conflict.ex", owner: "task_a"}}} =
+               Files.write("/project/conflict.ex", "content_b", "task_b")
     end
   end
 end

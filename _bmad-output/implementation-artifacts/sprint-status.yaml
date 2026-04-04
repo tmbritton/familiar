@@ -115,11 +115,14 @@ development_status:
 
   # === PHASE 3: WORKFLOWS & UI (stories TBD when Epic 5 nears completion) ===
 
-  # Epic 5.5: Async Tool Dispatch (must complete before users interact with system)
+  # Epic 5.5: Async Tool Dispatch & Concurrency Hardening
   # Refactors ToolRegistry.dispatch to use GenServer.reply/2 pattern so tool
   # execution doesn't block the GenServer. Required for concurrent agent workflows.
+  # Also addresses file-level claim checking and hooks back-pressure from Epic 5 retro.
   epic-5.5: in-progress
   5.5-1-async-tool-dispatch: done
+  5.5-2-file-claim-checking: done
+  5.5-3-hooks-mailbox-back-pressure: ready-for-dev
 
   # Epic 6: Default Workflows & CLI Integration (placeholder)
   epic-6: backlog

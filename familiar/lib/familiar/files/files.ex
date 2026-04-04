@@ -42,7 +42,7 @@ defmodule Familiar.Files do
     new_hash = Transaction.content_hash(content)
     original_hash = read_current_hash(path)
 
-    # Step 1: Log intent
+    # Step 0: Check if another task has claimed this file
     attrs = %{
       task_id: task_id,
       file_path: path,
@@ -51,7 +51,9 @@ defmodule Familiar.Files do
       status: "pending"
     }
 
-    with {:ok, txn} <- insert_transaction(attrs),
+    with :ok <- check_claim(path, task_id),
+         # Step 1: Log intent
+         {:ok, txn} <- insert_transaction(attrs),
          # Step 2: Pre-write stat check
          :ok <- check_for_conflict(path, original_hash, content, txn),
          # Step 3: Write file
@@ -81,7 +83,8 @@ defmodule Familiar.Files do
       status: "pending"
     }
 
-    with {:ok, txn} <- insert_transaction(attrs),
+    with :ok <- check_claim(path, task_id),
+         {:ok, txn} <- insert_transaction(attrs),
          :ok <- check_for_conflict(path, original_hash, nil, txn),
          :ok <- do_delete(path, txn) do
       mark_completed(txn)
@@ -145,7 +148,35 @@ defmodule Familiar.Files do
 
   # -- Private: Write Sequence Helpers --
 
+  defp check_claim(path, task_id) do
+    case Repo.one(
+           from(t in Transaction,
+             where:
+               t.file_path == ^path and t.task_id != ^task_id and
+                 t.status in ["pending", "conflict"],
+             select: t.task_id,
+             limit: 1
+           )
+         ) do
+      nil -> :ok
+      owner -> {:error, {:file_claimed, %{path: path, owner: owner}}}
+    end
+  rescue
+    e -> {:error, {:claim_check_failed, Exception.message(e)}}
+  end
+
+  defp clear_stale_transaction(task_id, path) do
+    from(t in Transaction,
+      where:
+        t.task_id == ^task_id and t.file_path == ^path and
+          t.status in ["completed", "rolled_back", "skipped"]
+    )
+    |> Repo.delete_all()
+  end
+
   defp insert_transaction(attrs) do
+    clear_stale_transaction(attrs.task_id, attrs.file_path)
+
     %Transaction{}
     |> Transaction.changeset(attrs)
     |> Repo.insert()
