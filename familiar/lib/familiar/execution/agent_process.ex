@@ -122,8 +122,8 @@ defmodule Familiar.Execution.AgentProcess do
 
             # Persist system + user messages for full conversation replay
             system_prompt = PromptAssembly.build_system_prompt(role, skills)
-            Conversations.add_message(conversation.id, "system", system_prompt)
-            Conversations.add_message(conversation.id, "user", task)
+            log_add_message(Conversations.add_message(conversation.id, "system", system_prompt))
+            log_add_message(Conversations.add_message(conversation.id, "user", task))
 
             Hooks.event(:on_agent_start, %{
               agent_id: agent_id,
@@ -228,7 +228,7 @@ defmodule Familiar.Execution.AgentProcess do
           role: state.role,
           skills: state.skills,
           task: state.task,
-          messages: state.messages
+          messages: Enum.reverse(state.messages)
         })
 
       if assembly_meta.truncated do
@@ -268,18 +268,20 @@ defmodule Familiar.Execution.AgentProcess do
     # Persist assistant message
     tool_calls_json = if tool_calls == [], do: "[]", else: Jason.encode!(tool_calls)
 
-    Conversations.add_message(
-      state.conversation_id,
-      "assistant",
-      content || "",
-      tool_calls: tool_calls_json
+    log_add_message(
+      Conversations.add_message(
+        state.conversation_id,
+        "assistant",
+        content || "",
+        tool_calls: tool_calls_json
+      )
     )
 
     assistant_msg = build_assistant_message(content, tool_calls)
 
     state = %{
       state
-      | messages: state.messages ++ [assistant_msg],
+      | messages: [assistant_msg | state.messages],
         llm_task: nil,
         timeout_ref: nil,
         timeout_id: nil
@@ -300,7 +302,7 @@ defmodule Familiar.Execution.AgentProcess do
       task_id: state.agent_id
     }
 
-    {tool_messages, new_count} =
+    {tool_messages_rev, new_count} =
       Enum.reduce(tool_calls, {[], state.tool_call_count}, fn tc, {msgs, count} ->
         {name, args} = extract_tool_call(tc)
 
@@ -310,15 +312,15 @@ defmodule Familiar.Execution.AgentProcess do
         result_content = format_tool_result(result)
 
         # Persist tool result
-        Conversations.add_message(state.conversation_id, "tool", result_content)
+        log_add_message(Conversations.add_message(state.conversation_id, "tool", result_content))
 
         msg = %{role: "tool", content: result_content}
-        {msgs ++ [msg], count + 1}
+        {[msg | msgs], count + 1}
       end)
 
     state = %{
       state
-      | messages: state.messages ++ tool_messages,
+      | messages: Enum.reverse(tool_messages_rev) ++ state.messages,
         tool_call_count: new_count
     }
 
@@ -467,6 +469,13 @@ defmodule Familiar.Execution.AgentProcess do
 
   defp notify_parent_started(%{parent: pid, agent_id: id}),
     do: send(pid, {:agent_started, id, self()})
+
+  defp log_add_message({:ok, _} = ok), do: ok
+
+  defp log_add_message({:error, reason}),
+    do: Logger.warning("[AgentProcess] add_message failed: #{inspect(reason)}")
+
+  defp log_add_message(other), do: other
 
   # -- Private: Helpers --
 

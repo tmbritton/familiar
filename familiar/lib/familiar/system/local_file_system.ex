@@ -17,11 +17,17 @@ defmodule Familiar.System.LocalFileSystem do
 
   @impl true
   def write(path, content) do
-    path |> Path.dirname() |> File.mkdir_p!()
+    dir = Path.dirname(path)
 
-    case File.write(path, content) do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:file_error, %{path: path, reason: reason}}}
+    case File.mkdir_p(dir) do
+      :ok ->
+        case File.write(path, content) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:file_error, %{path: path, reason: reason}}}
+        end
+
+      {:error, reason} ->
+        {:error, {:file_error, %{path: dir, reason: reason}}}
     end
   end
 

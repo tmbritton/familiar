@@ -173,8 +173,11 @@ defmodule Familiar.Execution.WorkflowRunner do
     ensure_registry()
 
     case :ets.lookup(@registry_table, agent_id) do
-      [{^agent_id, pid}] -> {:ok, pid}
-      [] -> :error
+      [{^agent_id, pid}] ->
+        if Process.alive?(pid), do: {:ok, pid}, else: :error
+
+      [] ->
+        :error
     end
   rescue
     ArgumentError -> :error
@@ -314,7 +317,7 @@ defmodule Familiar.Execution.WorkflowRunner do
     Logger.info("[WorkflowRunner] Step '#{step.name}' completed successfully")
 
     step_result = %{step: step.name, output: content}
-    new_results = state.step_results ++ [step_result]
+    new_results = [step_result | state.step_results]
 
     state = %{
       state
@@ -340,7 +343,7 @@ defmodule Familiar.Execution.WorkflowRunner do
     Logger.info("[WorkflowRunner] Workflow '#{state.workflow.name}' completed successfully")
 
     state = %{state | status: :completed}
-    result = {:ok, %{steps: state.step_results}}
+    result = {:ok, %{steps: Enum.reverse(state.step_results)}}
     notify_caller(state, {:workflow_done, self(), result})
     state
   end
@@ -372,11 +375,14 @@ defmodule Familiar.Execution.WorkflowRunner do
   defp format_previous_steps(_step, []), do: ""
 
   defp format_previous_steps(step, results) do
+    # step_results stored newest-first — reverse for chronological context
+    chronological = Enum.reverse(results)
+
     relevant =
       if step.input == [] do
-        results
+        chronological
       else
-        Enum.filter(results, &(&1.step in step.input))
+        Enum.filter(chronological, &(&1.step in step.input))
       end
 
     if relevant == [] do
@@ -403,11 +409,9 @@ defmodule Familiar.Execution.WorkflowRunner do
   # -- Private: Agent Registration --
 
   defp ensure_registry do
-    if :ets.whereis(@registry_table) == :undefined do
-      :ets.new(@registry_table, [:set, :named_table, :public])
-    end
-  rescue
-    ArgumentError -> :ok
+    :ets.new(@registry_table, [:set, :named_table, :public])
+  catch
+    :error, :badarg -> :ok
   end
 
   defp register_agent(agent_id, runner_pid) do
@@ -461,12 +465,9 @@ defmodule Familiar.Execution.WorkflowRunner do
         {:error, {:invalid_workflow, "missing or empty steps list"}}
 
       true ->
-        case build_steps(raw_steps) do
-          {:ok, steps} ->
-            {:ok, %Workflow{name: name, description: description, steps: steps}}
-
-          {:error, _} = error ->
-            error
+        with {:ok, steps} <- build_steps(raw_steps),
+             :ok <- validate_step_inputs(steps) do
+          {:ok, %Workflow{name: name, description: description, steps: steps}}
         end
     end
   end
@@ -496,6 +497,20 @@ defmodule Familiar.Execution.WorkflowRunner do
         end
 
       {:ok, %Step{name: name, role: role, mode: mode, input: input, output: raw["output"]}}
+    end
+  end
+
+  defp validate_step_inputs(steps) do
+    # Build set of prior step names at each position (no self or forward refs)
+    {_, invalid} =
+      Enum.reduce(steps, {MapSet.new(), []}, fn step, {prior_names, bad} ->
+        bad_refs = Enum.reject(step.input, &(&1 in prior_names))
+        {MapSet.put(prior_names, step.name), bad ++ bad_refs}
+      end)
+
+    case invalid do
+      [] -> :ok
+      refs -> {:error, {:invalid_step_input, "unknown step references: #{Enum.join(refs, ", ")}"}}
     end
   end
 

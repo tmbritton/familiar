@@ -190,13 +190,27 @@ defmodule Familiar.Execution.Tools do
   end
 
   defp parse_command(command) when is_binary(command) do
-    case String.split(command) do
+    case tokenize_command(command) do
       [executable | args] -> {executable, args}
       [] -> {"", []}
     end
   end
 
   defp parse_command(_), do: {"", []}
+
+  # Split on whitespace, respecting single and double quotes (with escapes)
+  defp tokenize_command(cmd) do
+    ~r/(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(\S+))/
+    |> Regex.scan(cmd)
+    |> Enum.map(fn
+      [_, quoted, "", ""] -> unescape(quoted)
+      [_, "", quoted, ""] -> unescape(quoted)
+      [_, "", "", bare] -> bare
+      [match | _] -> match
+    end)
+  end
+
+  defp unescape(str), do: String.replace(str, ~r/\\(.)/, "\\1")
 
   defp get_agent_id(pid) do
     GenServer.call(pid, :agent_id, 5_000)
@@ -206,24 +220,30 @@ defmodule Familiar.Execution.Tools do
 
   # -- Recursive File Search --
 
-  defp search_recursive(path, pattern) do
+  @max_search_depth 10
+
+  defp search_recursive(path, pattern, depth \\ 0)
+
+  defp search_recursive(_path, _pattern, depth) when depth > @max_search_depth, do: []
+
+  defp search_recursive(path, pattern, depth) do
     case file_system().ls(path) do
       {:ok, entries} ->
-        Enum.flat_map(entries, &search_entry(Path.join(path, &1), pattern))
+        Enum.flat_map(entries, &search_entry(Path.join(path, &1), pattern, depth))
 
       {:error, _} ->
         []
     end
   end
 
-  defp search_entry(full_path, pattern) do
+  defp search_entry(full_path, pattern, depth) do
     case file_system().read(full_path) do
       {:ok, content} ->
         search_in_content(full_path, content, pattern)
 
       {:error, _} ->
         # Could be a directory or unreadable file — try recursing
-        search_recursive(full_path, pattern)
+        search_recursive(full_path, pattern, depth + 1)
     end
   end
 

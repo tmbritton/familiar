@@ -110,6 +110,7 @@ development_status:
   5-8.5-builtin-tool-implementations: done
   5-9-file-transaction-module: done
   5-10-harness-integration-test: done
+  5-11-deferred-review-hardening: done
   epic-5-retrospective: optional
 
   # === PHASE 3: WORKFLOWS & UI (stories TBD when Epic 5 nears completion) ===

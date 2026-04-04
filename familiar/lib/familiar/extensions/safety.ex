@@ -65,12 +65,19 @@ defmodule Familiar.Extensions.Safety do
 
     allowed_commands = Keyword.get(opts, :allowed_commands, @default_allowed_commands)
 
-    # Create or re-initialize the ETS table
-    if :ets.whereis(@ets_table) != :undefined do
-      :ets.delete(@ets_table)
+    # Create or re-initialize the ETS table (atomic — no TOCTOU race)
+    try do
+      :ets.new(@ets_table, [:set, :named_table, :protected, read_concurrency: true])
+    catch
+      :error, :badarg ->
+        # Table already exists — clear it (may fail if owned by another process)
+        try do
+          :ets.delete_all_objects(@ets_table)
+        catch
+          :error, :badarg -> :ok
+        end
     end
 
-    :ets.new(@ets_table, [:set, :named_table, :protected, read_concurrency: true])
     :ets.insert(@ets_table, {:project_dir, project_dir})
     :ets.insert(@ets_table, {:allowed_commands, allowed_commands})
 
@@ -178,8 +185,21 @@ defmodule Familiar.Extensions.Safety do
   # -- Config --
 
   defp load_config do
-    [{:project_dir, project_dir}] = :ets.lookup(@ets_table, :project_dir)
-    [{:allowed_commands, allowed_commands}] = :ets.lookup(@ets_table, :allowed_commands)
-    %{project_dir: project_dir, allowed_commands: allowed_commands}
+    case :ets.whereis(@ets_table) do
+      :undefined ->
+        %{project_dir: File.cwd!(), allowed_commands: @default_allowed_commands}
+
+      _ref ->
+        project_dir = ets_get(:project_dir, File.cwd!())
+        allowed_commands = ets_get(:allowed_commands, @default_allowed_commands)
+        %{project_dir: project_dir, allowed_commands: allowed_commands}
+    end
+  end
+
+  defp ets_get(key, default) do
+    case :ets.lookup(@ets_table, key) do
+      [{^key, value}] -> value
+      [] -> default
+    end
   end
 end

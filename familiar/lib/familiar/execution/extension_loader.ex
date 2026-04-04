@@ -40,8 +40,8 @@ defmodule Familiar.Execution.ExtensionLoader do
             {:ok, registration} ->
               %{
                 acc
-                | tools: acc.tools ++ registration.tools,
-                  child_specs: acc.child_specs ++ registration.child_specs,
+                | tools: Enum.reverse(registration.tools) ++ acc.tools,
+                  child_specs: Enum.reverse(registration.child_specs) ++ acc.child_specs,
                   loaded: [registration.name | acc.loaded]
               }
 
@@ -55,7 +55,14 @@ defmodule Familiar.Execution.ExtensionLoader do
         end
       )
 
-    {:ok, %{result | loaded: Enum.reverse(result.loaded), failed: Enum.reverse(result.failed)}}
+    {:ok,
+     %{
+       result
+       | tools: Enum.reverse(result.tools),
+         child_specs: Enum.reverse(result.child_specs),
+         loaded: Enum.reverse(result.loaded),
+         failed: Enum.reverse(result.failed)
+     }}
   end
 
   defp load_one(mod, opts) do
@@ -126,6 +133,11 @@ defmodule Familiar.Execution.ExtensionLoader do
 
         :event ->
           Hooks.register_event_hook(hook_reg.hook, hook_reg.handler, extension_name)
+
+        other ->
+          Logger.warning(
+            "[ExtensionLoader] Ignoring hook with unrecognized type #{inspect(other)} from #{extension_name}"
+          )
       end
     end
   end
