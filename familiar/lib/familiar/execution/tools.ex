@@ -11,6 +11,7 @@ defmodule Familiar.Execution.Tools do
   alias Familiar.Activity
   alias Familiar.Execution.AgentProcess
   alias Familiar.Execution.AgentSupervisor
+  alias Familiar.Execution.WorkflowRunner
   alias Familiar.Files
 
   # -- File Tools --
@@ -131,6 +132,68 @@ defmodule Familiar.Execution.Tools do
       end
     end
   end
+
+  @max_workflow_depth 5
+
+  @doc false
+  def run_workflow(args, context) do
+    with {:ok, path} <- require_arg(args, :path),
+         {:ok, task} <- require_arg(args, :task),
+         :ok <- check_workflow_depth(context),
+         {:ok, expanded} <- resolve_workflow_path(path) do
+      depth = Map.get(context, :workflow_depth, 0)
+      opts = [timeout_ms: 300_000, workflow_depth: depth + 1]
+
+      expanded
+      |> WorkflowRunner.run_workflow(%{task: task}, opts)
+      |> format_workflow_result(expanded)
+    end
+  end
+
+  defp check_workflow_depth(context) do
+    depth = Map.get(context, :workflow_depth, 0)
+
+    if depth >= @max_workflow_depth do
+      {:error, {:workflow_depth_exceeded, %{max: @max_workflow_depth, depth: depth}}}
+    else
+      :ok
+    end
+  end
+
+  defp resolve_workflow_path(path) do
+    project_dir = Application.get_env(:familiar, :project_dir, File.cwd!())
+    expanded = Path.expand(path, project_dir)
+
+    cond do
+      not String.starts_with?(expanded, project_dir <> "/") ->
+        {:error, {:path_outside_project, %{path: path}}}
+
+      not String.ends_with?(expanded, ".md") ->
+        {:error, {:invalid_workflow_path, %{path: path, reason: "must be a .md file"}}}
+
+      true ->
+        {:ok, expanded}
+    end
+  end
+
+  defp format_workflow_result({:ok, results}, _path) do
+    summary =
+      Enum.map_join(results.steps, "\n", fn s -> "- #{s.step}: #{truncate_output(s.output)}" end)
+
+    {:ok, %{status: "completed", steps: length(results.steps), summary: summary}}
+  end
+
+  defp format_workflow_result({:error, reason}, path) do
+    {:error, {:workflow_failed, %{path: path, reason: reason}}}
+  end
+
+  defp truncate_output(nil), do: "(no output)"
+
+  defp truncate_output(text) when is_binary(text) do
+    if String.length(text) > 500, do: String.slice(text, 0, 500) <> "...", else: text
+  end
+
+  defp truncate_output(_), do: "(non-text output)"
 
   @doc false
   def monitor_agents(_args, _context) do

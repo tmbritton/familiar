@@ -194,6 +194,8 @@ defmodule Familiar.Execution.ToolRegistry do
       {:run_command, &Tools.run_command/2, "Run a shell command from the configured allow-list"},
       {:spawn_agent, &Tools.spawn_agent/2,
        "Spawn a child agent process with a given role and task"},
+      {:run_workflow, &Tools.run_workflow/2,
+       "Run a workflow defined in a markdown file with YAML frontmatter"},
       {:monitor_agents, &Tools.monitor_agents/2, "List running agent processes and their status"},
       {:broadcast_status, &Tools.broadcast_status/2,
        "Broadcast a status message to PubSub subscribers"},

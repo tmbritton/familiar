@@ -91,14 +91,14 @@ development_status:
   # === PHASE 2: AGENT HARNESS ===
 
   # Epic 4.5: Role & Skill File System (2 stories)
-  epic-4.5: in-progress
-  4.5-0-planning-code-cleanup: review
+  epic-4.5: done
+  4.5-0-planning-code-cleanup: done
   4.5-1-roles-context-file-loading: done
   4.5-2-default-role-skill-files: done
   epic-4.5-retrospective: optional
 
   # Epic 5: Agent Harness (12 stories — updated 2026-04-04)
-  epic-5: in-progress
+  epic-5: done
   5-1-extension-api-lifecycle-hooks: done
   5-2-tool-registry: done
   5-3-agent-process-tool-call-loop: done
@@ -111,7 +111,7 @@ development_status:
   5-9-file-transaction-module: done
   5-10-harness-integration-test: done
   5-11-deferred-review-hardening: done
-  epic-5-retrospective: optional
+  epic-5-retrospective: done
 
   # === PHASE 3: WORKFLOWS & UI (stories TBD when Epic 5 nears completion) ===
 

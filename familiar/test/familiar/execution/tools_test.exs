@@ -283,6 +283,37 @@ defmodule Familiar.Execution.ToolsTest do
     end
   end
 
+  # == run_workflow ==
+
+  describe "run_workflow/2" do
+    test "returns error when path is missing" do
+      assert {:error, {:missing_arg, %{arg: :path}}} =
+               Tools.run_workflow(%{task: "do something"}, ctx())
+    end
+
+    test "returns error when task is missing" do
+      assert {:error, {:missing_arg, %{arg: :task}}} =
+               Tools.run_workflow(%{path: "workflow.md"}, ctx())
+    end
+
+    test "returns error when workflow depth exceeded" do
+      context = ctx(%{workflow_depth: 5})
+
+      assert {:error, {:workflow_depth_exceeded, %{max: 5, depth: 5}}} =
+               Tools.run_workflow(%{path: "workflow.md", task: "do it"}, context)
+    end
+
+    test "returns error when path is outside project directory" do
+      assert {:error, {:path_outside_project, _}} =
+               Tools.run_workflow(%{path: "/etc/evil.md", task: "read secrets"}, ctx())
+    end
+
+    test "returns error when path is not a .md file" do
+      assert {:error, {:invalid_workflow_path, %{reason: "must be a .md file"}}} =
+               Tools.run_workflow(%{path: "workflow.yaml", task: "do it"}, ctx())
+    end
+  end
+
   # == monitor_agents ==
 
   describe "monitor_agents/2" do
@@ -326,6 +357,7 @@ defmodule Familiar.Execution.ToolsTest do
         :search_files,
         :run_command,
         :spawn_agent,
+        :run_workflow,
         :monitor_agents,
         :broadcast_status,
         :signal_ready
