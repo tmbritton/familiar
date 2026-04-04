@@ -29,7 +29,7 @@ defmodule Familiar.Hooks do
 
   alias Familiar.Activity
 
-  @handler_timeout 5_000
+  @default_handler_timeout 5_000
   @circuit_breaker_threshold 3
 
   # -- Public API --
@@ -211,7 +211,9 @@ defmodule Familiar.Hooks do
         handler.fn.(payload, context)
       end)
 
-    case Task.yield(task, @handler_timeout) || Task.shutdown(task, :brutal_kill) do
+    timeout = handler_timeout()
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
       {:ok, {:ok, modified}} when is_map(modified) ->
         {:ok, modified}
 
@@ -232,7 +234,7 @@ defmodule Familiar.Hooks do
 
       nil ->
         Logger.warning(
-          "[Hooks] Alter handler '#{handler.extension}' timed out (#{@handler_timeout}ms)"
+          "[Hooks] Alter handler '#{handler.extension}' timed out (#{timeout}ms)"
         )
 
         {:error, :handler_failed}
@@ -262,6 +264,11 @@ defmodule Familiar.Hooks do
     else
       state
     end
+  end
+
+  defp handler_timeout do
+    Application.get_env(:familiar, __MODULE__, [])
+    |> Keyword.get(:handler_timeout, @default_handler_timeout)
   end
 
   defp handler_key(hook, ext_name, priority) do

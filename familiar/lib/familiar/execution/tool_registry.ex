@@ -110,9 +110,15 @@ defmodule Familiar.Execution.ToolRegistry do
     {:reply, :ok, %{state | tools: Map.put(state.tools, name, entry)}}
   end
 
-  def handle_call({:dispatch, name, args, context}, _from, state) do
-    result = do_dispatch(name, args, context, state)
-    {:reply, result, state}
+  def handle_call({:dispatch, name, args, context}, from, state) do
+    case prepare_dispatch(name, args, context, state) do
+      {:execute, tool, payload} ->
+        spawn_tool_execution(tool, payload, context, name, from)
+        {:noreply, state}
+
+      {:error, _} = error ->
+        {:reply, error, state}
+    end
   end
 
   def handle_call(:list_tools, _from, state) do
@@ -133,12 +139,25 @@ defmodule Familiar.Execution.ToolRegistry do
 
   # -- Private --
 
-  defp do_dispatch(name, args, context, state) do
+  defp prepare_dispatch(name, args, context, state) do
     with {:ok, tool} <- fetch_tool(name, state),
          {:ok, payload} <- run_before_hook(name, args, context) do
-      result = execute_tool(tool, payload, context)
-      broadcast_after_hook(name, payload.args, result)
-      result
+      {:execute, tool, payload}
+    end
+  end
+
+  defp spawn_tool_execution(tool, payload, context, name, from) do
+    case Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
+           result = execute_tool(tool, payload, context)
+           GenServer.reply(from, result)
+           broadcast_after_hook(name, payload.args, result)
+         end) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[ToolRegistry] Failed to spawn tool task: #{inspect(reason)}")
+        GenServer.reply(from, {:error, {:spawn_failed, reason}})
     end
   end
 

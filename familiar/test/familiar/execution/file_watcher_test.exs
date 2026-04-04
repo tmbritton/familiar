@@ -18,7 +18,7 @@ defmodule Familiar.Execution.FileWatcherTest do
   end
 
   defp start_watcher(dir, opts \\ []) do
-    opts = Keyword.merge([project_dir: dir, debounce_ms: 100], opts)
+    opts = Keyword.merge([project_dir: dir, debounce_ms: 10], opts)
     start_supervised!({FileWatcher, opts})
   end
 
@@ -48,7 +48,7 @@ defmodule Familiar.Execution.FileWatcherTest do
       dir = tmp_watch_dir()
       subscribe_hook()
       start_watcher(dir)
-      Process.sleep(200)
+      Process.sleep(50)
 
       file = Path.join(dir, "new_file.txt")
       File.write!(file, "hello")
@@ -63,7 +63,7 @@ defmodule Familiar.Execution.FileWatcherTest do
 
       subscribe_hook()
       start_watcher(dir)
-      Process.sleep(200)
+      Process.sleep(50)
 
       File.write!(file, "modified")
 
@@ -77,7 +77,7 @@ defmodule Familiar.Execution.FileWatcherTest do
 
       subscribe_hook()
       start_watcher(dir)
-      Process.sleep(200)
+      Process.sleep(50)
 
       File.rm!(file)
 
@@ -91,8 +91,8 @@ defmodule Familiar.Execution.FileWatcherTest do
 
       subscribe_hook()
       # Long debounce — deletion should still fire fast
-      start_watcher(dir, debounce_ms: 5000)
-      Process.sleep(200)
+      start_watcher(dir, debounce_ms: 1000)
+      Process.sleep(50)
 
       File.rm!(file)
 
@@ -107,19 +107,19 @@ defmodule Familiar.Execution.FileWatcherTest do
     test "rapid changes to same file debounced to single event" do
       dir = tmp_watch_dir()
       subscribe_hook()
-      start_watcher(dir, debounce_ms: 200)
-      Process.sleep(200)
+      start_watcher(dir, debounce_ms: 50)
+      Process.sleep(50)
 
       file = Path.join(dir, "rapid.txt")
 
       # Write rapidly — these should be debounced
       for i <- 1..5 do
         File.write!(file, "content #{i}")
-        Process.sleep(20)
+        Process.sleep(5)
       end
 
       # Wait for debounce to fire
-      Process.sleep(500)
+      Process.sleep(150)
 
       # Collect all received events for this file
       events = flush_events(file)
@@ -131,8 +131,8 @@ defmodule Familiar.Execution.FileWatcherTest do
     test "changes to different files are independent" do
       dir = tmp_watch_dir()
       subscribe_hook()
-      start_watcher(dir, debounce_ms: 100)
-      Process.sleep(200)
+      start_watcher(dir, debounce_ms: 10)
+      Process.sleep(50)
 
       file_a = Path.join(dir, "file_a.txt")
       file_b = Path.join(dir, "file_b.txt")
@@ -141,7 +141,7 @@ defmodule Familiar.Execution.FileWatcherTest do
       File.write!(file_b, "content b")
 
       # Wait for both debounces to fire
-      Process.sleep(500)
+      Process.sleep(150)
 
       events_a = flush_events(file_a)
       events_b = flush_events(file_b)
@@ -156,16 +156,16 @@ defmodule Familiar.Execution.FileWatcherTest do
 
       # Start without specifying debounce_ms — uses default 500ms
       start_supervised!({FileWatcher, project_dir: dir})
-      Process.sleep(200)
+      Process.sleep(50)
 
       file = Path.join(dir, "default_debounce.txt")
       File.write!(file, "hello")
 
-      # Should NOT receive within 300ms (debounce is 500ms)
-      refute_receive {:hook_event, :on_file_changed, %{path: ^file}}, 300
+      # Should NOT receive within 200ms (debounce is 500ms)
+      refute_receive {:hook_event, :on_file_changed, %{path: ^file}}, 200
 
       # Should receive after the full 500ms window
-      assert_receive {:hook_event, :on_file_changed, %{path: ^file}}, 1000
+      assert_receive {:hook_event, :on_file_changed, %{path: ^file}}, 500
     end
 
     test "custom debounce_ms is respected" do
@@ -174,13 +174,13 @@ defmodule Familiar.Execution.FileWatcherTest do
 
       # Very short debounce
       start_watcher(dir, debounce_ms: 50)
-      Process.sleep(200)
+      Process.sleep(50)
 
       file = Path.join(dir, "quick.txt")
       File.write!(file, "fast")
 
       # Should fire within 200ms with 50ms debounce
-      assert_receive {:hook_event, :on_file_changed, %{path: ^file}}, 1000
+      assert_receive {:hook_event, :on_file_changed, %{path: ^file}}, 200
     end
   end
 
@@ -194,7 +194,7 @@ defmodule Familiar.Execution.FileWatcherTest do
 
       subscribe_hook()
       start_watcher(dir, debounce_ms: 50)
-      Process.sleep(200)
+      Process.sleep(50)
 
       # Write to an ignored path
       File.write!(Path.join(git_dir, "HEAD"), "ref")
@@ -216,7 +216,7 @@ defmodule Familiar.Execution.FileWatcherTest do
 
       subscribe_hook()
       start_watcher(dir, debounce_ms: 50)
-      Process.sleep(200)
+      Process.sleep(50)
 
       file = Path.join(similar_dir, "data.txt")
       File.write!(file, "not ignored")
@@ -232,7 +232,7 @@ defmodule Familiar.Execution.FileWatcherTest do
       subscribe_hook()
       # Pattern without trailing slash — should still be normalized
       start_watcher(dir, debounce_ms: 50, ignore_patterns: ["vendor"])
-      Process.sleep(200)
+      Process.sleep(50)
 
       File.write!(Path.join(ignored_dir, "lib.js"), "code")
 
@@ -251,7 +251,7 @@ defmodule Familiar.Execution.FileWatcherTest do
 
       subscribe_hook()
       start_watcher(dir, debounce_ms: 50, ignore_patterns: ["tmp_cache/"])
-      Process.sleep(200)
+      Process.sleep(50)
 
       File.write!(Path.join(custom_dir, "cached.dat"), "data")
 

@@ -405,9 +405,9 @@ defmodule Familiar.Execution.AgentProcessTest do
     end
 
     test "stops on task timeout", %{familiar_dir: dir} do
-      # LLM blocks for a long time
+      # LLM blocks longer than the task timeout (100ms)
       stub(LLMMock, :chat, fn _messages, _opts ->
-        Process.sleep(5_000)
+        Process.sleep(1_000)
         {:ok, %{content: "late", tool_calls: [], usage: %{}}}
       end)
 
@@ -420,7 +420,7 @@ defmodule Familiar.Execution.AgentProcessTest do
           task_timeout_ms: 100
         )
 
-      assert_receive {:agent_done, _id, {:error, {:timeout, _elapsed}}}, 5_000
+      assert_receive {:agent_done, _id, {:error, {:timeout, _elapsed}}}, 1_000
     end
   end
 
@@ -491,7 +491,7 @@ defmodule Familiar.Execution.AgentProcessTest do
       assert_receive {:agent_done, _, {:ok, _}}, 5_000
 
       # Give a moment for async conversation update
-      Process.sleep(50)
+      Process.sleep(10)
 
       import Ecto.Query
 

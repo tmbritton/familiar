@@ -167,7 +167,8 @@ defmodule Familiar.HooksTest do
         name,
         :before_tool_call,
         fn _payload, _ctx ->
-          Process.sleep(10_000)
+          # Sleep longer than the configured handler_timeout (50ms in test env)
+          Process.sleep(500)
           {:ok, %{}}
         end,
         1,
@@ -332,7 +333,7 @@ defmodule Familiar.HooksTest do
           Hooks.event(:after_tool_call, %{})
           assert_receive :survivor_received, 1_000
           # Give crasher time to log
-          Process.sleep(100)
+          Process.sleep(20)
         end)
 
       assert log =~ "crasher"

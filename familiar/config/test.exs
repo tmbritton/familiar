@@ -43,3 +43,6 @@ config :familiar, Familiar.System.FileSystem, Familiar.System.FileSystemMock
 config :familiar, Familiar.System.Shell, Familiar.System.ShellMock
 config :familiar, Familiar.System.Notifications, Familiar.System.NotificationsMock
 config :familiar, Familiar.System.Clock, Familiar.System.ClockMock
+
+# Fast handler timeout for hooks tests (default 5s is too slow for test suite)
+config :familiar, Familiar.Hooks, handler_timeout: 50

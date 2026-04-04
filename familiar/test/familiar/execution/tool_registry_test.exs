@@ -326,6 +326,183 @@ defmodule Familiar.Execution.ToolRegistryTest do
     end
   end
 
+  describe "async dispatch via GenServer" do
+    test "concurrent tool calls execute in parallel, not serialized" do
+      # Register two tools: one slow (30ms), one fast (0ms)
+      # If dispatch is serial, total time >= 60ms. If parallel, ~30ms.
+      slow_fn = fn _args, _ctx ->
+        Process.sleep(30)
+        {:ok, %{tool: "slow"}}
+      end
+
+      fast_fn = fn _args, _ctx ->
+        {:ok, %{tool: "fast"}}
+      end
+
+      slow_name = :"slow_#{System.unique_integer([:positive])}"
+      fast_name = :"fast_#{System.unique_integer([:positive])}"
+
+      ToolRegistry.register(slow_name, slow_fn, "Slow tool", "test-ext")
+      ToolRegistry.register(fast_name, fast_fn, "Fast tool", "test-ext")
+
+      start = System.monotonic_time(:millisecond)
+
+      task_slow = Task.async(fn -> ToolRegistry.dispatch(slow_name) end)
+      task_fast = Task.async(fn -> ToolRegistry.dispatch(fast_name) end)
+
+      result_slow = Task.await(task_slow, 5_000)
+      result_fast = Task.await(task_fast, 5_000)
+
+      elapsed = System.monotonic_time(:millisecond) - start
+
+      assert {:ok, %{tool: "slow"}} = result_slow
+      assert {:ok, %{tool: "fast"}} = result_fast
+
+      # If serial, would take >= 60ms (two 30ms sleeps). Parallel takes ~30ms.
+      assert elapsed < 55, "Expected parallel execution (<55ms), got #{elapsed}ms"
+    end
+
+    test "slow tool does not block fast tool" do
+      slow_fn = fn _args, _ctx ->
+        Process.sleep(50)
+        {:ok, %{tool: "slow"}}
+      end
+
+      fast_fn = fn _args, _ctx ->
+        {:ok, %{tool: "fast"}}
+      end
+
+      slow_name = :"slow2_#{System.unique_integer([:positive])}"
+      fast_name = :"fast2_#{System.unique_integer([:positive])}"
+
+      ToolRegistry.register(slow_name, slow_fn, "Slow", "test-ext")
+      ToolRegistry.register(fast_name, fast_fn, "Fast", "test-ext")
+
+      # Start slow first, then fast
+      task_slow = Task.async(fn -> ToolRegistry.dispatch(slow_name) end)
+      # Small delay to ensure slow is dispatched first
+      Process.sleep(5)
+
+      fast_start = System.monotonic_time(:millisecond)
+      result_fast = ToolRegistry.dispatch(fast_name)
+      fast_elapsed = System.monotonic_time(:millisecond) - fast_start
+
+      result_slow = Task.await(task_slow, 5_000)
+
+      assert {:ok, %{tool: "fast"}} = result_fast
+      assert {:ok, %{tool: "slow"}} = result_slow
+
+      # Fast tool should complete quickly, not blocked by slow tool
+      assert fast_elapsed < 30, "Fast tool blocked by slow tool: #{fast_elapsed}ms"
+    end
+
+    test "tool crash in async task returns error without affecting registry" do
+      crash_fn = fn _args, _ctx -> raise "async boom!" end
+      ok_fn = fn _args, _ctx -> {:ok, %{still: "alive"}} end
+
+      crash_name = :"crash_#{System.unique_integer([:positive])}"
+      ok_name = :"ok_#{System.unique_integer([:positive])}"
+
+      ToolRegistry.register(crash_name, crash_fn, "Crasher", "test-ext")
+      ToolRegistry.register(ok_name, ok_fn, "Safe tool", "test-ext")
+
+      assert {:error, {:tool_crashed, msg}} = ToolRegistry.dispatch(crash_name)
+      assert msg =~ "async boom!"
+
+      # Registry still works
+      assert {:ok, %{still: "alive"}} = ToolRegistry.dispatch(ok_name)
+    end
+
+    test "vetoed calls reply immediately without spawning task", %{
+      registry: registry,
+      hooks: hooks
+    } do
+      # Use per-test hooks to avoid polluting global Hooks server
+      veto_fn = fn _payload, _ctx -> {:halt, "blocked"} end
+      GenServer.call(hooks, {:register_alter, :before_tool_call, veto_fn, 1, "test-safety"})
+
+      test_pid = self()
+
+      tool_fn = fn _args, _ctx ->
+        send(test_pid, :tool_executed)
+        {:ok, %{should_not: :reach}}
+      end
+
+      register_tool(registry, :veto_tool, tool_fn, "Vetoed tool")
+
+      # Dispatch through per-test registry which calls per-test hooks
+      assert {:error, {:vetoed, "blocked"}} =
+               dispatch_tool(registry, hooks, :veto_tool)
+
+      refute_received :tool_executed
+    end
+
+    test "error paths reply immediately without spawning task" do
+      # Unknown tool exercises the {:reply, error, state} branch in handle_call
+      # (same branch used by veto — both are {:error, _} from prepare_dispatch)
+      assert {:error, {:unknown_tool, :nonexistent_async}} =
+               ToolRegistry.dispatch(:nonexistent_async)
+
+      # Registry is not blocked after error reply
+      ok_name = :"after_err_#{System.unique_integer([:positive])}"
+      ToolRegistry.register(ok_name, fn _, _ -> {:ok, %{ok: true}} end, "OK", "test-ext")
+      assert {:ok, %{ok: true}} = ToolRegistry.dispatch(ok_name)
+    end
+
+    test "unknown tool returns error immediately" do
+      assert {:error, {:unknown_tool, :nonexistent_async}} =
+               ToolRegistry.dispatch(:nonexistent_async)
+    end
+  end
+
+  describe "dispatch latency benchmark" do
+    @tag :benchmark
+    test "concurrent dispatch is faster than sequential for slow tools" do
+      n = 10
+      sleep_ms = 20
+      batch_id = System.unique_integer([:positive])
+
+      for i <- 1..n do
+        name = :"bench_#{batch_id}_#{i}"
+        fun = fn _args, _ctx ->
+          Process.sleep(sleep_ms)
+          {:ok, %{i: i}}
+        end
+        ToolRegistry.register(name, fun, "Bench tool #{i}", "test-ext")
+      end
+
+      tool_names = for i <- 1..n, do: :"bench_#{batch_id}_#{i}"
+
+      # Sequential
+      seq_start = System.monotonic_time(:millisecond)
+
+      for name <- tool_names do
+        {:ok, _} = ToolRegistry.dispatch(name)
+      end
+
+      seq_elapsed = System.monotonic_time(:millisecond) - seq_start
+
+      # Concurrent
+      conc_start = System.monotonic_time(:millisecond)
+
+      tasks = Enum.map(tool_names, fn name ->
+        Task.async(fn -> ToolRegistry.dispatch(name) end)
+      end)
+
+      results = Task.await_many(tasks, 10_000)
+      conc_elapsed = System.monotonic_time(:millisecond) - conc_start
+
+      assert Enum.all?(results, &match?({:ok, _}, &1))
+
+      # Sequential should take ~N*sleep_ms, concurrent ~sleep_ms
+      # Assert concurrent is at least 3x faster
+      speedup = seq_elapsed / max(conc_elapsed, 1)
+      assert speedup > 3.0,
+        "Expected >3x speedup, got #{Float.round(speedup, 1)}x " <>
+        "(seq=#{seq_elapsed}ms, conc=#{conc_elapsed}ms)"
+    end
+  end
+
   # Helper to replicate the builtin tool list
   defp builtin_tool_list do
     [

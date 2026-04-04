@@ -184,7 +184,7 @@ defmodule Familiar.Extensions.KnowledgeStoreTest do
       # Should not raise — fire and forget
       assert KnowledgeStore.handle_agent_complete(payload)
       # Give async task time to run
-      Process.sleep(100)
+      Process.sleep(20)
     end
 
     test "handles nil result gracefully" do
@@ -215,7 +215,7 @@ defmodule Familiar.Extensions.KnowledgeStoreTest do
 
       KnowledgeStore.handle_file_changed(%{path: "lib/deleted.ex", type: :deleted})
       # Give async task time
-      Process.sleep(200)
+      Process.sleep(20)
 
       assert Repo.get(Entry, entry.id) == nil
     end
@@ -232,7 +232,7 @@ defmodule Familiar.Extensions.KnowledgeStoreTest do
         )
 
       KnowledgeStore.handle_file_changed(%{path: "lib/other.ex", type: :deleted})
-      Process.sleep(200)
+      Process.sleep(20)
 
       assert Repo.get(Entry, entry.id) != nil
     end
@@ -252,7 +252,7 @@ defmodule Familiar.Extensions.KnowledgeStoreTest do
         )
 
       KnowledgeStore.handle_file_changed(%{path: "lib/changed.ex", type: :changed})
-      Process.sleep(200)
+      Process.sleep(20)
 
       # Entry still exists (refresh, not delete)
       assert Repo.get(Entry, entry.id) != nil
@@ -273,7 +273,7 @@ defmodule Familiar.Extensions.KnowledgeStoreTest do
         )
 
       KnowledgeStore.handle_file_changed(%{path: "lib/recreated.ex", type: :created})
-      Process.sleep(200)
+      Process.sleep(20)
 
       # Entry still exists
       assert Repo.get(Entry, entry.id) != nil

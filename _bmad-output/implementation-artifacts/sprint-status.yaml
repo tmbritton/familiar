@@ -118,8 +118,8 @@ development_status:
   # Epic 5.5: Async Tool Dispatch (must complete before users interact with system)
   # Refactors ToolRegistry.dispatch to use GenServer.reply/2 pattern so tool
   # execution doesn't block the GenServer. Required for concurrent agent workflows.
-  epic-5.5: backlog
-  5.5-1-async-tool-dispatch: backlog
+  epic-5.5: in-progress
+  5.5-1-async-tool-dispatch: done
 
   # Epic 6: Default Workflows & CLI Integration (placeholder)
   epic-6: backlog
