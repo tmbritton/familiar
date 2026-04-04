@@ -296,7 +296,8 @@ defmodule Familiar.Execution.AgentProcess do
     context = %{
       agent_id: state.agent_id,
       role: state.role.name,
-      conversation_id: state.conversation_id
+      conversation_id: state.conversation_id,
+      task_id: state.agent_id
     }
 
     {tool_messages, new_count} =
