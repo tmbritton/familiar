@@ -59,6 +59,7 @@ defmodule Familiar.Execution.WorkflowRunner do
 
   # ETS table for agent_id → runner_pid mapping
   @registry_table :familiar_workflow_registry
+  @default_timeout_ms 300_000
 
   # -- Tool Registration --
 
@@ -113,6 +114,8 @@ defmodule Familiar.Execution.WorkflowRunner do
     * `:context` — initial context map (optional, default `%{}`)
     * `:caller` — pid to notify on completion (optional, default `self()`)
     * `:familiar_dir` — path to `.familiar/` directory (optional)
+    * `:supervisor` — DynamicSupervisor for agents (optional)
+    * `:timeout_ms` — max time to wait for workflow completion (optional, default 5 min)
   """
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
@@ -152,7 +155,8 @@ defmodule Familiar.Execution.WorkflowRunner do
     case start_link(runner_opts) do
       {:ok, pid} ->
         run(pid)
-        await_completion(pid)
+        timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
+        await_completion(pid, timeout)
 
       {:error, reason} ->
         {:error, reason}
@@ -196,6 +200,7 @@ defmodule Familiar.Execution.WorkflowRunner do
        agent_pid: nil,
        agent_id: nil,
        monitor_ref: nil,
+       step_handled: false,
        extra_opts: extra_opts
      }}
   end
@@ -223,33 +228,44 @@ defmodule Familiar.Execution.WorkflowRunner do
   end
 
   @impl true
-  def handle_info({:agent_done, agent_id, result}, %{status: :running} = state) do
-    # Register the agent_id for signal_ready lookup (learned from the done message)
-    state = %{state | agent_id: agent_id}
-    cleanup_agent_registration(agent_id)
+  # Agent reports its ID at startup — register for signal_ready lookup
+  def handle_info({:agent_started, agent_id, _pid}, %{status: :running} = state) do
+    register_agent(agent_id, self())
+    {:noreply, %{state | agent_id: agent_id}}
+  end
 
+  # Agent completed — only handle once per step (guards against signal_ready + agent_done race)
+  def handle_info(
+        {:agent_done, _agent_id, result},
+        %{status: :running, step_handled: false} = state
+      ) do
+    cleanup_agent_registration(state.agent_id)
     if state.monitor_ref, do: Process.demonitor(state.monitor_ref, [:flush])
 
-    case result do
-      {:ok, content} ->
-        handle_step_success(state, content)
+    state = %{state | step_handled: true}
 
-      {:error, reason} ->
-        handle_step_failure(state, reason)
+    case result do
+      {:ok, content} -> handle_step_success(state, content)
+      {:error, reason} -> handle_step_failure(state, reason)
     end
   end
 
-  def handle_info({:signal_ready, agent_id}, %{status: :running} = state) do
-    # Treat signal_ready as step completion with a default message
-    cleanup_agent_registration(agent_id)
-
+  # signal_ready — treat as step completion (only if not already handled)
+  def handle_info({:signal_ready, _agent_id}, %{status: :running, step_handled: false} = state) do
+    cleanup_agent_registration(state.agent_id)
     if state.monitor_ref, do: Process.demonitor(state.monitor_ref, [:flush])
 
+    state = %{state | step_handled: true}
     handle_step_success(state, "Step completed via signal_ready")
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{monitor_ref: ref} = state) do
+  # Agent crashed — only if step not already handled
+  def handle_info(
+        {:DOWN, ref, :process, _pid, reason},
+        %{monitor_ref: ref, step_handled: false} = state
+      ) do
     cleanup_agent_registration(state.agent_id)
+    state = %{state | step_handled: true}
     handle_step_failure(state, {:agent_crashed, reason})
   end
 
@@ -283,7 +299,7 @@ defmodule Familiar.Execution.WorkflowRunner do
 
           Logger.info("[WorkflowRunner] Started step '#{step.name}' (role: #{step.role})")
 
-          %{state | agent_pid: pid, agent_id: nil, monitor_ref: ref}
+          %{state | agent_pid: pid, agent_id: nil, monitor_ref: ref, step_handled: false}
 
         {:error, reason} ->
           Logger.error("[WorkflowRunner] Failed to start step '#{step.name}': #{inspect(reason)}")
@@ -306,7 +322,8 @@ defmodule Familiar.Execution.WorkflowRunner do
         current_step_index: state.current_step_index + 1,
         agent_pid: nil,
         agent_id: nil,
-        monitor_ref: nil
+        monitor_ref: nil,
+        step_handled: false
     }
 
     {:noreply, start_next_step(state)}
@@ -340,7 +357,8 @@ defmodule Familiar.Execution.WorkflowRunner do
   # -- Private: Context Building --
 
   defp build_task_description(step, state) do
-    base_task = Map.get(state.initial_context, :task, "")
+    base_task = Map.get(state.initial_context, :task) || ""
+    base_task = if is_binary(base_task), do: base_task, else: ""
     previous = format_previous_steps(step, state.step_results)
 
     parts =
@@ -372,8 +390,12 @@ defmodule Familiar.Execution.WorkflowRunner do
   end
 
   defp truncate(nil, _max), do: "(no output)"
-  defp truncate(text, max) when byte_size(text) <= max, do: text
-  defp truncate(text, max), do: String.slice(text, 0, max) <> "..."
+
+  defp truncate(text, max) when is_binary(text) do
+    if String.length(text) <= max, do: text, else: String.slice(text, 0, max) <> "..."
+  end
+
+  defp truncate(_text, _max), do: "(non-text output)"
 
   defp maybe_add(parts, _text, false), do: parts
   defp maybe_add(parts, text, true), do: parts ++ [text]
@@ -402,10 +424,6 @@ defmodule Familiar.Execution.WorkflowRunner do
   rescue
     ArgumentError -> :ok
   end
-
-  # Note: agent_id is learned from the {:agent_done, agent_id, result} message.
-  # We cannot query AgentProcess.agent_id/1 because the agent may complete
-  # before we have a chance to call it (single LLM response, no tool calls).
 
   # -- Private: Parsing --
 
@@ -488,7 +506,7 @@ defmodule Familiar.Execution.WorkflowRunner do
     end
   end
 
-  defp await_completion(pid) do
+  defp await_completion(pid, timeout) do
     ref = Process.monitor(pid)
 
     receive do
@@ -498,6 +516,10 @@ defmodule Familiar.Execution.WorkflowRunner do
 
       {:DOWN, ^ref, :process, ^pid, reason} ->
         {:error, {:runner_crashed, reason}}
+    after
+      timeout ->
+        Process.demonitor(ref, [:flush])
+        {:error, {:workflow_timeout, timeout}}
     end
   end
 end

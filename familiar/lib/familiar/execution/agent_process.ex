@@ -132,6 +132,7 @@ defmodule Familiar.Execution.AgentProcess do
             })
 
             broadcast_activity(agent_id, :agent_started, role_name)
+            notify_parent_started(state)
 
             {:ok, state, {:continue, :execute}}
 
@@ -460,6 +461,11 @@ defmodule Familiar.Execution.AgentProcess do
 
   defp notify_parent(%{parent: pid, agent_id: id}, result),
     do: send(pid, {:agent_done, id, result})
+
+  defp notify_parent_started(%{parent: nil}), do: :ok
+
+  defp notify_parent_started(%{parent: pid, agent_id: id}),
+    do: send(pid, {:agent_started, id, self()})
 
   # -- Private: Helpers --
 
