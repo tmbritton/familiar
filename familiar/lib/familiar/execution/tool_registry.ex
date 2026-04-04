@@ -77,16 +77,14 @@ defmodule Familiar.Execution.ToolRegistry do
   end
 
   @doc """
-  Register all core built-in tool stubs.
-
-  These return `{:error, {:not_implemented, %{tool: name}}}` until
-  replaced by real implementations in later stories.
+  Register all core built-in tools.
   """
   @spec register_builtins() :: :ok
   def register_builtins do
-    for {name, description} <- builtin_tools() do
-      stub_fn = fn _args, _ctx -> {:error, {:not_implemented, %{tool: name}}} end
-      register(name, stub_fn, description, "harness")
+    alias Familiar.Execution.Tools
+
+    for {name, fun, description} <- builtin_tools() do
+      register(name, fun, description, "harness")
     end
 
     :ok
@@ -185,17 +183,22 @@ defmodule Familiar.Execution.ToolRegistry do
   end
 
   defp builtin_tools do
+    alias Familiar.Execution.Tools
+
     [
-      {:read_file, "Read the contents of a file at the given path"},
-      {:write_file, "Write content to a file at the given path"},
-      {:delete_file, "Delete a file at the given path"},
-      {:list_files, "List files matching a glob pattern"},
-      {:search_files, "Search file contents for a pattern"},
-      {:run_command, "Run a shell command from the configured allow-list"},
-      {:spawn_agent, "Spawn a child agent process with a given role and task"},
-      {:monitor_agents, "List running agent processes and their status"},
-      {:broadcast_status, "Broadcast a status message to PubSub subscribers"},
-      {:signal_ready, "Signal that the current workflow step is complete"}
+      {:read_file, &Tools.read_file/2, "Read the contents of a file at the given path"},
+      {:write_file, &Tools.write_file/2, "Write content to a file at the given path"},
+      {:delete_file, &Tools.delete_file/2, "Delete a file at the given path"},
+      {:list_files, &Tools.list_files/2, "List files in a directory"},
+      {:search_files, &Tools.search_files/2, "Search file contents for a pattern"},
+      {:run_command, &Tools.run_command/2, "Run a shell command from the configured allow-list"},
+      {:spawn_agent, &Tools.spawn_agent/2,
+       "Spawn a child agent process with a given role and task"},
+      {:monitor_agents, &Tools.monitor_agents/2, "List running agent processes and their status"},
+      {:broadcast_status, &Tools.broadcast_status/2,
+       "Broadcast a status message to PubSub subscribers"},
+      {:signal_ready, &Tools.signal_ready_stub/2,
+       "Signal that the current workflow step is complete"}
     ]
   end
 end

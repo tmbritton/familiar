@@ -97,7 +97,7 @@ development_status:
   4.5-2-default-role-skill-files: done
   epic-4.5-retrospective: optional
 
-  # Epic 5: Agent Harness (10 stories — rewritten 2026-04-03)
+  # Epic 5: Agent Harness (12 stories — updated 2026-04-04)
   epic-5: in-progress
   5-1-extension-api-lifecycle-hooks: done
   5-2-tool-registry: done
@@ -107,11 +107,18 @@ development_status:
   5-6-safety-extension: done
   5-7-knowledge-store-extension: done
   5-8-workflow-runner: done
+  5-8.5-builtin-tool-implementations: done
   5-9-file-transaction-module: backlog
   5-10-harness-integration-test: backlog
   epic-5-retrospective: optional
 
   # === PHASE 3: WORKFLOWS & UI (stories TBD when Epic 5 nears completion) ===
+
+  # Epic 5.5: Async Tool Dispatch (must complete before users interact with system)
+  # Refactors ToolRegistry.dispatch to use GenServer.reply/2 pattern so tool
+  # execution doesn't block the GenServer. Required for concurrent agent workflows.
+  epic-5.5: backlog
+  5.5-1-async-tool-dispatch: backlog
 
   # Epic 6: Default Workflows & CLI Integration (placeholder)
   epic-6: backlog
