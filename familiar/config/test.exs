@@ -44,5 +44,8 @@ config :familiar, Familiar.System.Shell, Familiar.System.ShellMock
 config :familiar, Familiar.System.Notifications, Familiar.System.NotificationsMock
 config :familiar, Familiar.System.Clock, Familiar.System.ClockMock
 
-# Fast handler timeout for hooks tests (default 5s is too slow for test suite)
-config :familiar, Familiar.Hooks, handler_timeout: 50
+# Fast timeouts for hooks tests (defaults are too slow for test suite)
+config :familiar, Familiar.Hooks,
+  handler_timeout: 50,
+  event_handler_timeout: 50,
+  mailbox_warning_threshold: 5

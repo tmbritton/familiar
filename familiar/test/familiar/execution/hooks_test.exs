@@ -338,5 +338,87 @@ defmodule Familiar.HooksTest do
 
       assert log =~ "crasher"
     end
+
+    test "slow event handler is killed after timeout and warning logged", %{hooks_name: name} do
+      test_pid = self()
+
+      register_event(
+        name,
+        :after_tool_call,
+        fn _payload ->
+          # Sleep longer than event_handler_timeout (50ms in test env)
+          Process.sleep(500)
+          send(test_pid, :should_not_arrive)
+        end,
+        "slow-event-ext"
+      )
+
+      log =
+        capture_log(fn ->
+          Hooks.event(:after_tool_call, %{})
+          # Wait for timeout + cleanup
+          Process.sleep(150)
+        end)
+
+      assert log =~ "slow-event-ext"
+      assert log =~ "timed out"
+      refute_received :should_not_arrive
+    end
+
+    test "GenServer survives when event handler exits abnormally", %{hooks_name: name} do
+      test_pid = self()
+
+      register_event(name, :after_tool_call, fn _payload ->
+        exit(:handler_abort)
+      end, "exiting-ext")
+
+      register_event(name, :after_tool_call, fn _payload ->
+        send(test_pid, :survivor_ok)
+      end, "survivor-ext")
+
+      # Fire event — exiting handler should not prevent other handlers
+      log =
+        capture_log(fn ->
+          Hooks.event(:after_tool_call, %{})
+          assert_receive :survivor_ok, 1_000
+          Process.sleep(50)
+          Logger.flush()
+        end)
+
+      assert log =~ "exiting-ext"
+      assert log =~ "crashed"
+
+      # GenServer is still alive
+      assert Process.alive?(Process.whereis(name))
+    end
+  end
+
+  describe "mailbox depth warning" do
+    test "warns when mailbox exceeds threshold", %{hooks_name: name} do
+      register_event(
+        name,
+        :on_file_changed,
+        fn _payload -> :ok end,
+        "file-ext"
+      )
+
+      # Suspend the GenServer so messages queue up
+      :sys.suspend(name)
+
+      for _ <- 1..20 do
+        send(name, {:hook_event, :on_file_changed, %{path: "test.ex"}})
+      end
+
+      log =
+        capture_log(fn ->
+          :sys.resume(name)
+          # Wait for queued messages to be processed
+          Process.sleep(100)
+          Logger.flush()
+        end)
+
+      assert log =~ "Mailbox depth"
+      assert log =~ "exceeds threshold"
+    end
   end
 end

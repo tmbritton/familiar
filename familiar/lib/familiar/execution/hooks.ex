@@ -30,6 +30,9 @@ defmodule Familiar.Hooks do
   alias Familiar.Activity
 
   @default_handler_timeout 5_000
+  @default_event_handler_timeout 10_000
+  @default_mailbox_warning_threshold 100
+  @mailbox_warning_cooldown_ms 10_000
   @circuit_breaker_threshold 3
 
   # -- Public API --
@@ -109,7 +112,8 @@ defmodule Familiar.Hooks do
      %{
        alter_hooks: %{},
        event_handlers: %{},
-       circuit_breaker: %{}
+       circuit_breaker: %{},
+       last_mailbox_warning: System.monotonic_time(:millisecond) - @mailbox_warning_cooldown_ms
      }}
   end
 
@@ -155,20 +159,11 @@ defmodule Familiar.Hooks do
 
   @impl true
   def handle_info({:hook_event, hook, payload}, state) do
+    state = check_mailbox_depth(state)
     handlers = Map.get(state.event_handlers, hook, [])
 
     for handler <- handlers do
-      Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
-        try do
-          handler.fn.(payload)
-        rescue
-          error ->
-            Logger.warning(
-              "[Hooks] Event handler crash in extension '#{handler.extension}' " <>
-                "for #{hook}: #{Exception.message(error)}"
-            )
-        end
-      end)
+      spawn_event_handler(handler, hook, payload)
     end
 
     {:noreply, state}
@@ -264,6 +259,81 @@ defmodule Familiar.Hooks do
     else
       state
     end
+  end
+
+  defp spawn_event_handler(handler, hook, payload) do
+    case Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
+           run_event_handler_with_timeout(handler, hook, payload)
+         end) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[Hooks] Failed to spawn event handler '#{handler.extension}' " <>
+            "for #{hook}: #{inspect(reason)}"
+        )
+    end
+  catch
+    :exit, reason ->
+      Logger.warning(
+        "[Hooks] Failed to spawn event handler '#{handler.extension}' " <>
+          "for #{hook}: #{inspect(reason)}"
+      )
+  end
+
+  defp run_event_handler_with_timeout(handler, hook, payload) do
+    timeout = event_handler_timeout()
+
+    task =
+      Task.Supervisor.async_nolink(Familiar.TaskSupervisor, fn ->
+        handler.fn.(payload)
+      end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, _} ->
+        :ok
+
+      {:exit, reason} ->
+        Logger.warning(
+          "[Hooks] Event handler '#{handler.extension}' crashed " <>
+            "for #{hook}: #{inspect(reason)}"
+        )
+
+      nil ->
+        Logger.warning(
+          "[Hooks] Event handler '#{handler.extension}' timed out " <>
+            "for #{hook} (#{timeout}ms)"
+        )
+    end
+  end
+
+  defp check_mailbox_depth(state) do
+    {:message_queue_len, len} = Process.info(self(), :message_queue_len)
+    threshold = mailbox_warning_threshold()
+
+    if len > threshold do
+      now = System.monotonic_time(:millisecond)
+
+      if now - state.last_mailbox_warning > @mailbox_warning_cooldown_ms do
+        Logger.warning("[Hooks] Mailbox depth #{len} exceeds threshold #{threshold}")
+        %{state | last_mailbox_warning: now}
+      else
+        state
+      end
+    else
+      state
+    end
+  end
+
+  defp event_handler_timeout do
+    Application.get_env(:familiar, __MODULE__, [])
+    |> Keyword.get(:event_handler_timeout, @default_event_handler_timeout)
+  end
+
+  defp mailbox_warning_threshold do
+    Application.get_env(:familiar, __MODULE__, [])
+    |> Keyword.get(:mailbox_warning_threshold, @default_mailbox_warning_threshold)
   end
 
   defp handler_timeout do

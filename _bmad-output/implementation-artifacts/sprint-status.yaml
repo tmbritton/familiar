@@ -122,7 +122,7 @@ development_status:
   epic-5.5: in-progress
   5.5-1-async-tool-dispatch: done
   5.5-2-file-claim-checking: done
-  5.5-3-hooks-mailbox-back-pressure: ready-for-dev
+  5.5-3-hooks-mailbox-back-pressure: done
 
   # Epic 6: Default Workflows & CLI Integration (placeholder)
   epic-6: backlog
