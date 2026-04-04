@@ -209,9 +209,14 @@ defmodule Familiar.Execution.AgentProcess do
   end
 
   @impl true
-  def terminate(_reason, _state) do
+  def terminate(_reason, %{agent_id: agent_id}) do
+    Familiar.Files.rollback_task(agent_id)
     :ok
+  rescue
+    _ -> :ok
   end
+
+  def terminate(_reason, _state), do: :ok
 
   # -- Private: LLM Call --
 

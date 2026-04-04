@@ -256,7 +256,7 @@ defmodule Familiar.Execution.ToolRegistryTest do
   end
 
   describe "register_builtins/0" do
-    test "registers all 10 core tool stubs", %{registry: registry} do
+    test "registers all 11 core tool stubs", %{registry: registry} do
       expected = [
         :broadcast_status,
         :delete_file,
@@ -264,6 +264,7 @@ defmodule Familiar.Execution.ToolRegistryTest do
         :monitor_agents,
         :read_file,
         :run_command,
+        :run_workflow,
         :search_files,
         :signal_ready,
         :spawn_agent,
@@ -513,6 +514,7 @@ defmodule Familiar.Execution.ToolRegistryTest do
       {:search_files, "Search file contents for a pattern"},
       {:run_command, "Run a shell command from the configured allow-list"},
       {:spawn_agent, "Spawn a child agent process with a given role and task"},
+      {:run_workflow, "Run a workflow defined in a markdown file with YAML frontmatter"},
       {:monitor_agents, "List running agent processes and their status"},
       {:broadcast_status, "Broadcast a status message to PubSub subscribers"},
       {:signal_ready, "Signal that the current workflow step is complete"}

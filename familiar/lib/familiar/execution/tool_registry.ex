@@ -193,6 +193,10 @@ defmodule Familiar.Execution.ToolRegistry do
     error ->
       Logger.warning("[ToolRegistry] Tool crashed: #{Exception.message(error)}")
       {:error, {:tool_crashed, Exception.message(error)}}
+  catch
+    kind, reason ->
+      Logger.warning("[ToolRegistry] Tool #{kind}: #{inspect(reason)}")
+      {:error, {:tool_crashed, inspect(reason)}}
   end
 
   defp broadcast_after_hook(name, args, result) do

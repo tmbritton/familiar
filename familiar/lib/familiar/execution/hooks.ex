@@ -113,6 +113,7 @@ defmodule Familiar.Hooks do
        alter_hooks: %{},
        event_handlers: %{},
        circuit_breaker: %{},
+       subscribed_topics: MapSet.new(),
        last_mailbox_warning: System.monotonic_time(:millisecond) - @mailbox_warning_cooldown_ms
      }}
   end
@@ -136,8 +137,14 @@ defmodule Familiar.Hooks do
     topic = Activity.topic("hooks:#{hook}")
     handler = %{fn: handler_fn, extension: ext_name, topic: topic}
 
-    # Subscribe this GenServer to the event topic so we can dispatch to handlers
-    Phoenix.PubSub.subscribe(Familiar.PubSub, topic)
+    # Subscribe only once per topic to avoid duplicate message delivery
+    state =
+      if MapSet.member?(state.subscribed_topics, topic) do
+        state
+      else
+        Phoenix.PubSub.subscribe(Familiar.PubSub, topic)
+        %{state | subscribed_topics: MapSet.put(state.subscribed_topics, topic)}
+      end
 
     handlers =
       state.event_handlers

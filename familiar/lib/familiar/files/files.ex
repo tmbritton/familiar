@@ -39,6 +39,7 @@ defmodule Familiar.Files do
   """
   @spec write(String.t(), binary(), String.t()) :: {:ok, map()} | {:error, term()}
   def write(path, content, task_id) do
+    path = Path.expand(path)
     new_hash = Transaction.content_hash(content)
     original_hash = read_current_hash(path)
 
@@ -73,6 +74,7 @@ defmodule Familiar.Files do
   """
   @spec delete(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def delete(path, task_id) do
+    path = Path.expand(path)
     original_hash = read_current_hash(path)
 
     attrs = %{
