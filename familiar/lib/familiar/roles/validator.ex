@@ -11,8 +11,9 @@ defmodule Familiar.Roles.Validator do
   alias Familiar.Roles.{Role, Skill}
 
   @mvp_tools ~w(
-    read_file write_file list_files search_files
-    run_shell search_context store_context
+    read_file write_file delete_file list_files search_files
+    run_command spawn_agent run_workflow monitor_agents
+    broadcast_status signal_ready search_context store_context
   )
 
   @doc """

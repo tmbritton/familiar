@@ -9,43 +9,64 @@ defmodule Familiar.Knowledge.DefaultFiles do
 
   @workflows %{
     "feature-planning.md" => """
+    ---
+    name: feature-planning
+    description: Plan a new feature from description to approved specification
+    steps:
+      - name: research
+        role: analyst
+      - name: draft-spec
+        role: analyst
+      - name: review-spec
+        role: reviewer
+    ---
     # Feature Planning Workflow
 
-    ## Purpose
     Guide the agent through planning a new feature from requirements to specification.
 
-    ## Steps
-    1. Understand the feature request
-    2. Research existing code for relevant patterns
-    3. Draft a specification with acceptance criteria
-    4. Identify affected files and modules
-    5. Present specification for review
+    1. **research** — Search the knowledge store and codebase for relevant context, conventions, and prior decisions
+    2. **draft-spec** — Draft a specification with acceptance criteria, affected files, and trade-offs
+    3. **review-spec** — Review the specification for completeness, feasibility, and alignment with conventions
     """,
     "feature-implementation.md" => """
+    ---
+    name: feature-implementation
+    description: Implement an approved feature specification
+    steps:
+      - name: implement
+        role: coder
+      - name: test
+        role: coder
+      - name: review
+        role: reviewer
+    ---
     # Feature Implementation Workflow
 
-    ## Purpose
     Guide the agent through implementing an approved feature specification.
 
-    ## Steps
-    1. Review the approved specification
-    2. Create or modify files following project conventions
-    3. Write tests for new functionality
-    4. Validate against acceptance criteria
-    5. Report completion with summary of changes
+    1. **implement** — Create or modify files following the specification and project conventions
+    2. **test** — Write tests for new functionality, run the test suite to verify correctness
+    3. **review** — Review changes for correctness, conventions, and test coverage
     """,
     "task-fix.md" => """
+    ---
+    name: task-fix
+    description: Fix a bug or address a failing task
+    steps:
+      - name: diagnose
+        role: analyst
+      - name: fix
+        role: coder
+      - name: verify
+        role: coder
+    ---
     # Task Fix Workflow
 
-    ## Purpose
-    Guide the agent through fixing a bug or addressing a task.
+    Guide the agent through fixing a bug or addressing a failing task.
 
-    ## Steps
-    1. Understand the issue and reproduce if possible
-    2. Research relevant code and recent changes
-    3. Implement the fix following project conventions
-    4. Write regression tests
-    5. Validate the fix resolves the issue
+    1. **diagnose** — Understand the issue, research relevant code and recent changes, identify root cause
+    2. **fix** — Implement the fix following project conventions, write regression tests
+    3. **verify** — Run the test suite, validate the fix resolves the issue without regressions
     """
   }
 
@@ -280,7 +301,7 @@ defmodule Familiar.Knowledge.DefaultFiles do
       - read_file
       - write_file
       - list_files
-      - run_shell
+      - run_command
     ---
     Implement code changes as specified in the task description.
 
@@ -297,7 +318,7 @@ defmodule Familiar.Knowledge.DefaultFiles do
     tools:
       - read_file
       - write_file
-      - run_shell
+      - run_command
     ---
     Write tests that verify the behavior described in the task requirements.
 

@@ -55,32 +55,39 @@ defmodule Familiar.Execution.FileWatcher do
     project_dir = Keyword.get_lazy(opts, :project_dir, &File.cwd!/0)
     debounce_ms = Keyword.get(opts, :debounce_ms, @default_debounce_ms)
     ignore_patterns = Keyword.get(opts, :ignore_patterns, @default_ignore_patterns)
+    notify_ready = Keyword.get(opts, :notify_ready)
 
     if File.dir?(project_dir) do
-      case FileSystem.start_link(dirs: [project_dir]) do
-        {:ok, backend_pid} ->
-          FileSystem.subscribe(backend_pid)
-
-          Logger.info(
-            "[FileWatcher] Watching #{project_dir} " <>
-              "(ignore: #{inspect(ignore_patterns)}, debounce: #{debounce_ms}ms)"
-          )
-
-          state = %{
-            project_dir: project_dir,
-            backend_pid: backend_pid,
-            debounce_ms: debounce_ms,
-            ignore_patterns: normalize_patterns(ignore_patterns),
-            pending: %{}
-          }
-
-          {:ok, state}
-
-        {:error, reason} ->
-          {:stop, {:backend_failed, reason}}
-      end
+      start_backend(project_dir, debounce_ms, ignore_patterns, notify_ready)
     else
       {:stop, {:invalid_dir, project_dir}}
+    end
+  end
+
+  defp start_backend(project_dir, debounce_ms, ignore_patterns, notify_ready) do
+    case FileSystem.start_link(dirs: [project_dir]) do
+      {:ok, backend_pid} ->
+        FileSystem.subscribe(backend_pid)
+
+        Logger.info(
+          "[FileWatcher] Watching #{project_dir} " <>
+            "(ignore: #{inspect(ignore_patterns)}, debounce: #{debounce_ms}ms)"
+        )
+
+        if notify_ready, do: send(notify_ready, {:file_watcher_ready, self()})
+
+        state = %{
+          project_dir: project_dir,
+          backend_pid: backend_pid,
+          debounce_ms: debounce_ms,
+          ignore_patterns: normalize_patterns(ignore_patterns),
+          pending: %{}
+        }
+
+        {:ok, state}
+
+      {:error, reason} ->
+        {:stop, {:backend_failed, reason}}
     end
   end
 

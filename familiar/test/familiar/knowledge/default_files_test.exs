@@ -183,12 +183,9 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
       end
     end
 
-    test "all skill files pass tool validation (warnings for forward-declared tools)",
-         %{tmp_dir: tmp_dir} do
+    test "all skill files pass tool validation with no warnings", %{tmp_dir: tmp_dir} do
       familiar_dir = install_defaults(tmp_dir)
 
-      # Some skills reference future tools (spawn_agent, monitor_agents, broadcast_status)
-      # These produce warnings but still pass validation
       log =
         capture_log(fn ->
           for skill_name <- @expected_skills do
@@ -197,25 +194,7 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
           end
         end)
 
-      # Forward-declared tools should each produce a warning
-      assert log =~ "spawn_agent"
-      assert log =~ "monitor_agents"
-      assert log =~ "broadcast_status"
-    end
-
-    test "skills with only MVP tools produce no warnings", %{tmp_dir: tmp_dir} do
-      familiar_dir = install_defaults(tmp_dir)
-
-      mvp_only_skills =
-        ~w(implement test research review-code extract-knowledge capture-gotchas search-knowledge summarize-results)
-
-      log =
-        capture_log(fn ->
-          for skill_name <- mvp_only_skills do
-            :ok = Roles.validate_skill(skill_name, familiar_dir: familiar_dir)
-          end
-        end)
-
+      # All referenced tools are now in the MVP tools list — no warnings expected
       assert log == ""
     end
 
@@ -235,6 +214,72 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
                Roles.load_skill("summarize-results", familiar_dir: familiar_dir)
 
       assert skill.constraints == %{"read_only" => true}
+    end
+
+    test "all skill tool references are valid registered tool names", %{tmp_dir: tmp_dir} do
+      familiar_dir = install_defaults(tmp_dir)
+
+      # Builtin tools + extension tools
+      valid_tools =
+        MapSet.new(~w(
+          read_file write_file delete_file list_files search_files
+          run_command spawn_agent run_workflow monitor_agents
+          broadcast_status signal_ready search_context store_context
+        ))
+
+      for skill_name <- @expected_skills do
+        {:ok, skill} = Roles.load_skill(skill_name, familiar_dir: familiar_dir)
+
+        for tool <- skill.tools do
+          assert MapSet.member?(valid_tools, tool),
+                 "Skill '#{skill_name}' references unknown tool '#{tool}'. " <>
+                   "Valid tools: #{Enum.join(valid_tools, ", ")}"
+        end
+      end
+    end
+  end
+
+  describe "installed workflow files" do
+    test "workflow files have valid YAML frontmatter for WorkflowRunner", %{tmp_dir: tmp_dir} do
+      familiar_dir = install_defaults(tmp_dir)
+      workflows_dir = Path.join(familiar_dir, "workflows")
+
+      for filename <- ~w(feature-planning.md feature-implementation.md task-fix.md) do
+        content = File.read!(Path.join(workflows_dir, filename))
+
+        # Extract YAML frontmatter
+        assert content =~ ~r/\A\s*---\n/,
+               "#{filename} missing YAML frontmatter"
+
+        [_, yaml_str | _] = String.split(content, "---", parts: 3)
+        {:ok, yaml} = YamlElixir.read_from_string(yaml_str)
+
+        assert is_binary(yaml["name"]), "#{filename} missing 'name' in frontmatter"
+        assert is_binary(yaml["description"]), "#{filename} missing 'description' in frontmatter"
+        assert is_list(yaml["steps"]) and yaml["steps"] != [],
+               "#{filename} missing 'steps' in frontmatter"
+
+        for step <- yaml["steps"] do
+          assert is_binary(step["name"]), "#{filename} step missing 'name'"
+          assert is_binary(step["role"]), "#{filename} step missing 'role'"
+        end
+      end
+    end
+
+    test "workflow step roles reference valid default roles", %{tmp_dir: tmp_dir} do
+      familiar_dir = install_defaults(tmp_dir)
+      workflows_dir = Path.join(familiar_dir, "workflows")
+
+      for filename <- ~w(feature-planning.md feature-implementation.md task-fix.md) do
+        content = File.read!(Path.join(workflows_dir, filename))
+        [_, yaml_str | _] = String.split(content, "---", parts: 3)
+        {:ok, yaml} = YamlElixir.read_from_string(yaml_str)
+
+        for step <- yaml["steps"] do
+          assert step["role"] in @expected_roles,
+                 "#{filename} step '#{step["name"]}' references unknown role '#{step["role"]}'"
+        end
+      end
     end
   end
 end

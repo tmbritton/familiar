@@ -125,8 +125,13 @@ development_status:
   5.5-3-hooks-mailbox-back-pressure: done
   epic-5.5-retrospective: done
 
-  # Epic 6: Default Workflows & CLI Integration (placeholder)
-  epic-6: backlog
+  # Epic 6: Default Workflows & CLI Integration (5 stories)
+  epic-6: in-progress
+  6-1-default-role-skill-refinement: done
+  6-2-default-workflow-definitions: backlog
+  6-3-cli-workflow-dispatch: backlog
+  6-4-planning-as-workflow: backlog
+  6-5-workflow-integration-test: backlog
 
   # Epic 7: CLI Management & Session Handling (placeholder)
   # [Reordered 2026-04-04] CLI before Web UI — CLI is primary interface, Web UI depends on it.
