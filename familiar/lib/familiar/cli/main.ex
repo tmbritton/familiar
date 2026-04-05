@@ -176,6 +176,15 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp run_with_daemon({"plan", _, %{resume: true} = flags}, deps) do
+    session_id = Map.get(flags, :session)
+    resume_planning(session_id, deps)
+  end
+
+  defp run_with_daemon({"plan", _, %{session: session_id}}, deps) when is_integer(session_id) do
+    resume_planning(session_id, deps)
+  end
+
   defp run_with_daemon({"plan", [], _}, _deps) do
     {:error, {:usage_error, %{message: "Usage: fam plan <description>"}}}
   end
@@ -354,20 +363,85 @@ defmodule Familiar.CLI.Main do
     if description == "" do
       {:error, {:usage_error, %{message: "Usage: fam #{command} <description>"}}}
     else
-      run_workflow(workflow_name, description, deps)
+      scope = if command == "plan", do: "planning", else: "agent"
+      run_workflow(workflow_name, description, deps, scope)
     end
   end
 
-  defp run_workflow(workflow_name, description, deps) do
+  defp run_workflow(workflow_name, description, deps, scope \\ "agent") do
     path = Path.join([Paths.familiar_dir(), "workflows", "#{workflow_name}.md"])
     workflow_fn = Map.get(deps, :workflow_fn, &WorkflowRunner.run_workflow/3)
 
-    case workflow_fn.(path, %{task: description}, []) do
+    opts =
+      [scope: scope]
+      |> maybe_add_input_fn(deps)
+
+    case workflow_fn.(path, %{task: description}, opts) do
       {:ok, result} ->
         {:ok, %{workflow: workflow_name, steps: result.steps}}
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp resume_planning(session_id, deps) do
+    find_fn = Map.get(deps, :find_conversation_fn, &find_planning_conversation/1)
+
+    case find_fn.(session_id) do
+      {:ok, conversation} ->
+        if conversation.status == "completed" do
+          {:error,
+           {:conversation_completed,
+            %{message: "Planning session ##{conversation.id} is already completed."}}}
+        else
+          resume_with_context(conversation, deps)
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp find_planning_conversation(nil) do
+    case Familiar.Conversations.latest_active(scope: "planning") do
+      {:ok, id} -> Familiar.Conversations.get(id)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp find_planning_conversation(id) when is_integer(id) do
+    Familiar.Conversations.get(id)
+  end
+
+  defp resume_with_context(conversation, deps) do
+    messages_fn = Map.get(deps, :messages_fn, &Familiar.Conversations.messages/1)
+
+    case messages_fn.(conversation.id) do
+      {:ok, messages} ->
+        # Build context from conversation history for the agent
+        context_summary = format_conversation_context(messages)
+        description = "Resume planning session ##{conversation.id}\n\n#{context_summary}"
+        run_workflow("feature-planning", description, deps, "planning")
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp format_conversation_context(messages) do
+    messages
+    |> Enum.filter(&(&1.role in ~w(user assistant)))
+    |> Enum.map_join("\n\n", fn msg ->
+      role_label = String.capitalize(msg.role)
+      "#{role_label}: #{String.slice(msg.content || "", 0, 500)}"
+    end)
+  end
+
+  defp maybe_add_input_fn(opts, deps) do
+    case Map.get(deps, :input_fn) do
+      nil -> opts
+      input_fn -> Keyword.put(opts, :input_fn, input_fn)
     end
   end
 

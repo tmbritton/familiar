@@ -305,6 +305,17 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
       end
     end
 
+    test "feature-planning draft-spec step has interactive mode", %{tmp_dir: tmp_dir} do
+      familiar_dir = install_defaults(tmp_dir)
+      path = Path.join([familiar_dir, "workflows", "feature-planning.md"])
+      assert {:ok, workflow} = WorkflowRunner.parse(path)
+
+      [research, draft_spec, review_spec] = workflow.steps
+      assert research.mode == :autonomous
+      assert draft_spec.mode == :interactive
+      assert review_spec.mode == :autonomous
+    end
+
     test "workflow steps have valid input references to prior steps", %{tmp_dir: tmp_dir} do
       familiar_dir = install_defaults(tmp_dir)
       workflows_dir = Path.join(familiar_dir, "workflows")

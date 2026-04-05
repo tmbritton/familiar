@@ -115,6 +115,7 @@ defmodule Familiar.Execution.WorkflowRunner do
     * `:caller` — pid to notify on completion (optional, default `self()`)
     * `:familiar_dir` — path to `.familiar/` directory (optional)
     * `:supervisor` — DynamicSupervisor for agents (optional)
+    * `:scope` — conversation scope for agents (optional, default `"agent"`)
     * `:timeout_ms` — max time to wait for workflow completion (optional, default 5 min)
   """
   def start_link(opts) do
@@ -156,7 +157,8 @@ defmodule Familiar.Execution.WorkflowRunner do
       {:ok, pid} ->
         run(pid)
         timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
-        await_completion(pid, timeout)
+        input_fn = Keyword.get(opts, :input_fn)
+        await_completion(pid, timeout, input_fn)
 
       {:error, reason} ->
         {:error, reason}
@@ -190,6 +192,7 @@ defmodule Familiar.Execution.WorkflowRunner do
     workflow = Keyword.fetch!(opts, :workflow)
     context = Keyword.get(opts, :context, %{})
     caller = Keyword.get(opts, :caller)
+    scope = Keyword.get(opts, :scope, "agent")
     extra_opts = Keyword.take(opts, [:familiar_dir, :supervisor])
 
     {:ok,
@@ -197,6 +200,7 @@ defmodule Familiar.Execution.WorkflowRunner do
        workflow: workflow,
        initial_context: context,
        caller: caller,
+       scope: scope,
        status: :pending,
        current_step_index: 0,
        step_results: [],
@@ -258,8 +262,29 @@ defmodule Familiar.Execution.WorkflowRunner do
     cleanup_agent_registration(state.agent_id)
     if state.monitor_ref, do: Process.demonitor(state.monitor_ref, [:flush])
 
+    # Stop the agent to prevent further LLM calls after signal_ready
+    stop_agent(state.agent_pid)
+
     state = %{state | step_handled: true}
     handle_step_success(state, "Step completed via signal_ready")
+  end
+
+  # Interactive agent needs user input — forward to caller
+  def handle_info(
+        {:agent_needs_input, _agent_id, content},
+        %{status: :running, step_handled: false} = state
+      ) do
+    step = Enum.at(state.workflow.steps, state.current_step_index)
+    Logger.info("[WorkflowRunner] Step '#{step.name}' waiting for user input")
+    notify_caller(state, {:workflow_needs_input, self(), step.name, content})
+    {:noreply, state}
+  end
+
+  # User input received — forward to the running agent
+  def handle_info({:user_input, text}, %{status: :running, agent_pid: pid} = state)
+      when is_pid(pid) do
+    GenServer.cast(pid, {:user_message, text})
+    {:noreply, state}
   end
 
   # Agent crashed — only if step not already handled
@@ -293,7 +318,9 @@ defmodule Familiar.Execution.WorkflowRunner do
         [
           role: step.role,
           task: task_description,
-          parent: self()
+          parent: self(),
+          mode: step.mode,
+          scope: state.scope
         ] ++ state.extra_opts
 
       case AgentSupervisor.start_agent(agent_opts) do
@@ -419,6 +446,17 @@ defmodule Familiar.Execution.WorkflowRunner do
     :ets.insert(@registry_table, {agent_id, runner_pid})
   end
 
+  defp stop_agent(nil), do: :ok
+
+  defp stop_agent(pid) do
+    if Process.alive?(pid) do
+      # Use Task to avoid blocking the GenServer if the agent is slow to stop
+      Task.start(fn -> GenServer.stop(pid, :normal, 5_000) end)
+    end
+  catch
+    :exit, _ -> :ok
+  end
+
   defp cleanup_agent_registration(nil), do: :ok
 
   defp cleanup_agent_registration(agent_id) do
@@ -521,13 +559,19 @@ defmodule Familiar.Execution.WorkflowRunner do
     end
   end
 
-  defp await_completion(pid, timeout) do
+  defp await_completion(pid, timeout, input_fn) do
     ref = Process.monitor(pid)
+    do_await(pid, ref, timeout, input_fn)
+  end
 
+  defp do_await(pid, ref, timeout, input_fn) do
     receive do
       {:workflow_done, ^pid, result} ->
         Process.demonitor(ref, [:flush])
         result
+
+      {:workflow_needs_input, ^pid, step_name, content} ->
+        handle_interactive_input(pid, ref, timeout, input_fn, step_name, content)
 
       {:DOWN, ^ref, :process, ^pid, reason} ->
         {:error, {:runner_crashed, reason}}
@@ -535,6 +579,33 @@ defmodule Familiar.Execution.WorkflowRunner do
       timeout ->
         Process.demonitor(ref, [:flush])
         {:error, {:workflow_timeout, timeout}}
+    end
+  end
+
+  defp handle_interactive_input(pid, ref, timeout, input_fn, step_name, content)
+       when is_function(input_fn) do
+    case input_fn.(step_name, content) do
+      {:ok, text} ->
+        send(pid, {:user_input, text})
+        do_await(pid, ref, timeout, input_fn)
+
+      {:halt, _reason} ->
+        Process.demonitor(ref, [:flush])
+        {:error, {:interactive_halted, %{step: step_name}}}
+    end
+  end
+
+  defp handle_interactive_input(pid, ref, timeout, nil, step_name, content) do
+    # No input_fn provided — use IO.gets as default
+    IO.puts(content)
+    text = IO.gets("> ")
+
+    if is_binary(text) do
+      send(pid, {:user_input, String.trim(text)})
+      do_await(pid, ref, timeout, nil)
+    else
+      Process.demonitor(ref, [:flush])
+      {:error, {:interactive_halted, %{step: step_name}}}
     end
   end
 end

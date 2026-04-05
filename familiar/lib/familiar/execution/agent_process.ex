@@ -45,6 +45,8 @@ defmodule Familiar.Execution.AgentProcess do
     * `:task` — task description string (required)
     * `:parent` — pid to notify on completion (optional)
     * `:familiar_dir` — path to `.familiar/` directory (optional)
+    * `:mode` — `:autonomous` (default) or `:interactive`
+    * `:scope` — conversation scope string (default `"agent"`)
     * `:max_tool_calls` — max tool calls before stopping (optional)
     * `:task_timeout_ms` — timeout in milliseconds (optional)
   """
@@ -92,13 +94,15 @@ defmodule Familiar.Execution.AgentProcess do
     role_name = Keyword.fetch!(opts, :role)
     task = Keyword.fetch!(opts, :task)
     parent = Keyword.get(opts, :parent)
+    mode = Keyword.get(opts, :mode, :autonomous)
+    scope = Keyword.get(opts, :scope, "agent")
     familiar_dir_opts = Keyword.take(opts, [:familiar_dir])
 
     agent_id = "agent_#{System.unique_integer([:positive, :monotonic])}"
 
     case load_role_and_skills(role_name, familiar_dir_opts) do
       {:ok, role, skills} ->
-        case Conversations.create("#{role_name}: #{task}", scope: "agent") do
+        case Conversations.create("#{role_name}: #{task}", scope: scope) do
           {:ok, conversation} ->
             timeout_ms = agent_config(:task_timeout_ms, opts, @default_task_timeout_ms)
 
@@ -108,10 +112,12 @@ defmodule Familiar.Execution.AgentProcess do
               skills: skills,
               task: task,
               parent: parent,
+              mode: mode,
               conversation_id: conversation.id,
               tool_call_count: 0,
               status: :running,
               started_at: System.monotonic_time(:millisecond),
+              wait_start: nil,
               max_tool_calls: agent_config(:max_tool_calls, opts, @default_max_tool_calls),
               task_timeout_ms: timeout_ms,
               llm_task: nil,
@@ -292,10 +298,15 @@ defmodule Familiar.Execution.AgentProcess do
         timeout_id: nil
     }
 
-    if tool_calls == [] do
-      complete_successfully(state, content)
-    else
-      dispatch_tool_calls(tool_calls, state)
+    cond do
+      tool_calls != [] ->
+        dispatch_tool_calls(tool_calls, state)
+
+      state.mode == :interactive ->
+        enter_waiting_input(state, content)
+
+      true ->
+        complete_successfully(state, content)
     end
   end
 
@@ -464,6 +475,40 @@ defmodule Familiar.Execution.AgentProcess do
 
     {:stop, :normal, %{state | status: :failed}}
   end
+
+  # -- Interactive Mode --
+
+  defp enter_waiting_input(state, content) do
+    Logger.info("[AgentProcess] #{state.agent_id} waiting for user input (interactive mode)")
+    notify_parent_needs_input(state, content)
+
+    {:noreply,
+     %{state | status: :waiting_input, wait_start: System.monotonic_time(:millisecond)}}
+  end
+
+  @impl true
+  def handle_cast({:user_message, text}, %{status: :waiting_input} = state) do
+    # Adjust started_at to exclude wait duration from timeout budget
+    wait_duration = System.monotonic_time(:millisecond) - (state.wait_start || 0)
+    state = %{state | started_at: state.started_at + wait_duration, wait_start: nil}
+
+    # Persist and append user message
+    log_add_message(Conversations.add_message(state.conversation_id, "user", text))
+    user_msg = %{role: "user", content: text}
+    state = %{state | messages: [user_msg | state.messages], status: :running}
+
+    start_llm_call(state)
+  end
+
+  def handle_cast({:user_message, _text}, state) do
+    Logger.warning("[AgentProcess] Received user_message in #{state.status} state — ignoring")
+    {:noreply, state}
+  end
+
+  defp notify_parent_needs_input(%{parent: nil}, _content), do: :ok
+
+  defp notify_parent_needs_input(%{parent: pid, agent_id: id}, content),
+    do: send(pid, {:agent_needs_input, id, content})
 
   defp notify_parent(%{parent: nil}, _result), do: :ok
 

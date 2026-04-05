@@ -41,6 +41,11 @@ defmodule Familiar.CLI.WorkflowCommandsTest do
            }}
         end)
     }
+    |> Map.merge(
+      overrides
+      |> Keyword.drop(~w(ensure_running_fn health_fn daemon_status_fn stop_daemon_fn workflow_fn)a)
+      |> Map.new()
+    )
   end
 
   # == parse_args ==
@@ -205,6 +210,90 @@ defmodule Familiar.CLI.WorkflowCommandsTest do
         )
 
       assert {:error, {:file_error, _}} = Main.run({"plan", ["something"], %{}}, deps)
+    end
+  end
+
+  # == resume ==
+
+  describe "plan --resume" do
+    test "calls find_conversation_fn with nil for latest" do
+      test_pid = self()
+
+      deps =
+        workflow_deps(
+          find_conversation_fn: fn session_id ->
+            send(test_pid, {:find_called, session_id})
+            {:error, {:no_active_conversation, %{}}}
+          end
+        )
+
+      assert {:error, {:no_active_conversation, _}} =
+               Main.run({"plan", [], %{resume: true}}, deps)
+
+      assert_receive {:find_called, nil}
+    end
+
+    test "returns error when no active planning session" do
+      deps =
+        workflow_deps(
+          find_conversation_fn: fn _id ->
+            {:error, {:no_active_conversation, %{}}}
+          end
+        )
+
+      assert {:error, {:no_active_conversation, _}} =
+               Main.run({"plan", [], %{resume: true}}, deps)
+    end
+
+    test "returns error for completed session" do
+      deps =
+        workflow_deps(
+          find_conversation_fn: fn _id ->
+            {:ok, %{id: 42, status: "completed"}}
+          end
+        )
+
+      assert {:error, {:conversation_completed, _}} =
+               Main.run({"plan", [], %{resume: true}}, deps)
+    end
+
+    test "resumes active session with conversation context" do
+      deps =
+        workflow_deps(
+          find_conversation_fn: fn _id ->
+            {:ok, %{id: 10, status: "active"}}
+          end,
+          messages_fn: fn 10 ->
+            {:ok,
+             [
+               %{role: "system", content: "You are an analyst"},
+               %{role: "user", content: "Plan auth feature"},
+               %{role: "assistant", content: "What OAuth providers?"}
+             ]}
+          end
+        )
+
+      assert {:ok, %{workflow: "feature-planning"}} =
+               Main.run({"plan", [], %{resume: true}}, deps)
+    end
+  end
+
+  describe "plan --session" do
+    test "calls find_conversation_fn with specific ID" do
+      test_pid = self()
+
+      deps =
+        workflow_deps(
+          find_conversation_fn: fn session_id ->
+            send(test_pid, {:find_called, session_id})
+            {:error, {:conversation_not_found, %{id: session_id}}}
+          end
+        )
+
+      assert {:error, {:conversation_not_found, _}} =
+               Main.run({"plan", [], %{session: 42}}, deps)
+
+      assert_receive {:find_called, 42}
     end
   end
 

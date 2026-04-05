@@ -17,6 +17,7 @@ defmodule Familiar.Knowledge.DefaultFiles do
         role: analyst
       - name: draft-spec
         role: analyst
+        mode: interactive
         input:
           - research
       - name: review-spec

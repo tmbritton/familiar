@@ -24,6 +24,7 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
     stub(Familiar.System.ClockMock, :now, fn -> ~U[2026-04-04 12:00:00Z] end)
 
     # Default LLM stub — returns role-based response
+    # For interactive steps: signals ready on second user message (only once)
     stub(Familiar.Providers.LLMMock, :chat, fn messages, _opts ->
       system = hd(messages)
 
@@ -31,7 +32,20 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
         {:error, {:provider_error, %{}}}
       else
         role_name = extract_role_from_system(system.content)
-        {:ok, %{content: "Result from #{role_name}"}}
+        user_msgs = Enum.count(messages, &(&1.role == "user"))
+        tool_msgs = Enum.count(messages, &(&1.role == "tool"))
+
+        # Signal ready on second user message, but only if we haven't already
+        # (tool_msgs > 0 means signal_ready was already dispatched)
+        if user_msgs >= 2 and tool_msgs == 0 do
+          {:ok,
+           %{
+             content: "Result from #{role_name}",
+             tool_calls: [%{"name" => "signal_ready", "arguments" => %{}}]
+           }}
+        else
+          {:ok, %{content: "Result from #{role_name}"}}
+        end
       end
     end)
 
@@ -63,6 +77,43 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
     dir = Path.join(System.tmp_dir!(), "wf_test_#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     dir
+  end
+
+  defp ensure_signal_ready_registered do
+    WorkflowRunner.register_signal_ready_tool()
+  end
+
+  defp stub_interactive_llm do
+    ensure_signal_ready_registered()
+    stub(Familiar.Providers.LLMMock, :chat, fn messages, _opts ->
+      build_interactive_llm_response(messages)
+    end)
+  end
+
+  defp build_interactive_llm_response(messages) do
+    system = hd(messages)
+
+    if system.content =~ "FAIL_MODE" do
+      {:error, {:provider_error, %{}}}
+    else
+      role_name = extract_role_from_system(system.content)
+      user_msgs = Enum.count(messages, &(&1.role == "user"))
+      tool_msgs = Enum.count(messages, &(&1.role == "tool"))
+      maybe_signal_ready(role_name, user_msgs, tool_msgs)
+    end
+  end
+
+  defp maybe_signal_ready(role_name, user_msgs, tool_msgs)
+       when user_msgs >= 2 and tool_msgs == 0 do
+    {:ok,
+     %{
+       content: "Result from #{role_name}",
+       tool_calls: [%{"name" => "signal_ready", "arguments" => %{}}]
+     }}
+  end
+
+  defp maybe_signal_ready(role_name, _user_msgs, _tool_msgs) do
+    {:ok, %{content: "Result from #{role_name}"}}
   end
 
   defp create_role_files(familiar_dir, role_names) do
@@ -97,13 +148,18 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
     """)
   end
 
-  defp run_wf(workflow, context, %{supervisor: sup} = test_ctx) do
+  defp run_wf(workflow, context, test_ctx, extra_opts \\ [])
+
+  defp run_wf(workflow, context, %{supervisor: sup} = test_ctx, extra_opts) do
     familiar_dir = Map.get(test_ctx, :familiar_dir, tmp_dir())
 
-    WorkflowRunner.run_workflow_parsed(workflow, context,
-      familiar_dir: familiar_dir,
-      supervisor: sup
-    )
+    opts =
+      Keyword.merge(
+        [familiar_dir: familiar_dir, supervisor: sup],
+        extra_opts
+      )
+
+    WorkflowRunner.run_workflow_parsed(workflow, context, opts)
   end
 
   # == AC1: Workflow Parsing ==
@@ -383,15 +439,18 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
   describe "default workflow execution" do
     test "feature-planning workflow runs end-to-end with default files", ctx do
       familiar_dir = setup_default_files()
-
       path = Path.join([familiar_dir, "workflows", "feature-planning.md"])
+
+      # Auto-complete interactive steps by always signaling ready
+      input_fn = fn _step, _content -> {:ok, "User response"} end
 
       assert {:ok, result} =
                WorkflowRunner.run_workflow(
                  path,
                  %{task: "Plan a user authentication feature"},
                  familiar_dir: familiar_dir,
-                 supervisor: ctx.supervisor
+                 supervisor: ctx.supervisor,
+                 input_fn: input_fn
                )
 
       assert length(result.steps) == 3
@@ -399,7 +458,6 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
       step_names = Enum.map(result.steps, & &1.step)
       assert step_names == ["research", "draft-spec", "review-spec"]
 
-      # Each step should have output from the mocked LLM
       for step <- result.steps do
         assert is_binary(step.output) and step.output != ""
       end
@@ -444,6 +502,7 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
     end
 
     test "later steps receive context from prior steps via input references", ctx do
+      stub_interactive_llm()
       familiar_dir = setup_default_files()
 
       # Track what messages each agent receives
@@ -458,9 +517,20 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
         end
 
         role_name = extract_role_from_system(hd(messages).content)
-        {:ok, %{content: "Output from #{role_name} step"}}
+        user_msgs = Enum.count(messages, &(&1.role == "user"))
+
+        if user_msgs >= 2 do
+          {:ok,
+           %{
+             content: "Output from #{role_name} step",
+             tool_calls: [%{"name" => "signal_ready", "arguments" => %{}}]
+           }}
+        else
+          {:ok, %{content: "Output from #{role_name} step"}}
+        end
       end)
 
+      input_fn = fn _step, _content -> {:ok, "User input"} end
       path = Path.join([familiar_dir, "workflows", "feature-planning.md"])
 
       assert {:ok, _result} =
@@ -468,13 +538,106 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
                  path,
                  %{task: "Plan feature X"},
                  familiar_dir: familiar_dir,
-                 supervisor: ctx.supervisor
+                 supervisor: ctx.supervisor,
+                 input_fn: input_fn
                )
 
-      # draft-spec step should include research output in its context
       assert_receive {:draft_spec_context, context}, 5_000
       assert context =~ "research:"
       assert context =~ "Output from"
+    end
+  end
+
+  # == Interactive Mode ==
+
+  describe "interactive mode" do
+    test "interactive step sends needs_input and accepts user response", ctx do
+      stub_interactive_llm()
+      familiar_dir = tmp_dir()
+      create_role_files(familiar_dir, ["interactive-agent"])
+
+      # Mock LLM: first call returns a question, second call (after user input) signals ready
+      Familiar.Providers.LLMMock
+      |> stub(:chat, fn messages, _opts ->
+        user_msgs = Enum.count(messages, &(&1.role == "user"))
+
+        if user_msgs >= 2 do
+          # User responded — signal ready with final output
+          {:ok,
+           %{
+             content: "Great, I'll use blue.",
+             tool_calls: [%{"name" => "signal_ready", "arguments" => %{}}]
+           }}
+        else
+          {:ok, %{content: "What color do you prefer?"}}
+        end
+      end)
+
+      workflow = %Workflow{
+        name: "interactive-test",
+        steps: [%Step{name: "ask", role: "interactive-agent", mode: :interactive}]
+      }
+
+      input_fn = fn _step_name, content ->
+        assert content =~ "What color"
+        {:ok, "blue"}
+      end
+
+      assert {:ok, result} =
+               run_wf(workflow, %{task: "Pick a color"}, Map.put(ctx, :familiar_dir, familiar_dir),
+                 input_fn: input_fn
+               )
+
+      assert [%{step: "ask"}] = result.steps
+    end
+
+    test "interactive step completes on signal_ready", ctx do
+      stub_interactive_llm()
+      familiar_dir = tmp_dir()
+      create_role_files(familiar_dir, ["signal-agent"])
+
+      Familiar.Providers.LLMMock
+      |> stub(:chat, fn _messages, _opts ->
+        # Agent calls signal_ready tool
+        {:ok,
+         %{
+           content: "Signaling ready",
+           tool_calls: [%{"name" => "signal_ready", "arguments" => %{}}]
+         }}
+      end)
+
+      workflow = %Workflow{
+        name: "signal-test",
+        steps: [%Step{name: "work", role: "signal-agent", mode: :interactive}]
+      }
+
+      assert {:ok, result} =
+               run_wf(workflow, %{task: "Do work"}, Map.put(ctx, :familiar_dir, familiar_dir))
+
+      assert [%{step: "work"}] = result.steps
+    end
+
+    test "interactive_halted when input_fn returns halt", ctx do
+      stub_interactive_llm()
+      familiar_dir = tmp_dir()
+      create_role_files(familiar_dir, ["halt-agent"])
+
+      Familiar.Providers.LLMMock
+      |> stub(:chat, fn _messages, _opts ->
+        {:ok, %{content: "Question?"}}
+      end)
+
+      workflow = %Workflow{
+        name: "halt-test",
+        steps: [%Step{name: "ask", role: "halt-agent", mode: :interactive}]
+      }
+
+      input_fn = fn _step, _content -> {:halt, "user quit"} end
+
+      assert {:error, {:interactive_halted, %{step: "ask"}}} =
+               run_wf(workflow, %{task: "Ask"}, Map.put(ctx, :familiar_dir, familiar_dir),
+                 input_fn: input_fn
+               )
     end
   end
 
