@@ -119,16 +119,19 @@ development_status:
   # Refactors ToolRegistry.dispatch to use GenServer.reply/2 pattern so tool
   # execution doesn't block the GenServer. Required for concurrent agent workflows.
   # Also addresses file-level claim checking and hooks back-pressure from Epic 5 retro.
-  epic-5.5: in-progress
+  epic-5.5: done
   5.5-1-async-tool-dispatch: done
   5.5-2-file-claim-checking: done
   5.5-3-hooks-mailbox-back-pressure: done
+  epic-5.5-retrospective: done
 
   # Epic 6: Default Workflows & CLI Integration (placeholder)
   epic-6: backlog
 
-  # Epic 7: Web UI Extension (placeholder)
+  # Epic 7: CLI Management & Session Handling (placeholder)
+  # [Reordered 2026-04-04] CLI before Web UI — CLI is primary interface, Web UI depends on it.
   epic-7: backlog
 
-  # Epic 8: CLI Management & Session Handling (placeholder)
+  # Epic 8: Web UI Extension (placeholder)
+  # [Reordered 2026-04-04] Was Epic 7. Web UI is optional and builds on CLI commands.
   epic-8: backlog
