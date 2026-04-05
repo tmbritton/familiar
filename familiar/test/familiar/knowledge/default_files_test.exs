@@ -5,6 +5,7 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
 
   @moduletag :tmp_dir
 
+  alias Familiar.Execution.WorkflowRunner
   alias Familiar.Knowledge.DefaultFiles
   alias Familiar.Roles
   alias Familiar.Roles.{Role, Skill}
@@ -279,6 +280,58 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
           assert step["role"] in @expected_roles,
                  "#{filename} step '#{step["name"]}' references unknown role '#{step["role"]}'"
         end
+      end
+    end
+
+    test "WorkflowRunner.parse/1 succeeds on all default workflows", %{tmp_dir: tmp_dir} do
+      familiar_dir = install_defaults(tmp_dir)
+      workflows_dir = Path.join(familiar_dir, "workflows")
+
+      expected = %{
+        "feature-planning.md" => {3, ~w(research draft-spec review-spec)},
+        "feature-implementation.md" => {3, ~w(implement test review)},
+        "task-fix.md" => {3, ~w(diagnose fix verify)}
+      }
+
+      for {filename, {step_count, step_names}} <- expected do
+        path = Path.join(workflows_dir, filename)
+        assert {:ok, workflow} = WorkflowRunner.parse(path), "Failed to parse #{filename}"
+
+        assert length(workflow.steps) == step_count,
+               "#{filename}: expected #{step_count} steps, got #{length(workflow.steps)}"
+
+        actual_names = Enum.map(workflow.steps, & &1.name)
+        assert actual_names == step_names, "#{filename}: step names mismatch"
+      end
+    end
+
+    test "workflow steps have valid input references to prior steps", %{tmp_dir: tmp_dir} do
+      familiar_dir = install_defaults(tmp_dir)
+      workflows_dir = Path.join(familiar_dir, "workflows")
+
+      for filename <- ~w(feature-planning.md feature-implementation.md task-fix.md) do
+        path = Path.join(workflows_dir, filename)
+        {:ok, workflow} = WorkflowRunner.parse(path)
+
+        # First step should have no inputs
+        first = hd(workflow.steps)
+        assert first.input == [], "#{filename}: first step '#{first.name}' should have no inputs"
+
+        # Later steps should reference only prior steps
+        prior_names = MapSet.new()
+
+        Enum.reduce(workflow.steps, prior_names, fn step, prior ->
+          for ref <- step.input do
+            assert MapSet.member?(prior, ref),
+                   "#{filename}: step '#{step.name}' references '#{ref}' which is not a prior step"
+          end
+
+          MapSet.put(prior, step.name)
+        end)
+
+        # At least one step should have inputs (workflows are connected)
+        has_inputs = Enum.any?(workflow.steps, &(&1.input != []))
+        assert has_inputs, "#{filename}: no steps have input references — workflow is disconnected"
       end
     end
   end

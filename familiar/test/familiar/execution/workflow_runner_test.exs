@@ -6,6 +6,7 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
   alias Familiar.Execution.WorkflowRunner
   alias Familiar.Execution.WorkflowRunner.Step
   alias Familiar.Execution.WorkflowRunner.Workflow
+  alias Familiar.Knowledge.DefaultFiles
 
   setup :verify_on_exit!
 
@@ -377,5 +378,112 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
     test "returns parse error for invalid file" do
       assert {:error, {:file_error, _}} = WorkflowRunner.run_workflow("/nonexistent.md")
     end
+  end
+
+  describe "default workflow execution" do
+    test "feature-planning workflow runs end-to-end with default files", ctx do
+      familiar_dir = setup_default_files()
+
+      path = Path.join([familiar_dir, "workflows", "feature-planning.md"])
+
+      assert {:ok, result} =
+               WorkflowRunner.run_workflow(
+                 path,
+                 %{task: "Plan a user authentication feature"},
+                 familiar_dir: familiar_dir,
+                 supervisor: ctx.supervisor
+               )
+
+      assert length(result.steps) == 3
+
+      step_names = Enum.map(result.steps, & &1.step)
+      assert step_names == ["research", "draft-spec", "review-spec"]
+
+      # Each step should have output from the mocked LLM
+      for step <- result.steps do
+        assert is_binary(step.output) and step.output != ""
+      end
+    end
+
+    test "feature-implementation workflow runs end-to-end with default files", ctx do
+      familiar_dir = setup_default_files()
+
+      path = Path.join([familiar_dir, "workflows", "feature-implementation.md"])
+
+      assert {:ok, result} =
+               WorkflowRunner.run_workflow(
+                 path,
+                 %{task: "Implement login form"},
+                 familiar_dir: familiar_dir,
+                 supervisor: ctx.supervisor
+               )
+
+      assert length(result.steps) == 3
+
+      step_names = Enum.map(result.steps, & &1.step)
+      assert step_names == ["implement", "test", "review"]
+    end
+
+    test "task-fix workflow runs end-to-end with default files", ctx do
+      familiar_dir = setup_default_files()
+
+      path = Path.join([familiar_dir, "workflows", "task-fix.md"])
+
+      assert {:ok, result} =
+               WorkflowRunner.run_workflow(
+                 path,
+                 %{task: "Fix broken login redirect"},
+                 familiar_dir: familiar_dir,
+                 supervisor: ctx.supervisor
+               )
+
+      assert length(result.steps) == 3
+
+      step_names = Enum.map(result.steps, & &1.step)
+      assert step_names == ["diagnose", "fix", "verify"]
+    end
+
+    test "later steps receive context from prior steps via input references", ctx do
+      familiar_dir = setup_default_files()
+
+      # Track what messages each agent receives
+      test_pid = self()
+
+      Familiar.Providers.LLMMock
+      |> stub(:chat, fn messages, _opts ->
+        user_msg = Enum.find(messages, &(&1.role == "user"))
+
+        if user_msg && user_msg.content =~ "Step: draft-spec" do
+          send(test_pid, {:draft_spec_context, user_msg.content})
+        end
+
+        role_name = extract_role_from_system(hd(messages).content)
+        {:ok, %{content: "Output from #{role_name} step"}}
+      end)
+
+      path = Path.join([familiar_dir, "workflows", "feature-planning.md"])
+
+      assert {:ok, _result} =
+               WorkflowRunner.run_workflow(
+                 path,
+                 %{task: "Plan feature X"},
+                 familiar_dir: familiar_dir,
+                 supervisor: ctx.supervisor
+               )
+
+      # draft-spec step should include research output in its context
+      assert_receive {:draft_spec_context, context}, 5_000
+      assert context =~ "research:"
+      assert context =~ "Output from"
+    end
+  end
+
+  defp setup_default_files do
+    dir = Path.join(System.tmp_dir!(), "wf_default_#{System.unique_integer([:positive])}")
+    familiar_dir = Path.join(dir, ".familiar")
+    File.mkdir_p!(familiar_dir)
+    DefaultFiles.install(familiar_dir)
+    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(dir) end)
+    familiar_dir
   end
 end

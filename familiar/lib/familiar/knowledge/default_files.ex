@@ -17,16 +17,20 @@ defmodule Familiar.Knowledge.DefaultFiles do
         role: analyst
       - name: draft-spec
         role: analyst
+        input:
+          - research
       - name: review-spec
         role: reviewer
+        input:
+          - draft-spec
     ---
     # Feature Planning Workflow
 
     Guide the agent through planning a new feature from requirements to specification.
 
     1. **research** — Search the knowledge store and codebase for relevant context, conventions, and prior decisions
-    2. **draft-spec** — Draft a specification with acceptance criteria, affected files, and trade-offs
-    3. **review-spec** — Review the specification for completeness, feasibility, and alignment with conventions
+    2. **draft-spec** — Using research context, draft a specification with acceptance criteria, affected files, and trade-offs
+    3. **review-spec** — Review the drafted specification for completeness, feasibility, and alignment with conventions
     """,
     "feature-implementation.md" => """
     ---
@@ -37,16 +41,21 @@ defmodule Familiar.Knowledge.DefaultFiles do
         role: coder
       - name: test
         role: coder
+        input:
+          - implement
       - name: review
         role: reviewer
+        input:
+          - implement
+          - test
     ---
     # Feature Implementation Workflow
 
     Guide the agent through implementing an approved feature specification.
 
     1. **implement** — Create or modify files following the specification and project conventions
-    2. **test** — Write tests for new functionality, run the test suite to verify correctness
-    3. **review** — Review changes for correctness, conventions, and test coverage
+    2. **test** — Write tests for the implemented functionality, run the test suite to verify correctness
+    3. **review** — Review both implementation and test changes for correctness, conventions, and coverage
     """,
     "task-fix.md" => """
     ---
@@ -57,15 +66,19 @@ defmodule Familiar.Knowledge.DefaultFiles do
         role: analyst
       - name: fix
         role: coder
+        input:
+          - diagnose
       - name: verify
         role: coder
+        input:
+          - fix
     ---
     # Task Fix Workflow
 
     Guide the agent through fixing a bug or addressing a failing task.
 
     1. **diagnose** — Understand the issue, research relevant code and recent changes, identify root cause
-    2. **fix** — Implement the fix following project conventions, write regression tests
+    2. **fix** — Using the diagnosis, implement the fix following project conventions and write regression tests
     3. **verify** — Run the test suite, validate the fix resolves the issue without regressions
     """
   }
