@@ -10,6 +10,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.CLI.HttpClient
   alias Familiar.CLI.Output
   alias Familiar.Daemon.Paths
+  alias Familiar.Execution.WorkflowRunner
   alias Familiar.Knowledge
   alias Familiar.Knowledge.Backup
   alias Familiar.Knowledge.ConventionReviewer
@@ -175,28 +176,28 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp run_with_daemon({"plan", _, _}, _deps) do
-    {:error,
-     {:not_implemented,
-      %{
-        message:
-          "Planning commands will be available when the workflow runner is built (Epic 5). Use the web UI or API directly."
-      }}}
+  defp run_with_daemon({"plan", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam plan <description>"}}}
   end
 
-  defp run_with_daemon({"generate-spec", _, _}, _deps) do
-    {:error,
-     {:not_implemented,
-      %{message: "Spec generation will be available when the workflow runner is built (Epic 5)."}}}
+  defp run_with_daemon({"plan", args, _flags}, deps) do
+    run_workflow_command("plan", "feature-planning", args, deps)
   end
 
-  defp run_with_daemon({"spec", _, _}, _deps) do
-    {:error,
-     {:not_implemented,
-      %{
-        message:
-          "Spec commands will be available when workflows are defined (Epic 3r). Specs are markdown files managed by agents."
-      }}}
+  defp run_with_daemon({"do", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam do <description>"}}}
+  end
+
+  defp run_with_daemon({"do", args, _flags}, deps) do
+    run_workflow_command("do", "feature-implementation", args, deps)
+  end
+
+  defp run_with_daemon({"fix", [], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam fix <description>"}}}
+  end
+
+  defp run_with_daemon({"fix", args, _flags}, deps) do
+    run_workflow_command("fix", "task-fix", args, deps)
   end
 
   defp run_with_daemon({"search", [], _}, _deps) do
@@ -344,6 +345,29 @@ defmodule Familiar.CLI.Main do
              {:ok, pairs} <- parse_apply_indices(indices_str, candidates) do
           compact_fn.(pairs, [])
         end
+    end
+  end
+
+  defp run_workflow_command(command, workflow_name, args, deps) do
+    description = args |> Enum.join(" ") |> String.trim()
+
+    if description == "" do
+      {:error, {:usage_error, %{message: "Usage: fam #{command} <description>"}}}
+    else
+      run_workflow(workflow_name, description, deps)
+    end
+  end
+
+  defp run_workflow(workflow_name, description, deps) do
+    path = Path.join([Paths.familiar_dir(), "workflows", "#{workflow_name}.md"])
+    workflow_fn = Map.get(deps, :workflow_fn, &WorkflowRunner.run_workflow/3)
+
+    case workflow_fn.(path, %{task: description}, []) do
+      {:ok, result} ->
+        {:ok, %{workflow: workflow_name, steps: result.steps}}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -555,43 +579,20 @@ defmodule Familiar.CLI.Main do
     }
   end
 
-  defp text_formatter("generate-spec") do
+  defp text_formatter(cmd) when cmd in ~w(plan do fix) do
     fn
-      %{spec: spec, metadata: meta, file_path: path} ->
-        lines = [
-          "Spec generated: #{spec.title}",
-          "  File: #{path}",
-          "  Verified: #{meta.verified_count}",
-          "  Unverified: #{meta.unverified_count}",
-          "  Conventions: #{meta.conventions_count}"
-        ]
+      %{workflow: workflow, steps: steps} ->
+        header = "Workflow: #{workflow} (#{length(steps)} steps)\n"
 
-        Enum.join(lines, "\n")
+        lines =
+          steps
+          |> Enum.with_index(1)
+          |> Enum.map(fn {step, idx} ->
+            output = truncate(step.output || "", 200)
+            "  #{idx}. #{step.step} — #{output}"
+          end)
 
-      other ->
-        inspect(other, pretty: true)
-    end
-  end
-
-  defp text_formatter("spec") do
-    fn
-      %{title: title, body: body, status: status, file_path: path} ->
-        full_body = body || ""
-        preview = String.slice(full_body, 0, 2000)
-
-        truncated =
-          if String.length(full_body) > 2000,
-            do: "\n\n... (truncated — full spec at #{path})",
-            else: ""
-
-        lines = [
-          "#{title} [#{status}]",
-          if(path, do: "File: #{path}", else: nil),
-          "",
-          preview <> truncated
-        ]
-
-        lines |> Enum.reject(&is_nil/1) |> Enum.join("\n")
+        header <> Enum.join(lines, "\n")
 
       other ->
         inspect(other, pretty: true)
@@ -646,21 +647,6 @@ defmodule Familiar.CLI.Main do
         end
 
       Enum.join(lines, "\n")
-    end
-  end
-
-  defp text_formatter("plan") do
-    fn
-      %{session_id: sid, response: response, status: status} ->
-        status_tag = if status == :spec_ready, do: " [SPEC READY]", else: ""
-        "Planning session ##{sid}#{status_tag}\n\n#{response}"
-
-      %{session_id: sid, description: desc, last_response: last} ->
-        response_text = last || "(no messages yet)"
-        "Resumed session ##{sid}: #{desc}\n\n#{response_text}"
-
-      other ->
-        inspect(other, pretty: true)
     end
   end
 
@@ -950,15 +936,11 @@ defmodule Familiar.CLI.Main do
 
     Commands:
       init               Initialize Familiar on this project
-      plan <description> Start a planning conversation for a feature
-      plan --resume      Resume the latest planning conversation
+      plan <description> Plan a feature (research → draft-spec → review)
+      do <description>   Implement a feature (implement → test → review)
+      fix <description>  Fix a bug (diagnose → fix → verify)
       search <query>     Search knowledge store (curated by Librarian)
       search --raw <q>   Search knowledge store directly (no curation)
-      generate-spec <id> Generate spec from planning session (with trail)
-      spec <id>          Display a generated specification
-      spec approve <id>  Approve a generated specification
-      spec reject <id>   Reject a generated specification
-      spec edit <id>     Open spec in $EDITOR for review
       entry <id>         Inspect a knowledge entry
       edit <id> <text>   Edit a knowledge entry (re-embeds, tags as user)
       delete <id>        Delete a knowledge entry

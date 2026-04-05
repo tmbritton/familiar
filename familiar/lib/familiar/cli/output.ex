@@ -104,6 +104,7 @@ defmodule Familiar.CLI.Output do
   defp quiet_summary(%{results: results, query: _}), do: "results:#{length(results)}"
   defp quiet_summary(%{files_scanned: n}), do: "scanned:#{n}"
   defp quiet_summary(%{conventions: c}), do: "conventions:#{length(c)}"
+  defp quiet_summary(%{workflow: w, steps: s}), do: "workflow:#{w}:#{length(s)}"
   defp quiet_summary(%{provider: _}), do: "ok"
   defp quiet_summary(%{help: _}), do: "ok"
   defp quiet_summary(_), do: "ok"

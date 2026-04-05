@@ -129,7 +129,7 @@ development_status:
   epic-6: in-progress
   6-1-default-role-skill-refinement: done
   6-2-default-workflow-definitions: done
-  6-3-cli-workflow-dispatch: backlog
+  6-3-cli-workflow-dispatch: done
   6-4-planning-as-workflow: backlog
   6-5-workflow-integration-test: backlog
 

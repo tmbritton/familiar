@@ -804,52 +804,42 @@ defmodule Familiar.CLI.MainTest do
   end
 
   describe "run/2 with plan command" do
-    test "returns not_implemented for plan with description" do
+    test "dispatches to workflow runner with description" do
       Paths.ensure_familiar_dir!()
 
-      result = Main.run({"plan", ["add", "user", "accounts"], %{}}, deps())
-      assert {:error, {:not_implemented, %{message: msg}}} = result
-      assert msg =~ "workflow runner"
+      workflow_deps =
+        deps(
+          workflow_fn: fn _path, _ctx, _opts ->
+            {:ok, %{steps: [%{step: "research", output: "done"}]}}
+          end
+        )
+
+      result = Main.run({"plan", ["add", "user", "accounts"], %{}}, workflow_deps)
+      assert {:ok, %{workflow: "feature-planning", steps: [_]}} = result
     end
 
-    test "returns not_implemented for plan --resume" do
-      Paths.ensure_familiar_dir!()
-
-      result = Main.run({"plan", [], %{resume: true}}, deps())
-      assert {:error, {:not_implemented, _}} = result
-    end
-
-    test "returns not_implemented for plan with no args" do
+    test "returns usage error for plan with no args" do
       Paths.ensure_familiar_dir!()
 
       result = Main.run({"plan", [], %{}}, deps())
-      assert {:error, {:not_implemented, _}} = result
+      assert {:error, {:usage_error, %{message: msg}}} = result
+      assert msg =~ "Usage: fam plan"
     end
   end
 
-  describe "run/2 with spec command" do
-    test "returns not_implemented" do
+  describe "run/2 with spec and generate-spec commands" do
+    test "spec is now an unknown command" do
       Paths.ensure_familiar_dir!()
 
       result = Main.run({"spec", ["1"], %{}}, deps())
-      assert {:error, {:not_implemented, %{message: msg}}} = result
-      assert msg =~ "workflow"
+      assert {:error, {:unknown_command, %{command: "spec"}}} = result
     end
-  end
 
-  # -- Test helpers --
-
-  describe "run/2 with generate-spec command" do
-    test "returns not_implemented" do
+    test "generate-spec is now an unknown command" do
       Paths.ensure_familiar_dir!()
 
       result = Main.run({"generate-spec", ["42"], %{}}, deps())
-      assert {:error, {:not_implemented, %{message: msg}}} = result
-      assert msg =~ "workflow runner"
-    end
-
-    test "parses generate-spec command" do
-      assert {"generate-spec", ["42"], %{}} = Main.parse_args(["generate-spec", "42"])
+      assert {:error, {:unknown_command, %{command: "generate-spec"}}} = result
     end
   end
 
