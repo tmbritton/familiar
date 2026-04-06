@@ -92,6 +92,41 @@ defmodule Familiar.Conversations do
     {:ok, msgs}
   end
 
+  @doc "List conversations with optional scope and status filters, most recent first."
+  @spec list(keyword()) :: {:ok, [Conversation.t()]}
+  def list(opts \\ []) do
+    scope = Keyword.get(opts, :scope)
+    status = Keyword.get(opts, :status)
+
+    query = from(c in Conversation, order_by: [desc: c.inserted_at])
+    query = if scope, do: where(query, [c], c.scope == ^scope), else: query
+    query = if status, do: where(query, [c], c.status == ^status), else: query
+
+    {:ok, Repo.all(query)}
+  end
+
+  @doc "Count messages for a conversation."
+  @spec message_count(integer()) :: non_neg_integer()
+  def message_count(conversation_id) do
+    from(m in Message, where: m.conversation_id == ^conversation_id, select: count())
+    |> Repo.one()
+  end
+
+  @doc "Mark stale active conversations as abandoned. Default threshold: 24 hours."
+  @spec cleanup_stale(keyword()) :: {:ok, %{cleaned: non_neg_integer()}}
+  def cleanup_stale(opts \\ []) do
+    hours = Keyword.get(opts, :max_age_hours, 24)
+    cutoff = DateTime.utc_now() |> DateTime.add(-hours * 3600, :second)
+
+    {count, _} =
+      from(c in Conversation,
+        where: c.status == "active" and c.inserted_at < ^cutoff
+      )
+      |> Repo.update_all(set: [status: "abandoned"])
+
+    {:ok, %{cleaned: count}}
+  end
+
   @doc "Update conversation status."
   @spec update_status(integer(), String.t()) ::
           {:ok, Conversation.t()} | {:error, {atom(), map()}}

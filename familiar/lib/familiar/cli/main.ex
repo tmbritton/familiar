@@ -54,7 +54,9 @@ defmodule Familiar.CLI.Main do
           resume: :boolean,
           session: :integer,
           raw: :boolean,
-          role: :string
+          role: :string,
+          scope: :string,
+          cleanup: :boolean
         ],
         aliases: [j: :json, q: :quiet, h: :help, r: :role]
       )
@@ -73,7 +75,9 @@ defmodule Familiar.CLI.Main do
         :resume,
         :session,
         :raw,
-        :role
+        :role,
+        :scope,
+        :cleanup
       ])
 
     all_flags = Map.merge(format_flags, context_flags)
@@ -446,6 +450,66 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  # -- Session management --
+
+  defp run_with_daemon({"sessions", _, %{cleanup: true}}, deps) do
+    cleanup_fn = Map.get(deps, :cleanup_sessions_fn, &Familiar.Conversations.cleanup_stale/1)
+    cleanup_fn.([])
+  end
+
+  defp run_with_daemon({"sessions", [id_string], _}, deps) do
+    get_fn = Map.get(deps, :get_session_fn, &Familiar.Conversations.get/1)
+    messages_fn = Map.get(deps, :messages_fn, &Familiar.Conversations.messages/1)
+
+    with {id, ""} <- Integer.parse(id_string),
+         {:ok, conv} <- get_fn.(id),
+         {:ok, msgs} <- messages_fn.(id) do
+      recent = msgs |> Enum.take(-5) |> Enum.map(&format_session_message/1)
+
+      {:ok,
+       %{
+         session: %{
+           id: conv.id,
+           scope: conv.scope,
+           status: conv.status,
+           description: conv.description,
+           created_at: conv.inserted_at,
+           message_count: length(msgs),
+           recent_messages: recent
+         }
+       }}
+    else
+      :error -> {:error, {:usage_error, %{message: "Invalid session ID: #{id_string}"}}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp run_with_daemon({"sessions", [], flags}, deps) do
+    list_fn = Map.get(deps, :list_sessions_fn, &Familiar.Conversations.list/1)
+    scope = Map.get(flags, :scope)
+    opts = if scope, do: [scope: scope], else: []
+
+    case list_fn.(opts) do
+      {:ok, conversations} ->
+        {:ok,
+         %{
+           sessions:
+             Enum.map(conversations, fn c ->
+               %{
+                 id: c.id,
+                 scope: c.scope,
+                 status: c.status,
+                 description: truncate(c.description || "", 40),
+                 updated_at: c.updated_at
+               }
+             end)
+         }}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
   # -- Workflow & Extension management --
 
   defp run_with_daemon({"workflows", [], _}, deps) do
@@ -521,6 +585,10 @@ defmodule Familiar.CLI.Main do
       end)
 
     {:ok, %{extensions: extensions}}
+  end
+
+  defp format_session_message(msg) do
+    %{role: msg.role, content: truncate(msg.content || "", 100)}
   end
 
   defp run_raw_search(query, deps) do
@@ -1071,6 +1139,43 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp text_formatter("sessions") do
+    fn
+      %{sessions: sessions} ->
+        format_sessions_list(sessions)
+
+      %{session: s} ->
+        msg_lines =
+          Enum.map(s.recent_messages, fn m ->
+            "    [#{m.role}] #{m.content}"
+          end)
+
+        lines =
+          [
+            "Session ##{s.id}",
+            "  Scope: #{s.scope}",
+            "  Status: #{s.status}",
+            "  Description: #{s.description}",
+            "  Created: #{s.created_at}",
+            "  Messages: #{s.message_count}",
+            ""
+          ] ++
+            if msg_lines != [] do
+              ["  Recent messages:" | msg_lines]
+            else
+              []
+            end
+
+        Enum.join(lines, "\n")
+
+      %{cleaned: count} ->
+        "Cleaned up #{count} stale session(s)."
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
   defp text_formatter("workflows") do
     fn
       %{workflows: workflows} ->
@@ -1328,6 +1433,22 @@ defmodule Familiar.CLI.Main do
     header <> Enum.join(lines, "\n")
   end
 
+  defp format_sessions_list([]), do: "No sessions found."
+
+  defp format_sessions_list(sessions) do
+    header = "Sessions (#{length(sessions)}):\n"
+
+    lines =
+      Enum.map(sessions, fn s ->
+        id = String.pad_leading("#{s.id}", 4)
+        scope = String.pad_trailing(s.scope, 10)
+        status = String.pad_trailing(s.status, 10)
+        "  #{id}  #{scope}  #{status}  #{s.description}"
+      end)
+
+    header <> Enum.join(lines, "\n")
+  end
+
   defp format_compact_candidates(candidates) do
     header = "Consolidation candidates (#{length(candidates)}):\n"
 
@@ -1518,6 +1639,10 @@ defmodule Familiar.CLI.Main do
       workflows          List all available workflows
       workflows <name>   Show details for a specific workflow
       extensions         List loaded extensions and their tools
+      sessions           List conversation sessions
+      sessions <id>      Show session details and recent messages
+      sessions --scope <s> Filter sessions by scope (chat, planning)
+      sessions --cleanup Close stale active sessions
       search <query>     Search knowledge store (curated by Librarian)
       search --raw <q>   Search knowledge store directly (no curation)
       entry <id>         Inspect a knowledge entry
