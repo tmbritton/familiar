@@ -107,14 +107,17 @@ defmodule Familiar.Hooks do
   # -- Server Callbacks --
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
+    on_handler_error = Keyword.get(opts, :on_handler_error)
+
     {:ok,
      %{
        alter_hooks: %{},
        event_handlers: %{},
        circuit_breaker: %{},
        subscribed_topics: MapSet.new(),
-       last_mailbox_warning: System.monotonic_time(:millisecond) - @mailbox_warning_cooldown_ms
+       last_mailbox_warning: System.monotonic_time(:millisecond) - @mailbox_warning_cooldown_ms,
+       on_handler_error: on_handler_error
      }}
   end
 
@@ -170,7 +173,7 @@ defmodule Familiar.Hooks do
     handlers = Map.get(state.event_handlers, hook, [])
 
     for handler <- handlers do
-      spawn_event_handler(handler, hook, payload)
+      spawn_event_handler(handler, hook, payload, state.on_handler_error)
     end
 
     {:noreply, state}
@@ -268,28 +271,22 @@ defmodule Familiar.Hooks do
     end
   end
 
-  defp spawn_event_handler(handler, hook, payload) do
+  defp spawn_event_handler(handler, hook, payload, on_error) do
     case Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
-           run_event_handler_with_timeout(handler, hook, payload)
+           run_event_handler_with_timeout(handler, hook, payload, on_error)
          end) do
       {:ok, _pid} ->
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "[Hooks] Failed to spawn event handler '#{handler.extension}' " <>
-            "for #{hook}: #{inspect(reason)}"
-        )
+        report_handler_error(on_error, handler.extension, hook, :spawn_failed, reason)
     end
   catch
     :exit, reason ->
-      Logger.warning(
-        "[Hooks] Failed to spawn event handler '#{handler.extension}' " <>
-          "for #{hook}: #{inspect(reason)}"
-      )
+      report_handler_error(on_error, handler.extension, hook, :spawn_failed, reason)
   end
 
-  defp run_event_handler_with_timeout(handler, hook, payload) do
+  defp run_event_handler_with_timeout(handler, hook, payload, on_error) do
     timeout = event_handler_timeout()
 
     task =
@@ -302,16 +299,30 @@ defmodule Familiar.Hooks do
         :ok
 
       {:exit, reason} ->
-        Logger.warning(
-          "[Hooks] Event handler '#{handler.extension}' crashed " <>
-            "for #{hook}: #{inspect(reason)}"
-        )
+        report_handler_error(on_error, handler.extension, hook, :crashed, reason)
 
       nil ->
-        Logger.warning(
-          "[Hooks] Event handler '#{handler.extension}' timed out " <>
-            "for #{hook} (#{timeout}ms)"
-        )
+        report_handler_error(on_error, handler.extension, hook, :timed_out, timeout)
+    end
+  end
+
+  defp report_handler_error(on_error, extension, hook, kind, detail) do
+    msg =
+      case kind do
+        :crashed ->
+          "[Hooks] Event handler '#{extension}' crashed for #{hook}: #{inspect(detail)}"
+
+        :timed_out ->
+          "[Hooks] Event handler '#{extension}' timed out for #{hook} (#{detail}ms)"
+
+        :spawn_failed ->
+          "[Hooks] Failed to spawn event handler '#{extension}' for #{hook}: #{inspect(detail)}"
+      end
+
+    Logger.warning(msg)
+
+    if is_function(on_error, 1) do
+      on_error.(%{extension: extension, hook: hook, kind: kind, detail: detail})
     end
   end
 

@@ -487,9 +487,10 @@ defmodule Familiar.Execution.AgentProcess do
   end
 
   @impl true
-  def handle_cast({:user_message, text}, %{status: :waiting_input} = state) do
+  def handle_cast({:user_message, text}, %{status: :waiting_input, wait_start: wait_start} = state)
+      when is_integer(wait_start) do
     # Adjust started_at to exclude wait duration from timeout budget
-    wait_duration = System.monotonic_time(:millisecond) - (state.wait_start || 0)
+    wait_duration = System.monotonic_time(:millisecond) - wait_start
     state = %{state | started_at: state.started_at + wait_duration, wait_start: nil}
 
     # Persist and append user message

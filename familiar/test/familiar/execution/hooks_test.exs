@@ -7,11 +7,17 @@ defmodule Familiar.HooksTest do
 
   setup do
     # Start a fresh Hooks GenServer for each test
+    # on_handler_error callback allows tests to observe errors via messages
+    # instead of unreliable capture_log from async Task processes
+    test_pid = self()
     name = :"hooks_#{System.unique_integer([:positive])}"
-    start_supervised!({Hooks, name: name})
 
-    # Override the module-level calls to use our named instance
-    # We'll call GenServer directly for isolation
+    start_supervised!(
+      {Hooks,
+       name: name,
+       on_handler_error: fn info -> send(test_pid, {:handler_error, info}) end}
+    )
+
     {:ok, hooks_name: name}
   end
 
@@ -328,15 +334,10 @@ defmodule Familiar.HooksTest do
         "survivor"
       )
 
-      log =
-        capture_log(fn ->
-          Hooks.event(:after_tool_call, %{})
-          assert_receive :survivor_received, 1_000
-          # Give crasher time to log
-          Process.sleep(20)
-        end)
+      Hooks.event(:after_tool_call, %{})
 
-      assert log =~ "crasher"
+      assert_receive :survivor_received, 1_000
+      assert_receive {:handler_error, %{extension: "crasher", kind: :crashed}}, 1_000
     end
 
     test "slow event handler is killed after timeout and warning logged", %{hooks_name: name} do
@@ -353,15 +354,9 @@ defmodule Familiar.HooksTest do
         "slow-event-ext"
       )
 
-      log =
-        capture_log(fn ->
-          Hooks.event(:after_tool_call, %{})
-          # Wait for timeout + cleanup
-          Process.sleep(150)
-        end)
+      Hooks.event(:after_tool_call, %{})
 
-      assert log =~ "slow-event-ext"
-      assert log =~ "timed out"
+      assert_receive {:handler_error, %{extension: "slow-event-ext", kind: :timed_out}}, 1_000
       refute_received :should_not_arrive
     end
 
@@ -376,17 +371,10 @@ defmodule Familiar.HooksTest do
         send(test_pid, :survivor_ok)
       end, "survivor-ext")
 
-      # Fire event — exiting handler should not prevent other handlers
-      log =
-        capture_log(fn ->
-          Hooks.event(:after_tool_call, %{})
-          assert_receive :survivor_ok, 1_000
-          Process.sleep(50)
-          Logger.flush()
-        end)
+      Hooks.event(:after_tool_call, %{})
 
-      assert log =~ "exiting-ext"
-      assert log =~ "crashed"
+      assert_receive :survivor_ok, 1_000
+      assert_receive {:handler_error, %{extension: "exiting-ext", kind: :crashed}}, 1_000
 
       # GenServer is still alive
       assert Process.alive?(Process.whereis(name))

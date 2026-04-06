@@ -58,8 +58,8 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
   end
 
   defp extract_role_from_system(content) do
-    case Regex.run(~r/You are a ([a-z][a-z0-9-]*)/, content) do
-      [_, name] -> name
+    case Regex.run(~r/You are a ([a-z][a-z0-9 -]+)/, content) do
+      [_, name] -> String.trim(name)
       _ -> "unknown"
     end
   end

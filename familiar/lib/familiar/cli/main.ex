@@ -380,6 +380,9 @@ defmodule Familiar.CLI.Main do
       {:ok, result} ->
         {:ok, %{workflow: workflow_name, steps: result.steps}}
 
+      {:error, {kind, msg}} when is_binary(msg) ->
+        {:error, {kind, %{message: msg}}}
+
       {:error, _} = error ->
         error
     end

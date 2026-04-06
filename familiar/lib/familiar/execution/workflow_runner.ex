@@ -561,51 +561,67 @@ defmodule Familiar.Execution.WorkflowRunner do
 
   defp await_completion(pid, timeout, input_fn) do
     ref = Process.monitor(pid)
-    do_await(pid, ref, timeout, input_fn)
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_await(pid, ref, deadline, input_fn)
   end
 
-  defp do_await(pid, ref, timeout, input_fn) do
-    receive do
-      {:workflow_done, ^pid, result} ->
-        Process.demonitor(ref, [:flush])
-        result
+  defp do_await(pid, ref, deadline, input_fn) do
+    remaining = deadline - System.monotonic_time(:millisecond)
 
-      {:workflow_needs_input, ^pid, step_name, content} ->
-        handle_interactive_input(pid, ref, timeout, input_fn, step_name, content)
+    if remaining <= 0 do
+      Process.demonitor(ref, [:flush])
+      {:error, {:workflow_timeout, :deadline_exceeded}}
+    else
+      receive do
+        {:workflow_done, ^pid, result} ->
+          Process.demonitor(ref, [:flush])
+          result
 
-      {:DOWN, ^ref, :process, ^pid, reason} ->
-        {:error, {:runner_crashed, reason}}
-    after
-      timeout ->
-        Process.demonitor(ref, [:flush])
-        {:error, {:workflow_timeout, timeout}}
+        {:workflow_needs_input, ^pid, step_name, content} ->
+          handle_interactive_input(pid, ref, deadline, input_fn, step_name, content)
+
+        {:DOWN, ^ref, :process, ^pid, reason} ->
+          {:error, {:runner_crashed, reason}}
+      after
+        remaining ->
+          Process.demonitor(ref, [:flush])
+          {:error, {:workflow_timeout, :deadline_exceeded}}
+      end
     end
   end
 
-  defp handle_interactive_input(pid, ref, timeout, input_fn, step_name, content)
+  defp handle_interactive_input(pid, ref, deadline, input_fn, step_name, content)
        when is_function(input_fn) do
     case input_fn.(step_name, content) do
       {:ok, text} ->
         send(pid, {:user_input, text})
-        do_await(pid, ref, timeout, input_fn)
+        do_await(pid, ref, deadline, input_fn)
 
       {:halt, _reason} ->
-        Process.demonitor(ref, [:flush])
+        cleanup_on_halt(pid, ref)
         {:error, {:interactive_halted, %{step: step_name}}}
     end
   end
 
-  defp handle_interactive_input(pid, ref, timeout, nil, step_name, content) do
+  defp handle_interactive_input(pid, ref, deadline, nil, step_name, content) do
     # No input_fn provided — use IO.gets as default
     IO.puts(content)
     text = IO.gets("> ")
 
     if is_binary(text) do
       send(pid, {:user_input, String.trim(text)})
-      do_await(pid, ref, timeout, nil)
+      do_await(pid, ref, deadline, nil)
     else
-      Process.demonitor(ref, [:flush])
+      cleanup_on_halt(pid, ref)
       {:error, {:interactive_halted, %{step: step_name}}}
     end
+  end
+
+  defp cleanup_on_halt(runner_pid, ref) do
+    Process.demonitor(ref, [:flush])
+    # Stop the runner GenServer — its terminate/2 will clean up agent registration
+    Task.start(fn -> GenServer.stop(runner_pid, :normal, 5_000) end)
+  catch
+    :exit, _ -> :ok
   end
 end

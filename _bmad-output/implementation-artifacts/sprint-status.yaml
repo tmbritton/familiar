@@ -131,7 +131,7 @@ development_status:
   6-2-default-workflow-definitions: done
   6-3-cli-workflow-dispatch: done
   6-4-planning-as-workflow: done
-  6-5-workflow-integration-test: backlog
+  6-5-workflow-integration-test: done
 
   # Epic 7: CLI Management & Session Handling (placeholder)
   # [Reordered 2026-04-04] CLI before Web UI — CLI is primary interface, Web UI depends on it.
