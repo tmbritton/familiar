@@ -10,6 +10,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.CLI.HttpClient
   alias Familiar.CLI.Output
   alias Familiar.Daemon.Paths
+  alias Familiar.Execution.AgentSupervisor
   alias Familiar.Execution.WorkflowRunner
   alias Familiar.Knowledge
   alias Familiar.Knowledge.Backup
@@ -50,9 +51,10 @@ defmodule Familiar.CLI.Main do
           apply: :string,
           resume: :boolean,
           session: :integer,
-          raw: :boolean
+          raw: :boolean,
+          role: :string
         ],
-        aliases: [j: :json, q: :quiet, h: :help]
+        aliases: [j: :json, q: :quiet, h: :help, r: :role]
       )
 
     flag_map = Enum.into(flags, %{})
@@ -60,15 +62,31 @@ defmodule Familiar.CLI.Main do
     format_flags = Map.take(flag_map, [:json, :quiet])
 
     context_flags =
-      Map.take(flag_map, [:refresh, :compact, :health, :force, :apply, :resume, :session, :raw])
+      Map.take(flag_map, [
+        :refresh,
+        :compact,
+        :health,
+        :force,
+        :apply,
+        :resume,
+        :session,
+        :raw,
+        :role
+      ])
 
     all_flags = Map.merge(format_flags, context_flags)
 
-    if flag_map[:help] || args == [] do
-      {"help", [], format_flags}
-    else
-      [command | rest] = args
-      {command, rest, all_flags}
+    cond do
+      flag_map[:help] ->
+        {"help", [], format_flags}
+
+      args == [] ->
+        # No command = launch chat mode (like typing just "fam")
+        {"chat", [], all_flags}
+
+      true ->
+        [command | rest] = args
+        {command, rest, all_flags}
     end
   end
 
@@ -176,6 +194,24 @@ defmodule Familiar.CLI.Main do
       {:error, _} = error -> error
     end
   end
+
+  # -- Chat mode --
+
+  defp run_with_daemon({"chat", _, %{resume: true} = flags}, deps) do
+    session_id = Map.get(flags, :session)
+    resume_chat(session_id, deps)
+  end
+
+  defp run_with_daemon({"chat", _, %{session: session_id}}, deps) when is_integer(session_id) do
+    resume_chat(session_id, deps)
+  end
+
+  defp run_with_daemon({"chat", _, flags}, deps) do
+    role = Map.get(flags, :role, "user-manager")
+    run_chat(role, deps)
+  end
+
+  # -- Workflow commands --
 
   defp run_with_daemon({"plan", _, %{resume: true} = flags}, deps) do
     session_id = Map.get(flags, :session)
@@ -442,6 +478,159 @@ defmodule Familiar.CLI.Main do
     end)
   end
 
+  # -- Chat Mode --
+
+  defp run_chat(role, deps) do
+    chat_fn = Map.get(deps, :chat_fn, &default_chat/3)
+    chat_fn.(role, %{}, deps)
+  end
+
+  defp resume_chat(session_id, deps) do
+    find_fn = Map.get(deps, :find_conversation_fn, &find_chat_conversation/1)
+
+    case find_fn.(session_id) do
+      {:ok, %{status: "completed"} = conv} ->
+        {:error,
+         {:conversation_completed, %{message: "Chat session ##{conv.id} is already completed."}}}
+
+      {:ok, conversation} ->
+        load_and_resume_chat(conversation, deps)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp load_and_resume_chat(conversation, deps) do
+    messages_fn = Map.get(deps, :messages_fn, &Familiar.Conversations.messages/1)
+
+    case messages_fn.(conversation.id) do
+      {:ok, messages} ->
+        context_summary = format_conversation_context(messages)
+        role = extract_chat_role(conversation)
+        chat_fn = Map.get(deps, :chat_fn, &default_chat/3)
+        chat_fn.(role, %{resume_context: context_summary, session_id: conversation.id}, deps)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp find_chat_conversation(nil) do
+    case Familiar.Conversations.latest_active(scope: "chat") do
+      {:ok, id} -> Familiar.Conversations.get(id)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp find_chat_conversation(id) when is_integer(id) do
+    Familiar.Conversations.get(id)
+  end
+
+  defp extract_chat_role(%{description: desc}) when is_binary(desc) do
+    # Description format from AgentProcess.init: "role_name: task"
+    case String.split(desc, ":", parts: 2) do
+      [role, _task] -> String.trim(role)
+      [_no_colon] -> "user-manager"
+    end
+  end
+
+  defp extract_chat_role(_), do: "user-manager"
+
+  defp default_chat(role, context, deps) do
+    familiar_dir = Paths.familiar_dir()
+    input_fn = Map.get(deps, :input_fn)
+
+    task =
+      case context do
+        %{resume_context: ctx, session_id: sid} ->
+          "Resume chat session ##{sid}\n\n#{ctx}"
+
+        _ ->
+          "Interactive chat session. Help the user with their software engineering tasks."
+      end
+
+    opts =
+      [
+        familiar_dir: familiar_dir,
+        scope: "chat",
+        mode: :interactive
+      ]
+      |> maybe_add_input_fn_value(input_fn)
+
+    case AgentSupervisor.start_agent([role: role, task: task, parent: self()] ++ opts) do
+      {:ok, pid} ->
+        ref = Process.monitor(pid)
+        await_chat(pid, ref, input_fn)
+
+      {:error, reason} ->
+        {:error, {:chat_failed, %{message: "Failed to start chat agent: #{inspect(reason)}"}}}
+    end
+  end
+
+  defp await_chat(pid, ref, input_fn) do
+    receive do
+      {:agent_needs_input, _agent_id, content} ->
+        case get_chat_input(input_fn, content) do
+          {:ok, text} ->
+            GenServer.cast(pid, {:user_message, text})
+            await_chat(pid, ref, input_fn)
+
+          {:halt, _} ->
+            Process.demonitor(ref, [:flush])
+            stop_chat_agent(pid)
+            {:ok, %{chat: "ended", status: "user_exit"}}
+        end
+
+      {:agent_done, _agent_id, {:ok, content}} ->
+        Process.demonitor(ref, [:flush])
+        {:ok, %{chat: "ended", status: "agent_complete", last_response: content}}
+
+      {:agent_done, _agent_id, {:error, reason}} ->
+        Process.demonitor(ref, [:flush])
+        {:error, {:chat_failed, %{reason: reason}}}
+
+      {:agent_started, _agent_id, _pid} ->
+        await_chat(pid, ref, input_fn)
+
+      {:DOWN, ^ref, :process, ^pid, reason} ->
+        {:error, {:chat_crashed, %{reason: reason}}}
+    after
+      600_000 ->
+        Process.demonitor(ref, [:flush])
+
+        {:error,
+         {:chat_timeout, %{message: "Chat session timed out after 10 minutes of inactivity"}}}
+    end
+  end
+
+  defp get_chat_input(input_fn, content) when is_function(input_fn) do
+    input_fn.("chat", content)
+  end
+
+  defp get_chat_input(nil, content) do
+    IO.puts("\n#{content}\n")
+    text = IO.gets("> ")
+
+    cond do
+      !is_binary(text) -> {:halt, :eof}
+      String.trim(text) in ~w(exit quit) -> {:halt, :user_exit}
+      String.trim(text) == "" -> get_chat_input(nil, "")
+      true -> {:ok, String.trim(text)}
+    end
+  end
+
+  defp stop_chat_agent(pid) do
+    if Process.alive?(pid) do
+      Process.exit(pid, :shutdown)
+    end
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp maybe_add_input_fn_value(opts, nil), do: opts
+  defp maybe_add_input_fn_value(opts, input_fn), do: Keyword.put(opts, :input_fn, input_fn)
+
   defp maybe_add_input_fn(opts, deps) do
     case Map.get(deps, :input_fn) do
       nil -> opts
@@ -655,6 +844,19 @@ defmodule Familiar.CLI.Main do
       daemon_status_fn: &DaemonManager.daemon_status/1,
       stop_daemon_fn: &DaemonManager.stop_daemon/1
     }
+  end
+
+  defp text_formatter("chat") do
+    fn
+      %{chat: "ended", status: status, last_response: response} ->
+        "Chat session #{status}.\n\n#{response}"
+
+      %{chat: "ended", status: status} ->
+        "Chat session #{status}."
+
+      other ->
+        inspect(other, pretty: true)
+    end
   end
 
   defp text_formatter(cmd) when cmd in ~w(plan do fix) do
@@ -1013,6 +1215,8 @@ defmodule Familiar.CLI.Main do
     Usage: fam <command> [options]
 
     Commands:
+      chat               Interactive conversation with full tool access (default)
+      chat --role <name> Chat with a specific agent role
       init               Initialize Familiar on this project
       plan <description> Plan a feature (research → draft-spec → review)
       do <description>   Implement a feature (implement → test → review)

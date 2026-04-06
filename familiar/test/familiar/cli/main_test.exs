@@ -37,8 +37,8 @@ defmodule Familiar.CLI.MainTest do
       assert {"help", [], %{}} = Main.parse_args(["--help"])
     end
 
-    test "returns help for empty args" do
-      assert {"help", [], %{}} = Main.parse_args([])
+    test "returns chat for empty args" do
+      assert {"chat", [], %{}} = Main.parse_args([])
     end
 
     test "preserves --json with --help" do

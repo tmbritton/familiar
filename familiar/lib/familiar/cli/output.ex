@@ -90,6 +90,7 @@ defmodule Familiar.CLI.Output do
 
   defp quiet_summary(%{version: v}), do: v
   defp quiet_summary(%{daemon: s}), do: s
+  defp quiet_summary(%{chat: _, status: s}), do: "chat:#{s}"
   defp quiet_summary(%{status: s}), do: s
   defp quiet_summary(%{id: id, status: "edited"}), do: "edited:#{id}"
   defp quiet_summary(%{id: id, status: "deleted"}), do: "deleted:#{id}"
