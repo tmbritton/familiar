@@ -19,6 +19,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.Knowledge.InitScanner
   alias Familiar.Knowledge.Management
   alias Familiar.Knowledge.Prerequisites
+  alias Familiar.Roles
 
   @version Mix.Project.config()[:version]
 
@@ -360,6 +361,87 @@ defmodule Familiar.CLI.Main do
          {:ok, conventions} <-
            Map.get(deps, :conventions_fn, &default_conventions/1).(port) do
       handle_conventions(conventions, args, deps)
+    end
+  end
+
+  # -- Role & Skill management --
+
+  defp run_with_daemon({"roles", [], _}, deps) do
+    list_fn = Map.get(deps, :list_roles_fn, &Roles.list_roles/1)
+
+    case list_fn.(familiar_dir_opts()) do
+      {:ok, roles} ->
+        {:ok,
+         %{
+           roles:
+             Enum.map(roles, fn r ->
+               %{name: r.name, description: r.description, skills_count: length(r.skills)}
+             end)
+         }}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp run_with_daemon({"roles", [name | _], _}, deps) do
+    load_fn = Map.get(deps, :load_role_fn, &Roles.load_role/2)
+
+    case load_fn.(name, familiar_dir_opts()) do
+      {:ok, role} ->
+        {:ok,
+         %{
+           role: %{
+             name: role.name,
+             description: role.description,
+             model: role.model,
+             lifecycle: role.lifecycle,
+             skills: role.skills,
+             prompt_preview: String.slice(role.system_prompt, 0, 200)
+           }
+         }}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp run_with_daemon({"skills", [], _}, deps) do
+    list_fn = Map.get(deps, :list_skills_fn, &Roles.list_skills/1)
+
+    case list_fn.(familiar_dir_opts()) do
+      {:ok, skills} ->
+        {:ok,
+         %{
+           skills:
+             Enum.map(skills, fn s ->
+               %{name: s.name, description: s.description, tools_count: length(s.tools)}
+             end)
+         }}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp run_with_daemon({"skills", [name | _], _}, deps) do
+    load_fn = Map.get(deps, :load_skill_fn, &Roles.load_skill/2)
+
+    case load_fn.(name, familiar_dir_opts()) do
+      {:ok, skill} ->
+        {:ok,
+         %{
+           skill: %{
+             name: skill.name,
+             description: skill.description,
+             tools: skill.tools,
+             constraints: skill.constraints,
+             instructions_preview: String.slice(skill.instructions, 0, 200)
+           }
+         }}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -837,6 +919,8 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp familiar_dir_opts, do: [familiar_dir: Paths.familiar_dir()]
+
   defp default_deps do
     %{
       ensure_running_fn: &DaemonManager.ensure_running/1,
@@ -844,6 +928,73 @@ defmodule Familiar.CLI.Main do
       daemon_status_fn: &DaemonManager.daemon_status/1,
       stop_daemon_fn: &DaemonManager.stop_daemon/1
     }
+  end
+
+  defp text_formatter("roles") do
+    fn
+      %{roles: roles} ->
+        header = "Available roles (#{length(roles)}):\n"
+
+        lines =
+          roles
+          |> Enum.sort_by(& &1.name)
+          |> Enum.map(fn r ->
+            "  #{String.pad_trailing(r.name, 18)}— #{r.description} (#{r.skills_count} skills)"
+          end)
+
+        header <> Enum.join(lines, "\n")
+
+      %{role: role} ->
+        lines = [
+          "Role: #{role.name}",
+          "  Description: #{role.description}",
+          "  Model: #{role.model}",
+          "  Lifecycle: #{role.lifecycle}",
+          "  Skills: #{Enum.join(role.skills, ", ")}",
+          "  Prompt: #{truncate(role.prompt_preview, 200)}"
+        ]
+
+        Enum.join(lines, "\n")
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
+  defp text_formatter("skills") do
+    fn
+      %{skills: skills} ->
+        header = "Available skills (#{length(skills)}):\n"
+
+        lines =
+          skills
+          |> Enum.sort_by(& &1.name)
+          |> Enum.map(fn s ->
+            "  #{String.pad_trailing(s.name, 22)}— #{s.description} (#{s.tools_count} tools)"
+          end)
+
+        header <> Enum.join(lines, "\n")
+
+      %{skill: skill} ->
+        lines = [
+          "Skill: #{skill.name}",
+          "  Description: #{skill.description}",
+          "  Tools: #{Enum.join(skill.tools, ", ")}",
+          "  Instructions: #{truncate(skill.instructions_preview, 200)}"
+        ]
+
+        lines =
+          if skill.constraints != %{} do
+            lines ++ ["  Constraints: #{inspect(skill.constraints)}"]
+          else
+            lines
+          end
+
+        Enum.join(lines, "\n")
+
+      other ->
+        inspect(other, pretty: true)
+    end
   end
 
   defp text_formatter("chat") do
@@ -1221,6 +1372,10 @@ defmodule Familiar.CLI.Main do
       plan <description> Plan a feature (research → draft-spec → review)
       do <description>   Implement a feature (implement → test → review)
       fix <description>  Fix a bug (diagnose → fix → verify)
+      roles              List all available agent roles
+      roles <name>       Show details for a specific role
+      skills             List all available skills
+      skills <name>      Show details for a specific skill
       search <query>     Search knowledge store (curated by Librarian)
       search --raw <q>   Search knowledge store directly (no curation)
       entry <id>         Inspect a knowledge entry
