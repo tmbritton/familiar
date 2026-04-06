@@ -32,11 +32,23 @@ defmodule Familiar.Providers do
   defdelegate detect, to: Familiar.Providers.Detector
 
   @doc "List available models from the provider."
-  @spec list_models() :: {:ok, [map()]} | {:error, {atom(), map()}}
+  @spec list_models() ::
+          {:ok, [map()]}
+          | {:error,
+             {:provider_unavailable,
+              %{provider: :ollama, reason: :connection_refused | :unexpected_status | map()}}}
   defdelegate list_models, to: Familiar.Providers.Detector
 
   @doc "Verify all prerequisites (provider running, required models available)."
-  @spec check_prerequisites() :: {:ok, map()} | {:error, {atom(), map()}}
+  @spec check_prerequisites() ::
+          {:ok,
+           %{
+             base_url: String.t(),
+             models: [map()],
+             chat_model: String.t(),
+             embedding_model: String.t()
+           }}
+          | {:error, {:provider_unavailable, map()}}
   defdelegate check_prerequisites, to: Familiar.Providers.Detector
 
   defp impl(behaviour) do

@@ -528,8 +528,6 @@ defmodule Familiar.Execution.AgentProcess do
   defp log_add_message({:error, reason}),
     do: Logger.warning("[AgentProcess] add_message failed: #{inspect(reason)}")
 
-  defp log_add_message(other), do: other
-
   # -- Private: Helpers --
 
   defp load_role_and_skills(role_name, opts) do

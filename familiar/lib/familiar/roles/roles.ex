@@ -144,7 +144,9 @@ defmodule Familiar.Roles do
 
   Returns `:ok` or `{:error, {:invalid_role, %{name, reason}}}`.
   """
-  @spec validate_role(String.t(), keyword()) :: :ok | {:error, term()}
+  @spec validate_role(String.t(), keyword()) ::
+          :ok
+          | {:error, {:invalid_role | :role_not_found | :file_read_error | :invalid_skill, map()}}
   def validate_role(name, opts \\ []) do
     with {:ok, role} <- load_role(name, opts) do
       Validator.validate_role(role, familiar_dir: familiar_dir(opts))
@@ -156,7 +158,10 @@ defmodule Familiar.Roles do
 
   Returns `:ok` (unknown tools produce warnings, not errors).
   """
-  @spec validate_skill(String.t(), keyword()) :: :ok | {:error, term()}
+  @spec validate_skill(String.t(), keyword()) ::
+          :ok
+          | {:error,
+             {:invalid_skill | :skill_not_found | :file_read_error | :invalid_role, map()}}
   def validate_skill(name, opts \\ []) do
     with {:ok, skill} <- load_skill(name, opts) do
       Validator.validate_skill(skill, opts)

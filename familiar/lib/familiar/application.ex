@@ -80,9 +80,6 @@ defmodule Familiar.Application do
         start_extension_children(child_specs)
         log_extension_results(loaded, failed)
         Familiar.Hooks.event(:on_startup, %{extensions: loaded})
-
-      _ ->
-        :ok
     end
   end
 

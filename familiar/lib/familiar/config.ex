@@ -40,7 +40,17 @@ defmodule Familiar.Config do
   }
 
   @doc "Returns the default configuration."
-  @spec defaults() :: %__MODULE__{}
+  @spec defaults() :: %__MODULE__{
+          provider: %{
+            base_url: String.t(),
+            chat_model: String.t(),
+            embedding_model: String.t(),
+            timeout: pos_integer()
+          },
+          language: %{},
+          scan: %{max_files: pos_integer(), large_project_threshold: pos_integer()},
+          notifications: %{provider: String.t(), enabled: boolean()}
+        }
   def defaults, do: %__MODULE__{}
 
   @doc "Returns default language config for the given language name, or empty map."
@@ -78,8 +88,8 @@ defmodule Familiar.Config do
     end
   end
 
-  defp format_toml_error(%{message: msg}), do: msg
-  defp format_toml_error(error), do: inspect(error)
+  defp format_toml_error(error) when is_binary(error), do: error
+  defp format_toml_error({:invalid_toml, msg}), do: msg
 
   defp validate_and_build(parsed) do
     with {:ok, provider} <- validate_provider(parsed["provider"]),

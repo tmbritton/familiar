@@ -188,7 +188,16 @@ defmodule Familiar.Knowledge do
   Collects entry count, type breakdown, staleness ratio, last refresh,
   backup status, and computes a green/amber/red health signal.
   """
-  @spec health(keyword()) :: {:ok, map()}
+  @spec health(keyword()) ::
+          {:ok,
+           %{
+             entry_count: non_neg_integer(),
+             types: map(),
+             staleness_ratio: float(),
+             last_refresh: NaiveDateTime.t() | nil,
+             backup: map(),
+             signal: atom()
+           }}
   def health(opts \\ []) do
     entry_count = Repo.aggregate(Entry, :count)
     types = collect_type_breakdown()
@@ -239,9 +248,6 @@ defmodule Familiar.Knowledge do
     case Freshness.validate_entries(entries, opts) do
       {:ok, %{stale: stale, deleted: deleted}} ->
         (length(stale) + length(deleted)) / length(entries)
-
-      _ ->
-        0.0
     end
   end
 

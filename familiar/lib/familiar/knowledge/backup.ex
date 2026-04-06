@@ -22,7 +22,9 @@ defmodule Familiar.Knowledge.Backup do
   - `:db_path` — override database path (DI, for testing)
   - `:backups_dir` — override backups directory (DI, for testing)
   """
-  @spec create(keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
+  @spec create(keyword()) ::
+          {:ok, map()}
+          | {:error, {:backup_failed, %{reason: term()} | %{reason: term(), path: String.t()}}}
   def create(opts \\ []) do
     db = db_path(opts)
     dir = backups_dir(opts)
@@ -148,7 +150,7 @@ defmodule Familiar.Knowledge.Backup do
   - `:retention` — number of backups to keep (default: #{@default_retention})
   - `:backups_dir` — override backups directory (DI, for testing)
   """
-  @spec prune(keyword()) :: {:ok, map()}
+  @spec prune(keyword()) :: {:ok, %{deleted: non_neg_integer(), kept: non_neg_integer()}}
   def prune(opts \\ []) do
     retention = max(Keyword.get(opts, :retention, @default_retention), 1)
     safety_deleted = prune_safety_backups(opts)

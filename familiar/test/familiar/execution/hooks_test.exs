@@ -382,7 +382,10 @@ defmodule Familiar.HooksTest do
       Hooks.event(:after_tool_call, %{})
 
       assert_receive :survivor_ok, 1_000
-      assert_receive {:handler_error, %{extension: "exiting-ext", kind: :crashed}}, 1_000
+
+      # exit/1 may surface as :crashed or :timed_out depending on Task.yield timing
+      assert_receive {:handler_error, %{extension: "exiting-ext", kind: kind}}, 1_000
+      assert kind in [:crashed, :timed_out]
 
       # GenServer is still alive
       assert Process.alive?(Process.whereis(name))

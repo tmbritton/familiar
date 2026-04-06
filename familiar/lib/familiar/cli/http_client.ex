@@ -53,7 +53,7 @@ defmodule Familiar.CLI.HttpClient do
   end
 
   @doc false
-  @spec parse_health_response(%{status: integer(), body: map()}) ::
+  @spec parse_health_response(map()) ::
           {:ok, %{status: String.t(), version: String.t()}} | {:error, {atom(), map()}}
   def parse_health_response(%{status: 200, body: %{"status" => status, "version" => version}}) do
     {:ok, %{status: status, version: version}}

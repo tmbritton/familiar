@@ -42,7 +42,11 @@ defmodule Familiar.Providers.Detector do
 
   Returns `{:ok, [model_map]}` where each model has at least a `"name"` key.
   """
-  @spec list_models() :: {:ok, [map()]} | {:error, {atom(), map()}}
+  @spec list_models() ::
+          {:ok, [map()]}
+          | {:error,
+             {:provider_unavailable,
+              %{provider: :ollama, reason: :connection_refused | :unexpected_status | map()}}}
   def list_models do
     case Req.get(base_url() <> "/api/tags",
            receive_timeout: 5_000,
@@ -69,7 +73,15 @@ defmodule Familiar.Providers.Detector do
   Returns `{:ok, %{base_url, models, chat_model, embedding_model}}` or
   `{:error, {:provider_unavailable, details}}` with specific reason.
   """
-  @spec check_prerequisites() :: {:ok, map()} | {:error, {atom(), map()}}
+  @spec check_prerequisites() ::
+          {:ok,
+           %{
+             base_url: String.t(),
+             models: [map()],
+             chat_model: String.t(),
+             embedding_model: String.t()
+           }}
+          | {:error, {:provider_unavailable, map()}}
   def check_prerequisites do
     with {:ok, url} <- detect(),
          {:ok, models} <- list_models() do

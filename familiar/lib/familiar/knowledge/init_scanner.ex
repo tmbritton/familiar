@@ -75,8 +75,19 @@ defmodule Familiar.Knowledge.InitScanner do
   - `:concurrency` — max concurrent embedding operations (default: 10)
   - `:file_system` — FileSystem implementation (default: from app config)
   """
-  @spec run(String.t(), keyword()) ::
-          {:ok, map()} | {:error, {atom(), map()}}
+  @type init_result :: %{
+          required(:files_scanned) => non_neg_integer(),
+          required(:entries_created) => non_neg_integer(),
+          required(:conventions_discovered) => non_neg_integer(),
+          required(:deferred) => non_neg_integer(),
+          optional(:language) => String.t(),
+          optional(:validated_commands) => [atom()],
+          optional(:extraction_warnings) => String.t(),
+          optional(:command_warnings) => String.t(),
+          optional(:warning) => String.t()
+        }
+
+  @spec run(String.t(), keyword()) :: {:ok, init_result()}
   def run(project_dir, opts \\ []) do
     progress_fn = Keyword.get(opts, :progress_fn, &default_progress/1)
     concurrency = Keyword.get(opts, :concurrency, 10)

@@ -112,7 +112,8 @@ defmodule Familiar.MixProject do
         "format --check-formatted",
         "credo --strict",
         "sobelow --config",
-        "test"
+        "test",
+        "dialyzer"
       ]
     ]
   end

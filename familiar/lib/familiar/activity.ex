@@ -56,7 +56,7 @@ defmodule Familiar.Activity do
   @doc """
   Subscribe the calling process to activity events for a scope.
   """
-  @spec subscribe(integer() | String.t()) :: {:ok, :subscribed} | {:error, {atom(), map()}}
+  @spec subscribe(integer() | String.t()) :: {:ok, :subscribed}
   def subscribe(scope_id) do
     case Phoenix.PubSub.subscribe(Familiar.PubSub, topic(scope_id)) do
       :ok -> {:ok, :subscribed}

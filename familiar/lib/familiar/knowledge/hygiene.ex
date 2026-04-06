@@ -31,7 +31,7 @@ defmodule Familiar.Knowledge.Hygiene do
   Returns `{:ok, %{extracted: count, updated: count, skipped: count}}`
   or `{:error, {atom, map}}`.
   """
-  @spec run(map(), keyword()) :: {:ok, map()} | {:error, {atom(), map()}}
+  @spec run(map(), keyword()) :: {:ok, map()}
   def run(context, opts \\ []) do
     success_entries = extract_from_success(context, opts)
     failure_entries = extract_from_failure(context, opts)

@@ -53,7 +53,7 @@ defmodule Familiar.Knowledge.Extractor do
   Calls the configured LLM with an extraction prompt and parses
   the response into entry attribute maps.
   """
-  @spec extract_from_file(map()) :: [map()]
+  @spec extract_from_file(%{relative_path: String.t(), content: String.t()}) :: [map()]
   def extract_from_file(%{relative_path: path, content: content}) do
     messages = [%{role: "user", content: build_prompt(path, content)}]
 

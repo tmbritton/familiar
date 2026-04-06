@@ -72,7 +72,8 @@ defmodule Familiar.Knowledge.CommandValidator do
   Options:
   - `:shell` — Shell implementation (default: from app config)
   """
-  @spec validate([map()], keyword()) :: {:ok, map()}
+  @spec validate([map()], keyword()) ::
+          {:ok, %{language: String.t(), commands: [atom()], failures: [map()]}}
   def validate(files, opts \\ []) do
     shell = shell_impl(opts)
     {:ok, language} = detect_language(files)

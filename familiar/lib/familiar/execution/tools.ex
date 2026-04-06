@@ -259,8 +259,6 @@ defmodule Familiar.Execution.Tools do
     end
   end
 
-  defp parse_command(_), do: {"", []}
-
   # Split on whitespace, respecting single and double quotes (with escapes)
   defp tokenize_command(cmd) do
     ~r/(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(\S+))/

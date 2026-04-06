@@ -9,7 +9,7 @@ defmodule Familiar.Daemon.StateFile do
   alias Familiar.Daemon.Paths
 
   @doc "Write daemon state to daemon.json. Requires port, pid, and started_at keys."
-  @spec write(map()) :: :ok
+  @spec write(%{pid: term(), port: term(), started_at: term()}) :: :ok
   def write(%{port: _, pid: _, started_at: _} = state) do
     Paths.ensure_familiar_dir!()
     json = Jason.encode!(state, pretty: true)

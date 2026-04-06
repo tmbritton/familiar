@@ -24,7 +24,10 @@ defmodule Familiar.CLI.DaemonManager do
   Options:
   - `:health_fn` — override health check function (for testing)
   """
-  @spec daemon_status(keyword()) :: {:running | :stale | :stopped, map()}
+  @spec daemon_status(keyword()) ::
+          {:running, %{port: integer(), version: String.t()}}
+          | {:stale, %{port: integer()}}
+          | {:stopped, %{}}
   def daemon_status(opts \\ []) do
     health_fn = Keyword.get(opts, :health_fn, &HttpClient.health_check/1)
 
@@ -121,7 +124,8 @@ defmodule Familiar.CLI.DaemonManager do
   Options:
   - `:stop_fn` — override HTTP stop function
   """
-  @spec stop_daemon(keyword()) :: :ok | {:error, {atom(), map()}}
+  @spec stop_daemon(keyword()) ::
+          :ok | {:error, {:daemon_unavailable, %{reason: :no_running_daemon}}}
   def stop_daemon(opts \\ []) do
     stop_fn = Keyword.get(opts, :stop_fn, &http_stop/1)
 

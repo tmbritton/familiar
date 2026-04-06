@@ -9,7 +9,7 @@ defmodule Familiar.Work do
   use Boundary, deps: [], exports: [Familiar.Work]
 
   @doc "Fetch a single task by ID."
-  @spec fetch_task(integer()) :: {:ok, map()} | {:error, {atom(), map()}}
+  @spec fetch_task(integer()) :: {:error, {:not_implemented, %{}}}
   def fetch_task(_id), do: {:error, {:not_implemented, %{}}}
 
   @doc "List tasks matching the given filters."
@@ -17,6 +17,6 @@ defmodule Familiar.Work do
   def list_tasks(_filters \\ []), do: []
 
   @doc "Update a task's status."
-  @spec update_status(integer(), atom()) :: {:ok, map()} | {:error, {atom(), map()}}
+  @spec update_status(integer(), atom()) :: {:error, {:not_implemented, %{}}}
   def update_status(_id, _status), do: {:error, {:not_implemented, %{}}}
 end

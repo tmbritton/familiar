@@ -22,6 +22,7 @@ defmodule Familiar.CLI.Main do
   @version Mix.Project.config()[:version]
 
   @doc "Escript entry point."
+  @dialyzer {:no_return, main: 1}
   def main(argv) do
     parsed = parse_args(argv)
     mode = format_mode(elem(parsed, 2))
