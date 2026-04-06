@@ -143,7 +143,7 @@ development_status:
   epic-7: in-progress
   7-1-conversational-chat-mode: done
   7-2-role-skill-cli-commands: done
-  7-3-workflow-extension-cli-commands: backlog
+  7-3-workflow-extension-cli-commands: done
   7-4-session-management: backlog
   7-5-validate-commands: backlog
 

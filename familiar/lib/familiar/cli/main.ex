@@ -11,6 +11,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.CLI.Output
   alias Familiar.Daemon.Paths
   alias Familiar.Execution.AgentSupervisor
+  alias Familiar.Execution.ToolRegistry
   alias Familiar.Execution.WorkflowRunner
   alias Familiar.Knowledge
   alias Familiar.Knowledge.Backup
@@ -445,8 +446,81 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  # -- Workflow & Extension management --
+
+  defp run_with_daemon({"workflows", [], _}, deps) do
+    list_fn = Map.get(deps, :list_workflows_fn, &WorkflowRunner.list_workflows/1)
+
+    case list_fn.(familiar_dir_opts()) do
+      {:ok, workflows} ->
+        {:ok,
+         %{
+           workflows:
+             Enum.map(workflows, fn wf ->
+               %{name: wf.name, description: wf.description, step_count: length(wf.steps)}
+             end)
+         }}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp run_with_daemon({"workflows", [name | _], _}, deps) do
+    parse_fn = Map.get(deps, :parse_workflow_fn, &WorkflowRunner.parse/1)
+    path = Path.join([Paths.familiar_dir(), "workflows", "#{name}.md"])
+
+    case parse_fn.(path) do
+      {:ok, wf} ->
+        {:ok,
+         %{
+           workflow: %{
+             name: wf.name,
+             description: wf.description,
+             steps:
+               Enum.map(wf.steps, fn s ->
+                 %{name: s.name, role: s.role, mode: s.mode}
+               end)
+           }
+         }}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp run_with_daemon({"extensions", _, _}, deps) do
+    list_fn = Map.get(deps, :list_extensions_fn, &list_loaded_extensions/0)
+    list_fn.()
+  end
+
   defp run_with_daemon({command, _, _}, _deps) do
     {:error, {:unknown_command, %{command: command}}}
+  end
+
+  defp list_loaded_extensions do
+    modules = Application.get_env(:familiar, :extensions, [])
+
+    tools =
+      try do
+        ToolRegistry.list_tools()
+      catch
+        :exit, _ -> []
+      end
+
+    extensions =
+      Enum.map(modules, fn mod ->
+        ext_name = mod.name()
+        ext_tools = Enum.filter(tools, &(&1.extension == ext_name))
+
+        %{
+          name: ext_name,
+          tools_count: length(ext_tools),
+          tools: Enum.map(ext_tools, & &1.name)
+        }
+      end)
+
+    {:ok, %{extensions: extensions}}
   end
 
   defp run_raw_search(query, deps) do
@@ -997,6 +1071,39 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp text_formatter("workflows") do
+    fn
+      %{workflows: workflows} ->
+        header = "Available workflows (#{length(workflows)}):\n"
+
+        lines =
+          workflows
+          |> Enum.sort_by(& &1.name)
+          |> Enum.map(fn wf ->
+            desc = wf.description || "(no description)"
+            "  #{String.pad_trailing(wf.name, 26)}— #{desc} (#{wf.step_count} steps)"
+          end)
+
+        header <> Enum.join(lines, "\n")
+
+      %{workflow: wf} ->
+        format_workflow_detail(wf)
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
+  defp text_formatter("extensions") do
+    fn
+      %{extensions: extensions} ->
+        format_extensions_list(extensions)
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
   defp text_formatter("chat") do
     fn
       %{chat: "ended", status: status, last_response: response} ->
@@ -1189,6 +1296,38 @@ defmodule Familiar.CLI.Main do
 
   defp text_formatter(_), do: nil
 
+  defp format_workflow_detail(wf) do
+    step_lines =
+      wf.steps
+      |> Enum.with_index(1)
+      |> Enum.map(fn {s, idx} ->
+        mode_tag = if s.mode == :interactive, do: " [interactive]", else: ""
+        "  #{idx}. #{s.name} (role: #{s.role})#{mode_tag}"
+      end)
+
+    lines = [
+      "Workflow: #{wf.name}",
+      "  Description: #{wf.description || "(none)"}",
+      "  Steps:" | step_lines
+    ]
+
+    List.flatten(lines) |> Enum.join("\n")
+  end
+
+  defp format_extensions_list([]), do: "No extensions loaded."
+
+  defp format_extensions_list(extensions) do
+    header = "Loaded extensions (#{length(extensions)}):\n"
+
+    lines =
+      Enum.map(extensions, fn ext ->
+        tools = Enum.map_join(ext.tools, ", ", &to_string/1)
+        "  #{String.pad_trailing(ext.name, 20)}— #{ext.tools_count} tools: #{tools}"
+      end)
+
+    header <> Enum.join(lines, "\n")
+  end
+
   defp format_compact_candidates(candidates) do
     header = "Consolidation candidates (#{length(candidates)}):\n"
 
@@ -1376,6 +1515,9 @@ defmodule Familiar.CLI.Main do
       roles <name>       Show details for a specific role
       skills             List all available skills
       skills <name>      Show details for a specific skill
+      workflows          List all available workflows
+      workflows <name>   Show details for a specific workflow
+      extensions         List loaded extensions and their tools
       search <query>     Search knowledge store (curated by Librarian)
       search --raw <q>   Search knowledge store directly (no curation)
       entry <id>         Inspect a knowledge entry

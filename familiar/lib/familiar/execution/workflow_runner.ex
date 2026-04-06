@@ -106,6 +106,47 @@ defmodule Familiar.Execution.WorkflowRunner do
   end
 
   @doc """
+  List all valid workflows in the workflows directory.
+
+  Parses each `.md` file in `.familiar/workflows/`, collects successes,
+  and logs warnings for invalid files.
+  """
+  @spec list_workflows(keyword()) :: {:ok, [Workflow.t()]}
+  def list_workflows(opts \\ []) do
+    familiar_dir = Keyword.get(opts, :familiar_dir, Path.join(File.cwd!(), ".familiar"))
+    workflows_dir = Path.join(familiar_dir, "workflows")
+
+    case File.ls(workflows_dir) do
+      {:ok, files} ->
+        workflows =
+          files
+          |> Enum.filter(&String.ends_with?(&1, ".md"))
+          |> Enum.sort()
+          |> Enum.reduce([], &try_parse_workflow(Path.join(workflows_dir, &1), &2))
+          |> Enum.reverse()
+
+        {:ok, workflows}
+
+      {:error, :enoent} ->
+        {:ok, []}
+    end
+  end
+
+  defp try_parse_workflow(path, acc) do
+    case parse(path) do
+      {:ok, wf} ->
+        [wf | acc]
+
+      {:error, reason} ->
+        Logger.warning(
+          "[WorkflowRunner] Skipping invalid workflow #{Path.basename(path)}: #{inspect(reason)}"
+        )
+
+        acc
+    end
+  end
+
+  @doc """
   Start a workflow runner GenServer.
 
   ## Options
