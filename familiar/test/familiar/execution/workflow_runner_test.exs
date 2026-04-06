@@ -438,7 +438,9 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
   end
 
   describe "default workflow execution" do
+    @tag timeout: 15_000
     test "feature-planning workflow runs end-to-end with default files", ctx do
+      stub_interactive_llm()
       familiar_dir = setup_default_files()
       path = Path.join([familiar_dir, "workflows", "feature-planning.md"])
 
@@ -451,6 +453,7 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
                  %{task: "Plan a user authentication feature"},
                  familiar_dir: familiar_dir,
                  supervisor: ctx.supervisor,
+                 timeout_ms: 10_000,
                  input_fn: input_fn
                )
 

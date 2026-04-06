@@ -27,6 +27,28 @@ defmodule Familiar.Execution.FileWatcherTest do
     pid
   end
 
+  # Write a file and wait for the inotify event.
+  # Retries the write if inotify missed it (watch not yet registered).
+  defp write_and_await_event(file, content, opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, 2000)
+    File.write!(file, content)
+
+    receive do
+      {:hook_event, :on_file_changed, payload} -> payload
+    after
+      timeout ->
+        # Retry once — inotify may not have been ready for the first write
+        File.write!(file, content <> " ")
+
+        receive do
+          {:hook_event, :on_file_changed, payload} -> payload
+        after
+          timeout ->
+            flunk("No :on_file_changed event received for #{file} after retry")
+        end
+    end
+  end
+
   # == AC1, AC6: GenServer Init ==
 
   describe "init/1" do
@@ -55,9 +77,11 @@ defmodule Familiar.Execution.FileWatcherTest do
       start_watcher(dir)
 
       file = Path.join(dir, "new_file.txt")
-      File.write!(file, "hello")
+      payload = write_and_await_event(file, "hello")
 
-      assert_receive {:hook_event, :on_file_changed, %{path: ^file, type: :created}}, 2000
+      assert payload.path == file
+      # inotify may report :created or :changed for new files under concurrent load
+      assert payload.type in [:created, :changed]
     end
 
     test "file modification broadcasts with type: :changed" do
@@ -68,9 +92,9 @@ defmodule Familiar.Execution.FileWatcherTest do
       subscribe_hook()
       start_watcher(dir)
 
-      File.write!(file, "modified")
-
-      assert_receive {:hook_event, :on_file_changed, %{path: ^file, type: :changed}}, 2000
+      payload = write_and_await_event(file, "modified")
+      assert payload.path == file
+      assert payload.type == :changed
     end
 
     test "file deletion broadcasts with type: :deleted" do

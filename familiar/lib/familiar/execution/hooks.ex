@@ -195,7 +195,7 @@ defmodule Familiar.Hooks do
   end
 
   defp process_alter_result(handler, current, context, acc_state) do
-    case execute_alter_handler(handler, current, context) do
+    case execute_alter_handler(handler, current, context, acc_state.on_handler_error) do
       {:ok, modified} ->
         new_state = reset_failure_count(handler.key, acc_state)
         {:cont, {{:ok, modified}, new_state}}
@@ -210,7 +210,7 @@ defmodule Familiar.Hooks do
     end
   end
 
-  defp execute_alter_handler(handler, payload, context) do
+  defp execute_alter_handler(handler, payload, context, on_error) do
     task =
       Task.Supervisor.async_nolink(Familiar.TaskSupervisor, fn ->
         handler.fn.(payload, context)
@@ -226,19 +226,15 @@ defmodule Familiar.Hooks do
         {:halt, reason}
 
       {:ok, other} ->
-        Logger.warning(
-          "[Hooks] Alter handler '#{handler.extension}' returned unexpected value: #{inspect(other)}"
-        )
-
+        report_handler_error(on_error, handler.extension, :alter, :unexpected_value, other)
         {:error, :handler_failed}
 
       {:exit, reason} ->
-        Logger.warning("[Hooks] Alter handler '#{handler.extension}' crashed: #{inspect(reason)}")
-
+        report_handler_error(on_error, handler.extension, :alter, :crashed, reason)
         {:error, :handler_failed}
 
       nil ->
-        Logger.warning("[Hooks] Alter handler '#{handler.extension}' timed out (#{timeout}ms)")
+        report_handler_error(on_error, handler.extension, :alter, :timed_out, timeout)
 
         {:error, :handler_failed}
     end
@@ -315,6 +311,9 @@ defmodule Familiar.Hooks do
 
         :spawn_failed ->
           "[Hooks] Failed to spawn event handler '#{extension}' for #{hook}: #{inspect(detail)}"
+
+        :unexpected_value ->
+          "[Hooks] Alter handler '#{extension}' returned unexpected value for #{hook}: #{inspect(detail)}"
       end
 
     Logger.warning(msg)

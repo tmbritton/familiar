@@ -1,5 +1,7 @@
 defmodule Familiar.Execution.ToolRegistryTest do
-  use ExUnit.Case, async: true
+  # async: false — tests mutate the global ETS tool registry, which causes
+  # signal_ready deregistration races with workflow_runner_test
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 

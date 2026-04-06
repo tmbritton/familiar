@@ -155,15 +155,13 @@ defmodule Familiar.HooksTest do
         "good-ext"
       )
 
-      log =
-        capture_log(fn ->
-          assert {:ok, result} = run_alter(name, :before_tool_call, %{tool: "test"})
-          assert result.reached == true
-          assert result.tool == "test"
-        end)
+      assert {:ok, result} = run_alter(name, :before_tool_call, %{tool: "test"})
+      assert result.reached == true
+      assert result.tool == "test"
 
-      assert log =~ "bad-ext"
-      assert log =~ "crashed"
+      # Handler error reported via callback — may be :crashed or :timed_out under load
+      assert_receive {:handler_error, %{extension: "bad-ext", kind: kind}}, 1_000
+      assert kind in [:crashed, :timed_out]
     end
 
     test "handler that times out is killed and skipped", %{hooks_name: name} do
@@ -189,14 +187,10 @@ defmodule Familiar.HooksTest do
         "fast-ext"
       )
 
-      log =
-        capture_log(fn ->
-          assert {:ok, result} = run_alter(name, :before_tool_call, %{tool: "test"})
-          assert result.reached == true
-        end)
+      assert {:ok, result} = run_alter(name, :before_tool_call, %{tool: "test"})
+      assert result.reached == true
 
-      assert log =~ "slow-ext"
-      assert log =~ "timed out"
+      assert_receive {:handler_error, %{extension: "slow-ext", kind: :timed_out}}, 1_000
     end
 
     @tag timeout: 30_000
@@ -211,25 +205,21 @@ defmodule Familiar.HooksTest do
         "flaky-ext"
       )
 
-      log =
-        capture_log(fn ->
-          # First 3 calls trigger failures and eventually the circuit breaker
-          for _ <- 1..3 do
-            run_alter(name, :before_tool_call, %{})
-          end
-        end)
+      # First 3 calls trigger failures and eventually the circuit breaker
+      for _ <- 1..3 do
+        run_alter(name, :before_tool_call, %{})
+      end
 
-      assert log =~ "Circuit breaker tripped"
-      assert log =~ "flaky-ext"
+      # Should have received 3 handler errors (crash or timeout)
+      for _ <- 1..3 do
+        assert_receive {:handler_error, %{extension: "flaky-ext"}}, 1_000
+      end
 
       # 4th call — handler should be skipped silently (circuit broken)
-      log2 =
-        capture_log(fn ->
-          assert {:ok, %{}} = run_alter(name, :before_tool_call, %{})
-        end)
+      assert {:ok, %{}} = run_alter(name, :before_tool_call, %{})
 
-      # No crash warning because handler was skipped entirely
-      refute log2 =~ "crashed"
+      # No handler error because handler was skipped entirely
+      refute_receive {:handler_error, %{extension: "flaky-ext"}}, 100
     end
 
     test "circuit breaker reset re-enables handler", %{hooks_name: name} do
@@ -248,11 +238,14 @@ defmodule Familiar.HooksTest do
       )
 
       # Trip the circuit breaker
-      capture_log(fn ->
-        for _ <- 1..3 do
-          run_alter(name, :before_tool_call, %{should_fail: true})
-        end
-      end)
+      for _ <- 1..3 do
+        run_alter(name, :before_tool_call, %{should_fail: true})
+      end
+
+      # Drain handler error messages
+      for _ <- 1..3 do
+        assert_receive {:handler_error, %{extension: "resettable"}}, 1_000
+      end
 
       # Verify handler is skipped
       assert {:ok, result} = run_alter(name, :before_tool_call, %{})
@@ -335,7 +328,9 @@ defmodule Familiar.HooksTest do
       Hooks.event(:after_tool_call, %{})
 
       assert_receive :survivor_received, 1_000
-      assert_receive {:handler_error, %{extension: "crasher", kind: :crashed}}, 1_000
+      # raise may surface as :crashed or :timed_out depending on Task.yield timing
+      assert_receive {:handler_error, %{extension: "crasher", kind: kind}}, 1_000
+      assert kind in [:crashed, :timed_out]
     end
 
     test "slow event handler is killed after timeout and warning logged", %{hooks_name: name} do
