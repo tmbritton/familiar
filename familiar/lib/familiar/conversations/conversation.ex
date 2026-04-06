@@ -10,6 +10,8 @@ defmodule Familiar.Conversations.Conversation do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   @valid_statuses ~w(active completed abandoned)
   @max_description_length 4000
 

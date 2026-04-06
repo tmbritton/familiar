@@ -77,16 +77,12 @@ defmodule Familiar.Extensions.KnowledgeStore do
     Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
       context = build_hygiene_context(payload)
 
-      case Hygiene.run(context) do
-        {:ok, stats} ->
-          Logger.info(
-            "[KnowledgeStore] Hygiene complete: " <>
-              "#{stats.extracted} extracted, #{stats.updated} updated, #{stats.skipped} skipped"
-          )
+      {:ok, stats} = Hygiene.run(context)
 
-        {:error, reason} ->
-          Logger.warning("[KnowledgeStore] Hygiene failed: #{inspect(reason)}")
-      end
+      Logger.info(
+        "[KnowledgeStore] Hygiene complete: " <>
+          "#{stats.extracted} extracted, #{stats.updated} updated, #{stats.skipped} skipped"
+      )
     end)
   rescue
     error ->

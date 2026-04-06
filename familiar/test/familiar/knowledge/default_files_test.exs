@@ -257,6 +257,7 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
 
         assert is_binary(yaml["name"]), "#{filename} missing 'name' in frontmatter"
         assert is_binary(yaml["description"]), "#{filename} missing 'description' in frontmatter"
+
         assert is_list(yaml["steps"]) and yaml["steps"] != [],
                "#{filename} missing 'steps' in frontmatter"
 
@@ -342,7 +343,9 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
 
         # At least one step should have inputs (workflows are connected)
         has_inputs = Enum.any?(workflow.steps, &(&1.input != []))
-        assert has_inputs, "#{filename}: no steps have input references — workflow is disconnected"
+
+        assert has_inputs,
+               "#{filename}: no steps have input references — workflow is disconnected"
       end
     end
   end

@@ -17,6 +17,10 @@ defmodule Familiar.MixProject do
       aliases: aliases(),
       deps: deps(),
       test_coverage: [threshold: 90],
+      dialyzer: [
+        plt_add_apps: [:mix, :ex_unit],
+        flags: [:error_handling, :underspecs]
+      ],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       escript: escript(),
       listeners: [Phoenix.CodeReloader]
@@ -76,6 +80,8 @@ defmodule Familiar.MixProject do
       {:mox, "~> 1.0", only: :test},
       {:stream_data, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10"},
       {:toml, "~> 0.7"},
       {:yaml_elixir, "~> 2.9"},
@@ -101,7 +107,13 @@ defmodule Familiar.MixProject do
         "esbuild familiar --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warnings-as-errors",
+        "format --check-formatted",
+        "credo --strict",
+        "sobelow --config",
+        "test"
+      ]
     ]
   end
 end

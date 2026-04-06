@@ -109,13 +109,6 @@ defmodule Familiar.Knowledge do
           |> Map.merge(Map.new(result.deleted, &{&1.id, :deleted}))
 
         {map, result.warnings}
-
-      {:error, reason} ->
-        Logger.warning(
-          "Context freshness validation skipped — results may include stale entries: #{inspect(reason)}"
-        )
-
-        {Map.new(entries, &{&1.id, :unknown}), []}
     end
   rescue
     e ->

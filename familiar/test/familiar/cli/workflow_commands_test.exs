@@ -18,8 +18,7 @@ defmodule Familiar.CLI.WorkflowCommandsTest do
 
   defp workflow_deps(overrides \\ []) do
     %{
-      ensure_running_fn:
-        Keyword.get(overrides, :ensure_running_fn, fn _opts -> {:ok, 4000} end),
+      ensure_running_fn: Keyword.get(overrides, :ensure_running_fn, fn _opts -> {:ok, 4000} end),
       health_fn:
         Keyword.get(overrides, :health_fn, fn _port ->
           {:ok, %{status: "ok", version: "0.1.0"}}
@@ -43,7 +42,9 @@ defmodule Familiar.CLI.WorkflowCommandsTest do
     }
     |> Map.merge(
       overrides
-      |> Keyword.drop(~w(ensure_running_fn health_fn daemon_status_fn stop_daemon_fn workflow_fn)a)
+      |> Keyword.drop(
+        ~w(ensure_running_fn health_fn daemon_status_fn stop_daemon_fn workflow_fn)a
+      )
       |> Map.new()
     )
   end
@@ -80,8 +81,7 @@ defmodule Familiar.CLI.WorkflowCommandsTest do
           workflow_fn: fn path, context, _opts ->
             send(test_pid, {:workflow_called, path, context})
 
-            {:ok,
-             %{steps: [%{step: "research", output: "Found patterns"}]}}
+            {:ok, %{steps: [%{step: "research", output: "Found patterns"}]}}
           end
         )
 

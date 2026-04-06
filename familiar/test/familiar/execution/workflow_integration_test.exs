@@ -71,7 +71,9 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
       daemon_status_fn: fn _opts -> {:stopped, %{}} end,
       stop_daemon_fn: fn _opts -> {:error, {:daemon_unavailable, %{}}} end,
       workflow_fn: fn path, context, opts ->
-        WorkflowRunner.run_workflow(path, context,
+        WorkflowRunner.run_workflow(
+          path,
+          context,
           Keyword.merge(opts,
             familiar_dir: ctx.familiar_dir,
             supervisor: ctx.supervisor
@@ -227,7 +229,9 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
       # Each conversation should have messages
       for conv <- conversations do
         {:ok, messages} = Familiar.Conversations.messages(conv.id)
-        assert length(messages) >= 2, "conversation #{conv.id} should have at least system + user messages"
+
+        assert length(messages) >= 2,
+               "conversation #{conv.id} should have at least system + user messages"
 
         roles = Enum.map(messages, & &1.role)
         assert "system" in roles

@@ -9,6 +9,8 @@ defmodule Familiar.Knowledge.Entry do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   @valid_types ~w(convention file_summary architecture relationship decision fact gotcha)
   @valid_sources ~w(init_scan post_task manual agent user)
 

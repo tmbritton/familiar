@@ -465,10 +465,12 @@ defmodule Familiar.Execution.ToolRegistryTest do
 
       for i <- 1..n do
         name = :"bench_#{batch_id}_#{i}"
+
         fun = fn _args, _ctx ->
           Process.sleep(sleep_ms)
           {:ok, %{i: i}}
         end
+
         ToolRegistry.register(name, fun, "Bench tool #{i}", "test-ext")
       end
 
@@ -486,9 +488,10 @@ defmodule Familiar.Execution.ToolRegistryTest do
       # Concurrent
       conc_start = System.monotonic_time(:millisecond)
 
-      tasks = Enum.map(tool_names, fn name ->
-        Task.async(fn -> ToolRegistry.dispatch(name) end)
-      end)
+      tasks =
+        Enum.map(tool_names, fn name ->
+          Task.async(fn -> ToolRegistry.dispatch(name) end)
+        end)
 
       results = Task.await_many(tasks, 10_000)
       conc_elapsed = System.monotonic_time(:millisecond) - conc_start
@@ -498,9 +501,10 @@ defmodule Familiar.Execution.ToolRegistryTest do
       # Sequential should take ~N*sleep_ms, concurrent ~sleep_ms
       # Assert concurrent is at least 3x faster
       speedup = seq_elapsed / max(conc_elapsed, 1)
+
       assert speedup > 3.0,
-        "Expected >3x speedup, got #{Float.round(speedup, 1)}x " <>
-        "(seq=#{seq_elapsed}ms, conc=#{conc_elapsed}ms)"
+             "Expected >3x speedup, got #{Float.round(speedup, 1)}x " <>
+               "(seq=#{seq_elapsed}ms, conc=#{conc_elapsed}ms)"
     end
   end
 

@@ -10,6 +10,8 @@ defmodule Familiar.Conversations.Message do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   @valid_roles ~w(user assistant system tool)
 
   schema "conversation_messages" do

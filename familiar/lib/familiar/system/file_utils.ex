@@ -22,11 +22,13 @@ defmodule Familiar.System.FileUtils do
   """
   @spec stat_check(String.t(), DateTime.t() | nil, keyword()) ::
           {:ok, map()} | {:error, {atom(), map()}}
+  def stat_check(file_path, reference_time, opts \\ [])
+
   def stat_check(nil, _reference_time, _opts) do
     {:error, {:no_file_path, %{}}}
   end
 
-  def stat_check(file_path, reference_time, opts \\ []) do
+  def stat_check(file_path, reference_time, opts) do
     fs = file_system(opts)
 
     case fs.stat(file_path) do
@@ -52,11 +54,13 @@ defmodule Familiar.System.FileUtils do
   """
   @spec open_in_editor(String.t(), DateTime.t() | nil, keyword()) ::
           {:ok, map()} | {:error, {atom(), map()}}
+  def open_in_editor(file_path, reference_time, opts \\ [])
+
   def open_in_editor(nil, _reference_time, _opts) do
     {:error, {:no_file_path, %{}}}
   end
 
-  def open_in_editor(file_path, reference_time, opts \\ []) do
+  def open_in_editor(file_path, reference_time, opts) do
     shell = shell_mod(opts)
     editor = Keyword.get(opts, :editor_env, System.get_env("EDITOR") || "vi")
 

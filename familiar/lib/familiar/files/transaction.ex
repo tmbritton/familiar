@@ -9,6 +9,8 @@ defmodule Familiar.Files.Transaction do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   @valid_statuses ~w(pending completed rolled_back skipped conflict)
 
   schema "file_transactions" do

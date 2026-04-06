@@ -133,6 +133,11 @@ development_status:
   6-4-planning-as-workflow: done
   6-5-workflow-integration-test: done
 
+  # Epic 6.5: Dialyzer Cleanup (2 stories)
+  epic-6.5: in-progress
+  6.5-1-ecto-schema-types: done
+  6.5-2-typespec-cleanup: ready-for-dev
+
   # Epic 7: CLI Management & Session Handling (placeholder)
   # [Reordered 2026-04-04] CLI before Web UI — CLI is primary interface, Web UI depends on it.
   epic-7: backlog

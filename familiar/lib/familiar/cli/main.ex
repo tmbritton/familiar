@@ -368,7 +368,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp run_workflow(workflow_name, description, deps, scope \\ "agent") do
+  defp run_workflow(workflow_name, description, deps, scope) do
     path = Path.join([Paths.familiar_dir(), "workflows", "#{workflow_name}.md"])
     workflow_fn = Map.get(deps, :workflow_fn, &WorkflowRunner.run_workflow/3)
 

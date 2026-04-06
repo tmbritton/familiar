@@ -842,7 +842,9 @@ defmodule Familiar.FilesTest do
     end
 
     test "write rejects when file is claimed by another task" do
-      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :read, fn _ ->
+        {:error, {:file_error, %{reason: :enoent}}}
+      end)
 
       insert_pending_claim("/project/foo.ex", "task_a")
 
@@ -851,7 +853,9 @@ defmodule Familiar.FilesTest do
     end
 
     test "delete rejects when file is claimed by another task" do
-      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :read, fn _ ->
+        {:error, {:file_error, %{reason: :enoent}}}
+      end)
 
       insert_pending_claim("/project/bar.ex", "task_a")
 
@@ -860,7 +864,10 @@ defmodule Familiar.FilesTest do
     end
 
     test "same task can re-write its own file" do
-      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :read, fn _ ->
+        {:error, {:file_error, %{reason: :enoent}}}
+      end)
+
       stub(Familiar.System.FileSystemMock, :write, fn _, _ -> :ok end)
 
       # First write succeeds
@@ -871,7 +878,9 @@ defmodule Familiar.FilesTest do
     end
 
     test "same task cannot re-write while previous write is still pending" do
-      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :read, fn _ ->
+        {:error, {:file_error, %{reason: :enoent}}}
+      end)
 
       insert_pending_claim("/project/pending.ex", "task_a")
 
@@ -881,7 +890,10 @@ defmodule Familiar.FilesTest do
     end
 
     test "completed transaction does not block new writes" do
-      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :read, fn _ ->
+        {:error, {:file_error, %{reason: :enoent}}}
+      end)
+
       stub(Familiar.System.FileSystemMock, :write, fn _, _ -> :ok end)
 
       insert_claim("/project/done.ex", "task_a", "completed")
@@ -890,7 +902,10 @@ defmodule Familiar.FilesTest do
     end
 
     test "rolled_back transaction does not block new writes" do
-      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :read, fn _ ->
+        {:error, {:file_error, %{reason: :enoent}}}
+      end)
+
       stub(Familiar.System.FileSystemMock, :write, fn _, _ -> :ok end)
 
       insert_claim("/project/rollback.ex", "task_a", "rolled_back")
@@ -899,7 +914,9 @@ defmodule Familiar.FilesTest do
     end
 
     test "conflict transaction blocks new writes (still active)" do
-      stub(Familiar.System.FileSystemMock, :read, fn _ -> {:error, {:file_error, %{reason: :enoent}}} end)
+      stub(Familiar.System.FileSystemMock, :read, fn _ ->
+        {:error, {:file_error, %{reason: :enoent}}}
+      end)
 
       insert_claim("/project/conflict.ex", "task_a", "conflict")
 

@@ -238,9 +238,7 @@ defmodule Familiar.Hooks do
         {:error, :handler_failed}
 
       nil ->
-        Logger.warning(
-          "[Hooks] Alter handler '#{handler.extension}' timed out (#{timeout}ms)"
-        )
+        Logger.warning("[Hooks] Alter handler '#{handler.extension}' timed out (#{timeout}ms)")
 
         {:error, :handler_failed}
     end

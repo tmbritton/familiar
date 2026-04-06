@@ -13,9 +13,7 @@ defmodule Familiar.HooksTest do
     name = :"hooks_#{System.unique_integer([:positive])}"
 
     start_supervised!(
-      {Hooks,
-       name: name,
-       on_handler_error: fn info -> send(test_pid, {:handler_error, info}) end}
+      {Hooks, name: name, on_handler_error: fn info -> send(test_pid, {:handler_error, info}) end}
     )
 
     {:ok, hooks_name: name}
@@ -363,13 +361,23 @@ defmodule Familiar.HooksTest do
     test "GenServer survives when event handler exits abnormally", %{hooks_name: name} do
       test_pid = self()
 
-      register_event(name, :after_tool_call, fn _payload ->
-        exit(:handler_abort)
-      end, "exiting-ext")
+      register_event(
+        name,
+        :after_tool_call,
+        fn _payload ->
+          exit(:handler_abort)
+        end,
+        "exiting-ext"
+      )
 
-      register_event(name, :after_tool_call, fn _payload ->
-        send(test_pid, :survivor_ok)
-      end, "survivor-ext")
+      register_event(
+        name,
+        :after_tool_call,
+        fn _payload ->
+          send(test_pid, :survivor_ok)
+        end,
+        "survivor-ext"
+      )
 
       Hooks.event(:after_tool_call, %{})
 

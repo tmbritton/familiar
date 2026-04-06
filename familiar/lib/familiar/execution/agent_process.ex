@@ -482,12 +482,14 @@ defmodule Familiar.Execution.AgentProcess do
     Logger.info("[AgentProcess] #{state.agent_id} waiting for user input (interactive mode)")
     notify_parent_needs_input(state, content)
 
-    {:noreply,
-     %{state | status: :waiting_input, wait_start: System.monotonic_time(:millisecond)}}
+    {:noreply, %{state | status: :waiting_input, wait_start: System.monotonic_time(:millisecond)}}
   end
 
   @impl true
-  def handle_cast({:user_message, text}, %{status: :waiting_input, wait_start: wait_start} = state)
+  def handle_cast(
+        {:user_message, text},
+        %{status: :waiting_input, wait_start: wait_start} = state
+      )
       when is_integer(wait_start) do
     # Adjust started_at to exclude wait duration from timeout budget
     wait_duration = System.monotonic_time(:millisecond) - wait_start

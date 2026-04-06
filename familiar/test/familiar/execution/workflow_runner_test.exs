@@ -85,6 +85,7 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
 
   defp stub_interactive_llm do
     ensure_signal_ready_registered()
+
     stub(Familiar.Providers.LLMMock, :chat, fn messages, _opts ->
       build_interactive_llm_response(messages)
     end)
@@ -584,7 +585,10 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
       end
 
       assert {:ok, result} =
-               run_wf(workflow, %{task: "Pick a color"}, Map.put(ctx, :familiar_dir, familiar_dir),
+               run_wf(
+                 workflow,
+                 %{task: "Pick a color"},
+                 Map.put(ctx, :familiar_dir, familiar_dir),
                  input_fn: input_fn
                )
 
