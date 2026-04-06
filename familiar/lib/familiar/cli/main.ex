@@ -558,8 +558,105 @@ defmodule Familiar.CLI.Main do
     list_fn.()
   end
 
+  # -- Validate commands --
+
+  defp run_with_daemon({"validate", args, _}, deps) do
+    validate_fn = Map.get(deps, :validate_fn, &run_validation/2)
+    validate_fn.(args, familiar_dir_opts())
+  end
+
   defp run_with_daemon({command, _, _}, _deps) do
     {:error, {:unknown_command, %{command: command}}}
+  end
+
+  defp run_validation(args, opts) do
+    target =
+      case args do
+        ["roles"] -> :roles
+        ["skills"] -> :skills
+        ["workflows"] -> :workflows
+        _ -> :all
+      end
+
+    roles_results = if target in [:all, :roles], do: validate_all_roles(opts), else: []
+    skills_results = if target in [:all, :skills], do: validate_all_skills(opts), else: []
+
+    workflows_results =
+      if target in [:all, :workflows], do: validate_all_workflows(opts), else: []
+
+    all = roles_results ++ skills_results ++ workflows_results
+    passed = Enum.count(all, &(&1.status == :pass))
+    warnings = Enum.count(all, &(&1.status == :warn))
+    errors = Enum.count(all, &(&1.status == :error))
+
+    {:ok,
+     %{
+       validation: %{
+         roles: roles_results,
+         skills: skills_results,
+         workflows: workflows_results,
+         summary: %{passed: passed, warnings: warnings, errors: errors}
+       }
+     }}
+  end
+
+  defp validate_all_roles(opts) do
+    {:ok, roles} = Roles.list_roles(opts)
+
+    Enum.map(roles, fn role ->
+      case Roles.validate_role(role.name, opts) do
+        :ok ->
+          %{name: role.name, type: :role, status: :pass}
+
+        {:error, {_, %{reason: reason}}} ->
+          %{name: role.name, type: :role, status: :error, message: reason}
+      end
+    end)
+  end
+
+  defp validate_all_skills(opts) do
+    {:ok, skills} = Roles.list_skills(opts)
+
+    Enum.map(skills, fn skill ->
+      unknown =
+        Enum.reject(skill.tools, &(&1 in Roles.Validator.mvp_tools()))
+
+      if unknown == [] do
+        %{name: skill.name, type: :skill, status: :pass}
+      else
+        %{
+          name: skill.name,
+          type: :skill,
+          status: :warn,
+          message: "references unknown tools: #{Enum.join(unknown, ", ")}"
+        }
+      end
+    end)
+  end
+
+  defp validate_all_workflows(opts) do
+    {:ok, workflows} = WorkflowRunner.list_workflows(opts)
+
+    Enum.map(workflows, fn wf ->
+      missing_roles =
+        wf.steps
+        |> Enum.reject(fn step ->
+          match?({:ok, _}, Roles.load_role(step.role, opts))
+        end)
+        |> Enum.map(& &1.role)
+        |> Enum.uniq()
+
+      if missing_roles == [] do
+        %{name: wf.name, type: :workflow, status: :pass}
+      else
+        %{
+          name: wf.name,
+          type: :workflow,
+          status: :error,
+          message: "references unknown roles: #{Enum.join(missing_roles, ", ")}"
+        }
+      end
+    end)
   end
 
   defp list_loaded_extensions do
@@ -1139,6 +1236,16 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp text_formatter("validate") do
+    fn
+      %{validation: v} ->
+        format_validation_results(v)
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
   defp text_formatter("sessions") do
     fn
       %{sessions: sessions} ->
@@ -1433,6 +1540,40 @@ defmodule Familiar.CLI.Main do
     header <> Enum.join(lines, "\n")
   end
 
+  defp format_validation_results(v) do
+    sections =
+      [
+        format_validation_section("Roles", v.roles),
+        format_validation_section("Skills", v.skills),
+        format_validation_section("Workflows", v.workflows)
+      ]
+      |> Enum.reject(&(&1 == ""))
+
+    s = v.summary
+    summary = "\nSummary: #{s.passed} passed, #{s.warnings} warnings, #{s.errors} errors"
+
+    Enum.join(sections, "\n\n") <> summary
+  end
+
+  defp format_validation_section(_title, []), do: ""
+
+  defp format_validation_section(title, results) do
+    lines =
+      Enum.map(results, fn r ->
+        status_tag =
+          case r.status do
+            :pass -> "OK"
+            :warn -> "WARN"
+            :error -> "FAIL"
+          end
+
+        base = "  [#{status_tag}] #{r.name}"
+        if Map.has_key?(r, :message), do: "#{base} — #{r.message}", else: base
+      end)
+
+    "#{title}:\n" <> Enum.join(lines, "\n")
+  end
+
   defp format_sessions_list([]), do: "No sessions found."
 
   defp format_sessions_list(sessions) do
@@ -1643,6 +1784,10 @@ defmodule Familiar.CLI.Main do
       sessions <id>      Show session details and recent messages
       sessions --scope <s> Filter sessions by scope (chat, planning)
       sessions --cleanup Close stale active sessions
+      validate           Validate all roles, skills, and workflows
+      validate roles     Validate only roles (skill cross-references)
+      validate skills    Validate only skills (tool references)
+      validate workflows Validate only workflows (parse + role refs)
       search <query>     Search knowledge store (curated by Librarian)
       search --raw <q>   Search knowledge store directly (no curation)
       entry <id>         Inspect a knowledge entry

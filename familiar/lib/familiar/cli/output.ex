@@ -116,6 +116,10 @@ defmodule Familiar.CLI.Output do
   defp quiet_summary(%{sessions: s}), do: "sessions:#{length(s)}"
   defp quiet_summary(%{session: %{id: id}}), do: "session:#{id}"
   defp quiet_summary(%{cleaned: n}), do: "cleaned:#{n}"
+
+  defp quiet_summary(%{validation: %{summary: s}}),
+    do: "validate:#{s.passed}ok:#{s.warnings}warn:#{s.errors}err"
+
   defp quiet_summary(%{provider: _}), do: "ok"
   defp quiet_summary(%{help: _}), do: "ok"
   defp quiet_summary(_), do: "ok"

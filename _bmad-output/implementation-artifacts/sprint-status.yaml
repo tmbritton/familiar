@@ -145,7 +145,7 @@ development_status:
   7-2-role-skill-cli-commands: done
   7-3-workflow-extension-cli-commands: done
   7-4-session-management: done
-  7-5-validate-commands: backlog
+  7-5-validate-commands: done
 
   # Epic 8: Web UI Extension (placeholder)
   # [Reordered 2026-04-04] Was Epic 7. Web UI is optional and builds on CLI commands.
