@@ -16,6 +16,14 @@ import Config
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
+# -- LLM Provider Selection --
+# Set FAMILIAR_PROVIDER=openai_compatible to use remote APIs (DeepSeek, Qwen, etc.)
+# Requires: FAMILIAR_API_KEY, optionally FAMILIAR_BASE_URL and FAMILIAR_CHAT_MODEL
+if System.get_env("FAMILIAR_PROVIDER") == "openai_compatible" do
+  config :familiar, Familiar.Providers.LLM, Familiar.Providers.OpenAICompatibleAdapter
+  config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.StubEmbedder
+end
+
 if System.get_env("PHX_SERVER") do
   config :familiar, FamiliarWeb.Endpoint, server: true
 end

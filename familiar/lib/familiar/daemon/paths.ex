@@ -8,7 +8,9 @@ defmodule Familiar.Daemon.Paths do
 
   @doc "Returns the project root directory."
   def project_dir do
-    Application.get_env(:familiar, :project_dir, File.cwd!())
+    Application.get_env(:familiar, :project_dir) ||
+      System.get_env("FAMILIAR_PROJECT_DIR") ||
+      File.cwd!()
   end
 
   @doc "Returns the `.familiar/` directory path."

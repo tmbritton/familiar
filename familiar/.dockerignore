@@ -1,0 +1,12 @@
+_build/
+deps/
+.git/
+.familiar/
+node_modules/
+cover/
+*.db
+*.db-shm
+*.db-wal
+erl_crash.dump
+.env
+tmp/

@@ -147,6 +147,11 @@ development_status:
   7-4-session-management: done
   7-5-validate-commands: done
 
+  # Epic 7.5: Provider Adapter (pre-testing)
+  epic-7.5: in-progress
+  7.5-1-openai-compatible-provider: done
+  7.5-2-dockerfile-containerization: done
+
   # Epic 8: Web UI Extension (placeholder)
   # [Reordered 2026-04-04] Was Epic 7. Web UI is optional and builds on CLI commands.
   epic-8: backlog
