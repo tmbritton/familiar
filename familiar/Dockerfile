@@ -50,6 +50,11 @@ if [ ! -d "/project/.familiar" ]; then
   mkdir -p /project/.familiar/workflows
 fi
 
+# === Clean stale shutdown marker from previous container kill ===
+rm -f /project/.familiar/shutdown_marker 2>/dev/null
+rm -f /project/.familiar/daemon.pid 2>/dev/null
+rm -f /project/.familiar/daemon.lock 2>/dev/null
+
 # === Ensure database exists and is migrated ===
 if [ ! -f "/project/.familiar/familiar.db" ]; then
   echo "[familiar] Creating database..."

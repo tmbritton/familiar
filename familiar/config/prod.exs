@@ -20,8 +20,8 @@ config :familiar, FamiliarWeb.Endpoint,
     ]
   ]
 
-# Do not print debug messages in production
-config :logger, level: :info
+# Suppress debug and info noise in production — only show warnings and errors
+config :logger, level: :warning
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

@@ -99,7 +99,7 @@ defmodule Familiar.Execution.ToolRegistry do
 
   @impl true
   def handle_call({:register, name, function, description, extension_name}, _from, state) do
-    if Map.has_key?(state.tools, name) do
+    if Map.has_key?(state.tools, name) and state.tools[name].extension != extension_name do
       Logger.warning(
         "[ToolRegistry] Overwriting tool :#{name} " <>
           "(was #{state.tools[name].extension}, now #{extension_name})"
