@@ -23,5 +23,8 @@ config :familiar, FamiliarWeb.Endpoint,
 # Suppress debug and info noise in production — only show warnings and errors
 config :logger, level: :warning
 
+# Strip debug log calls at compile time in prod — prevents Exqlite/Ecto debug output
+config :logger, compile_time_purge_matching: [[level_lower_than: :warning]]
+
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.
