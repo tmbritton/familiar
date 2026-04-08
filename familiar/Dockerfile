@@ -37,12 +37,20 @@ COPY assets assets
 RUN mix compile
 
 # Create the CLI wrapper script
-RUN cat > /usr/local/bin/fam << 'EOF'
+RUN cat > /usr/local/bin/fam << 'SCRIPT'
 #!/bin/bash
 set -e
 cd /app
+
+# Ensure .familiar directory and database exist on first run
+if [ ! -f "/project/.familiar/familiar.db" ]; then
+  mkdir -p /project/.familiar
+  mix ecto.create 2>/dev/null || true
+  mix ecto.migrate 2>/dev/null || true
+fi
+
 exec mix run --no-halt -e "Familiar.CLI.Main.main(System.argv())" -- "$@"
-EOF
+SCRIPT
 RUN chmod +x /usr/local/bin/fam
 
 # Set defaults
@@ -50,6 +58,8 @@ ENV FAMILIAR_PROJECT_DIR=/project
 ENV FAMILIAR_PROVIDER=openai_compatible
 ENV FAMILIAR_BASE_URL=https://api.deepseek.com
 ENV FAMILIAR_CHAT_MODEL=deepseek-chat
+ENV DATABASE_PATH=/project/.familiar/familiar.db
+ENV SECRET_KEY_BASE=familiar-container-default-key-not-for-production-use-replace-me
 
 WORKDIR /project
 
