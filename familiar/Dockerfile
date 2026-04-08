@@ -42,13 +42,28 @@ RUN cat > /usr/local/bin/fam << 'SCRIPT'
 set -e
 cd /app
 
-# Ensure .familiar directory and database exist on first run
-if [ ! -f "/project/.familiar/familiar.db" ]; then
-  mkdir -p /project/.familiar
-  mix ecto.create 2>/dev/null || true
-  mix ecto.migrate 2>/dev/null || true
+# === Bootstrap: ensure project structure exists ===
+if [ ! -d "/project/.familiar" ]; then
+  echo "[familiar] First run — initializing project structure..."
+  mkdir -p /project/.familiar/roles
+  mkdir -p /project/.familiar/skills
+  mkdir -p /project/.familiar/workflows
 fi
 
+# === Ensure database exists and is migrated ===
+if [ ! -f "/project/.familiar/familiar.db" ]; then
+  echo "[familiar] Creating database..."
+  mix ecto.create 2>/dev/null || true
+fi
+mix ecto.migrate --quiet 2>/dev/null || true
+
+# === Install default files if missing ===
+if [ ! -f "/project/.familiar/roles/user-manager.md" ]; then
+  echo "[familiar] Installing default roles, skills, and workflows..."
+  mix run -e "Familiar.Knowledge.DefaultFiles.install(\"/project/.familiar\")" 2>/dev/null || true
+fi
+
+# === Run the requested command ===
 exec mix run --no-halt -e "Familiar.CLI.Main.main(System.argv())" -- "$@"
 SCRIPT
 RUN chmod +x /usr/local/bin/fam
