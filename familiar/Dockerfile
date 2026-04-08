@@ -9,7 +9,7 @@
 # Alias:  alias fam='docker exec -it fam fam'
 
 # === Build & Runtime (single stage for now — uses Mix) ===
-FROM hexpm/elixir:1.17.3-erlang-27.2.4-debian-bookworm-20241202-slim
+FROM elixir:1.18-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
