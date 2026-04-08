@@ -62,10 +62,14 @@ if [ ! -f "/project/.familiar/familiar.db" ]; then
 fi
 mix ecto.migrate --quiet 2>/dev/null || true
 
-# === Install default files if missing ===
+# === Install default files and config if missing ===
 if [ ! -f "/project/.familiar/roles/user-manager.md" ]; then
   echo "[familiar] Installing default roles, skills, and workflows..."
   mix run -e "Familiar.Knowledge.DefaultFiles.install(\"/project/.familiar\")" 2>/dev/null || true
+fi
+if [ ! -f "/project/.familiar/config.toml" ]; then
+  echo "[familiar] Generating default config..."
+  mix run -e "Familiar.Config.Generator.generate_default(\"/project/.familiar\", nil)" 2>/dev/null || true
 fi
 
 # === Run the requested command ===
