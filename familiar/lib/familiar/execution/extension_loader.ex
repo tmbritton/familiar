@@ -95,6 +95,8 @@ defmodule Familiar.Execution.ExtensionLoader do
   end
 
   defp validate_behaviour(mod) do
+    # Ensure module is loaded — function_exported? returns false for unloaded modules
+    Code.ensure_loaded(mod)
     required = [:name, :tools, :hooks, :init]
 
     missing =
