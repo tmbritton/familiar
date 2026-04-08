@@ -88,6 +88,15 @@ defmodule Familiar.Execution.FileWatcher do
 
       {:error, reason} ->
         {:stop, {:backend_failed, reason}}
+
+      :ignore ->
+        Logger.warning(
+          "[FileWatcher] File system backend unavailable (inotify-tools may not be installed). " <>
+            "File watching disabled — changes will not be auto-detected."
+        )
+
+        if notify_ready, do: send(notify_ready, {:file_watcher_ready, self()})
+        :ignore
     end
   end
 

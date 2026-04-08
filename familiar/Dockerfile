@@ -13,7 +13,7 @@ FROM elixir:1.19.5-otp-28-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      git build-essential sqlite3 libsqlite3-dev ca-certificates && \
+      git build-essential sqlite3 libsqlite3-dev ca-certificates inotify-tools && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
