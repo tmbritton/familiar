@@ -9,7 +9,7 @@
 # Alias:  alias fam='docker exec -it fam fam'
 
 # === Build & Runtime (single stage for now — uses Mix) ===
-FROM elixir:1.18-slim
+FROM elixir:1.19.5-otp-28-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
