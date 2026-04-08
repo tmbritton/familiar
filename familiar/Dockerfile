@@ -13,7 +13,7 @@ FROM elixir:1.19.5-otp-28-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      git build-essential sqlite3 libsqlite3-dev ca-certificates inotify-tools && \
+      git build-essential sqlite3 libsqlite3-dev ca-certificates inotify-tools procps && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -75,6 +75,7 @@ ENV FAMILIAR_BASE_URL=https://api.deepseek.com
 ENV FAMILIAR_CHAT_MODEL=deepseek-chat
 ENV DATABASE_PATH=/project/.familiar/familiar.db
 ENV SECRET_KEY_BASE=familiar-container-default-key-not-for-production-use-replace-me
+ENV LOG_LEVEL=warning
 
 WORKDIR /project
 

@@ -16,6 +16,12 @@ import Config
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
+# -- Log Level --
+# Set LOG_LEVEL=debug|info|warning|error to control output noise
+if log_level = System.get_env("LOG_LEVEL") do
+  config :logger, level: String.to_atom(log_level)
+end
+
 # -- LLM Provider Selection --
 # Set FAMILIAR_PROVIDER=openai_compatible to use remote APIs (DeepSeek, Qwen, etc.)
 # Requires: FAMILIAR_API_KEY, optionally FAMILIAR_BASE_URL and FAMILIAR_CHAT_MODEL

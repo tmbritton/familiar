@@ -309,7 +309,7 @@ defmodule Familiar.Knowledge.DefaultFiles do
     name: user-manager
     description: Conversational coordinator — understands user intent and delegates to appropriate agents and workflows
     model: default
-    lifecycle: interactive
+    lifecycle: session
     skills:
       - research
       - implement
