@@ -14,8 +14,8 @@ defmodule Familiar.Application do
         {Task.Supervisor, name: Familiar.TaskSupervisor},
         {Ecto.Migrator,
          repos: Application.fetch_env!(:familiar, :ecto_repos), skip: skip_migrations?()},
-        # Recovery gate — runs synchronously after Repo/Migrator, returns :ignore
-        Familiar.Daemon.RecoveryGate,
+        # Recovery gate — runs synchronously after Repo/Migrator (disabled in CLI mode)
+        if(not cli_mode?(), do: Familiar.Daemon.RecoveryGate),
         {DNSCluster, query: Application.get_env(:familiar, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Familiar.PubSub},
         # Hooks GenServer — must start before extensions load
@@ -28,12 +28,12 @@ defmodule Familiar.Application do
         ),
         # Agent supervisor — DynamicSupervisor for all agent processes
         Familiar.Execution.AgentSupervisor,
-        # Daemon lifecycle — conditionally started (disabled in test env)
-        if(Application.get_env(:familiar, :start_daemon, true),
+        # Daemon lifecycle — disabled in test env and CLI mode
+        if(Application.get_env(:familiar, :start_daemon, true) and not cli_mode?(),
           do: Familiar.Daemon.Server
         ),
-        # Start to serve requests, typically the last entry
-        FamiliarWeb.Endpoint
+        # Web endpoint — disabled in CLI mode
+        if(not cli_mode?(), do: FamiliarWeb.Endpoint)
       ]
       |> Enum.reject(&is_nil/1)
 
@@ -56,6 +56,8 @@ defmodule Familiar.Application do
     FamiliarWeb.Endpoint.config_change(changed, removed)
     :ok
   end
+
+  defp cli_mode?, do: System.get_env("FAMILIAR_PROJECT_DIR") != nil
 
   defp skip_migrations? do
     # Run migrations when FAMILIAR_PROJECT_DIR is set (CLI mode) or in a release
