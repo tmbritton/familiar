@@ -16,12 +16,14 @@ defmodule Familiar.Config.GeneratorTest do
       assert File.exists?(config_path)
 
       content = File.read!(config_path)
-      assert content =~ "[providers.deepseek]"
+      assert content =~ "[providers.openrouter]"
       assert content =~ ~s(type = "openai_compatible")
-      assert content =~ ~s(base_url = "https://api.deepseek.com")
-      assert content =~ ~s(chat_model = "deepseek-chat")
+      assert content =~ ~s(base_url = "https://openrouter.ai/api/v1")
+      assert content =~ ~s(api_key = "${OPENROUTER_API_KEY}")
       assert content =~ "default = true"
-      # Ollama is commented out as an option
+      assert content =~ "${ENV_VAR}"
+      # Other providers commented out
+      assert content =~ "# [providers.deepseek]"
       assert content =~ "# [providers.ollama]"
     end
 

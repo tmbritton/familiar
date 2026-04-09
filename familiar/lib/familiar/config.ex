@@ -128,10 +128,10 @@ defmodule Familiar.Config do
         {name,
          %{
            type: settings["type"] || "ollama",
-           base_url: settings["base_url"],
-           api_key: settings["api_key"],
-           chat_model: settings["chat_model"],
-           embedding_model: settings["embedding_model"],
+           base_url: expand_env(settings["base_url"]),
+           api_key: expand_env(settings["api_key"]),
+           chat_model: expand_env(settings["chat_model"]),
+           embedding_model: expand_env(settings["embedding_model"]),
            timeout: settings["timeout"] || 120
          }}
       end)
@@ -260,4 +260,15 @@ defmodule Familiar.Config do
     {:error,
      {:invalid_config, %{field: field, reason: "expected boolean, got #{inspect(value)}"}}}
   end
+
+  # Expand ${ENV_VAR} references in string values
+  defp expand_env(nil), do: nil
+
+  defp expand_env(value) when is_binary(value) do
+    Regex.replace(~r/\$\{([^}]+)\}/, value, fn _, var_name ->
+      System.get_env(var_name) || ""
+    end)
+  end
+
+  defp expand_env(value), do: value
 end
