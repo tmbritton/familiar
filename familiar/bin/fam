@@ -17,6 +17,9 @@ set -e
 # Remember the user's working directory as the project root
 export FAMILIAR_PROJECT_DIR="${FAMILIAR_PROJECT_DIR:-$(pwd)}"
 
+# Suppress debug/info noise unless explicitly set
+export LOG_LEVEL="${LOG_LEVEL:-warning}"
+
 # Run from the familiar source directory (needed for mix)
 FAMILIAR_ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 cd "$FAMILIAR_ROOT"

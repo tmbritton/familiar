@@ -28,6 +28,19 @@ defmodule Familiar.CLI.Main do
   @doc "Escript entry point."
   @dialyzer {:no_return, main: 1}
   def main(argv) do
+    # Check if this is a bare `fam` in an uninitialized project
+    # Use env var directly since Application config isn't loaded yet
+    project_dir = System.get_env("FAMILIAR_PROJECT_DIR") || File.cwd!()
+    familiar_dir = Path.join(project_dir, ".familiar")
+
+    initialized = File.dir?(Path.join(familiar_dir, "roles"))
+
+    if argv == [] and not initialized do
+      bootstrap()
+      IO.puts("Run `fam` again to start chatting.")
+      System.halt(0)
+    end
+
     bootstrap()
 
     parsed = parse_args(argv)
