@@ -37,8 +37,17 @@ defmodule Familiar.CLI.MainTest do
       assert {"help", [], %{}} = Main.parse_args(["--help"])
     end
 
-    test "returns chat for empty args" do
+    test "returns chat for empty args when initialized" do
+      Paths.ensure_familiar_dir!()
       assert {"chat", [], %{}} = Main.parse_args([])
+    end
+
+    test "returns init for empty args when not initialized", %{tmp_dir: tmp_dir} do
+      # Point to a dir without .familiar/
+      fresh_dir = Path.join(tmp_dir, "fresh_project")
+      File.mkdir_p!(fresh_dir)
+      Application.put_env(:familiar, :project_dir, fresh_dir)
+      assert {"init", [], %{}} = Main.parse_args([])
     end
 
     test "preserves --json with --help" do

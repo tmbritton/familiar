@@ -125,8 +125,12 @@ defmodule Familiar.CLI.Main do
         {"help", [], format_flags}
 
       args == [] ->
-        # No command = launch chat mode (like typing just "fam")
-        {"chat", [], all_flags}
+        # No command: chat if initialized, init if not
+        if File.dir?(Paths.familiar_dir()) do
+          {"chat", [], all_flags}
+        else
+          {"init", [], all_flags}
+        end
 
       true ->
         [command | rest] = args
