@@ -58,7 +58,10 @@ defmodule Familiar.Application do
   end
 
   defp skip_migrations? do
-    System.get_env("RELEASE_NAME") == nil
+    # Run migrations when FAMILIAR_PROJECT_DIR is set (CLI mode) or in a release
+    # Skip in dev/test when running the Phoenix server normally
+    System.get_env("FAMILIAR_PROJECT_DIR") == nil and
+      System.get_env("RELEASE_NAME") == nil
   end
 
   defp load_extensions do
