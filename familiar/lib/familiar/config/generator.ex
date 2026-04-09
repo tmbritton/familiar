@@ -86,7 +86,7 @@ defmodule Familiar.Config.Generator do
       "# DeepSeek (direct)",
       "# [providers.deepseek]",
       ~s(# type = "openai_compatible"),
-      ~s(# base_url = "https://api.deepseek.com"),
+      ~s(# base_url = "https://api.deepseek.com/v1"),
       ~s(# api_key = "${DEEPSEEK_API_KEY}"),
       ~s(# chat_model = "deepseek-chat"),
       "",

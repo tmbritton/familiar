@@ -25,7 +25,7 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
 
   require Logger
 
-  @default_base_url "https://api.deepseek.com"
+  @default_base_url "https://api.deepseek.com/v1"
   @default_chat_model "deepseek-chat"
   @default_receive_timeout 120_000
 
@@ -33,7 +33,7 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
   def chat(messages, opts \\ []) do
     body = build_request_body(messages, opts)
 
-    case Req.post(base_url() <> "/v1/chat/completions",
+    case Req.post(base_url() <> "/chat/completions",
            json: body,
            headers: auth_headers(),
            receive_timeout: receive_timeout(opts)
