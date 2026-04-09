@@ -185,12 +185,23 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
   end
 
   defp chat_model(opts) do
-    Keyword.get_lazy(opts, :model, fn ->
-      System.get_env("FAMILIAR_CHAT_MODEL") ||
-        project_config(:chat_model) ||
-        app_config(:chat_model) ||
-        @default_chat_model
-    end)
+    case Keyword.get(opts, :model) do
+      nil ->
+        resolve_chat_model()
+
+      "default" ->
+        resolve_chat_model()
+
+      model ->
+        model
+    end
+  end
+
+  defp resolve_chat_model do
+    System.get_env("FAMILIAR_CHAT_MODEL") ||
+      project_config(:chat_model) ||
+      app_config(:chat_model) ||
+      @default_chat_model
   end
 
   defp receive_timeout(opts) do
