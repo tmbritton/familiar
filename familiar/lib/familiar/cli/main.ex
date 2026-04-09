@@ -9,6 +9,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.CLI.DaemonManager
   alias Familiar.CLI.HttpClient
   alias Familiar.CLI.Output
+  alias Familiar.Config.Generator, as: ConfigGenerator
   alias Familiar.Daemon.Paths
   alias Familiar.Execution.AgentSupervisor
   alias Familiar.Execution.ToolRegistry
@@ -27,6 +28,8 @@ defmodule Familiar.CLI.Main do
   @doc "Escript entry point."
   @dialyzer {:no_return, main: 1}
   def main(argv) do
+    bootstrap()
+
     parsed = parse_args(argv)
     mode = format_mode(elem(parsed, 2))
     deps = default_deps()
@@ -35,6 +38,32 @@ defmodule Familiar.CLI.Main do
     output = Output.format(result, mode, text_formatter(elem(parsed, 0)))
     Output.puts(output)
     System.halt(Output.exit_code(result))
+  end
+
+  defp bootstrap do
+    # Start the OTP application (Repo, PubSub, ToolRegistry, Hooks, etc.)
+    {:ok, _} = Application.ensure_all_started(:familiar)
+    ensure_project_initialized()
+  rescue
+    e ->
+      IO.puts(:stderr, "Failed to start Familiar: #{Exception.message(e)}")
+      System.halt(1)
+  end
+
+  defp ensure_project_initialized do
+    familiar_dir = Paths.familiar_dir()
+    roles_dir = Path.join(familiar_dir, "roles")
+
+    unless File.dir?(roles_dir) do
+      IO.puts(:stderr, "[familiar] First run — initializing project...")
+
+      File.mkdir_p!(roles_dir)
+      File.mkdir_p!(Path.join(familiar_dir, "skills"))
+      File.mkdir_p!(Path.join(familiar_dir, "workflows"))
+
+      Knowledge.DefaultFiles.install(familiar_dir)
+      ConfigGenerator.generate_default(familiar_dir, nil)
+    end
   end
 
   @doc false

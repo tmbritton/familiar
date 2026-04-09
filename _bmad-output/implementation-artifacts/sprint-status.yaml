@@ -151,6 +151,7 @@ development_status:
   epic-7.5: in-progress
   7.5-1-openai-compatible-provider: done
   7.5-2-dockerfile-containerization: done
+  7.5-3-native-escript-runner: ready-for-dev
 
   # Epic 8: Web UI Extension (placeholder)
   # [Reordered 2026-04-04] Was Epic 7. Web UI is optional and builds on CLI commands.

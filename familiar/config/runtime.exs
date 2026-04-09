@@ -16,6 +16,15 @@ import Config
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
+# -- Project-relative database --
+# When FAMILIAR_PROJECT_DIR is set, use .familiar/familiar.db in that directory
+if project_dir = System.get_env("FAMILIAR_PROJECT_DIR") do
+  db_path = Path.join([project_dir, ".familiar", "familiar.db"])
+  File.mkdir_p!(Path.dirname(db_path))
+
+  config :familiar, Familiar.Repo, database: db_path
+end
+
 # -- Log Level --
 # Set LOG_LEVEL=debug|info|warning|error to control output noise
 if log_level = System.get_env("LOG_LEVEL") do

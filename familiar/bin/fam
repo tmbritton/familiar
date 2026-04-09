@@ -1,0 +1,24 @@
+#!/bin/bash
+# Familiar CLI launcher
+# Install: ln -s /path/to/familiar/bin/fam ~/.local/bin/fam
+#
+# Usage: fam chat
+#        fam roles
+#        fam plan "Add user auth"
+#
+# Env vars:
+#   FAMILIAR_PROVIDER=openai_compatible
+#   FAMILIAR_API_KEY=sk-xxx
+#   FAMILIAR_BASE_URL=https://api.deepseek.com
+#   FAMILIAR_CHAT_MODEL=deepseek-chat
+
+set -e
+
+# Remember the user's working directory as the project root
+export FAMILIAR_PROJECT_DIR="${FAMILIAR_PROJECT_DIR:-$(pwd)}"
+
+# Run from the familiar source directory (needed for mix)
+FAMILIAR_ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+cd "$FAMILIAR_ROOT"
+
+exec mix run --no-halt -e "Familiar.CLI.Main.main(System.argv())" -- "$@"
