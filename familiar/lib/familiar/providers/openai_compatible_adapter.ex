@@ -168,23 +168,27 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
   end
 
   # -- Private: Config --
+  # Priority: opts > env vars > config.toml provider > application config > defaults
 
   defp api_key do
     System.get_env("FAMILIAR_API_KEY") ||
-      config(:api_key) ||
-      raise "No API key configured. Set FAMILIAR_API_KEY environment variable."
+      project_config(:api_key) ||
+      app_config(:api_key) ||
+      raise "No API key configured. Set api_key in .familiar/config.toml or FAMILIAR_API_KEY env var."
   end
 
   defp base_url do
     System.get_env("FAMILIAR_BASE_URL") ||
-      config(:base_url) ||
+      project_config(:base_url) ||
+      app_config(:base_url) ||
       @default_base_url
   end
 
   defp chat_model(opts) do
     Keyword.get_lazy(opts, :model, fn ->
       System.get_env("FAMILIAR_CHAT_MODEL") ||
-        config(:chat_model) ||
+        project_config(:chat_model) ||
+        app_config(:chat_model) ||
         @default_chat_model
     end)
   end
@@ -193,7 +197,27 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
     Keyword.get(opts, :receive_timeout, @default_receive_timeout)
   end
 
-  defp config(key) do
+  defp project_config(key) do
+    load_project_config() |> Map.get(key)
+  end
+
+  defp load_project_config do
+    config_path =
+      Path.join([
+        Application.get_env(:familiar, :project_dir) ||
+          System.get_env("FAMILIAR_PROJECT_DIR") ||
+          File.cwd!(),
+        ".familiar",
+        "config.toml"
+      ])
+
+    case Familiar.Config.load(config_path) do
+      {:ok, config} -> config.provider
+      _ -> %{}
+    end
+  end
+
+  defp app_config(key) do
     Application.get_env(:familiar, :openai_compatible, [])
     |> Keyword.get(key)
   end

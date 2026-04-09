@@ -16,11 +16,13 @@ defmodule Familiar.Config.GeneratorTest do
       assert File.exists?(config_path)
 
       content = File.read!(config_path)
-      assert content =~ "[provider]"
-      assert content =~ ~s(base_url = "http://localhost:11434")
-      assert content =~ ~s(chat_model = "llama3.2")
-      assert content =~ ~s(embedding_model = "nomic-embed-text")
-      assert content =~ "timeout = 120"
+      assert content =~ "[providers.deepseek]"
+      assert content =~ ~s(type = "openai_compatible")
+      assert content =~ ~s(base_url = "https://api.deepseek.com")
+      assert content =~ ~s(chat_model = "deepseek-chat")
+      assert content =~ "default = true"
+      # Ollama is commented out as an option
+      assert content =~ "# [providers.ollama]"
     end
 
     test "populates language section when elixir detected", %{tmp_dir: tmp_dir} do

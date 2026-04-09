@@ -62,7 +62,14 @@ defmodule Familiar.CLI.Main do
       File.mkdir_p!(Path.join(familiar_dir, "workflows"))
 
       Knowledge.DefaultFiles.install(familiar_dir)
-      ConfigGenerator.generate_default(familiar_dir, nil)
+      detected_lang = ConfigGenerator.detect_project_language(Paths.project_dir())
+      ConfigGenerator.generate_default(familiar_dir, detected_lang)
+
+      if detected_lang do
+        IO.puts(:stderr, "[familiar] Detected language: #{detected_lang}")
+      end
+
+      IO.puts(:stderr, "[familiar] Edit .familiar/config.toml to configure your LLM provider")
     end
   end
 
@@ -85,7 +92,8 @@ defmodule Familiar.CLI.Main do
           raw: :boolean,
           role: :string,
           scope: :string,
-          cleanup: :boolean
+          cleanup: :boolean,
+          provider: :string
         ],
         aliases: [j: :json, q: :quiet, h: :help, r: :role]
       )
@@ -106,7 +114,8 @@ defmodule Familiar.CLI.Main do
         :raw,
         :role,
         :scope,
-        :cleanup
+        :cleanup,
+        :provider
       ])
 
     all_flags = Map.merge(format_flags, context_flags)

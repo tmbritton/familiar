@@ -2,8 +2,8 @@ defmodule Familiar.Config.Generator do
   @moduledoc """
   Generates default `.familiar/config.toml` during project initialization.
 
-  The generated file includes commented defaults and populates the language
-  section based on the detected project language.
+  The generated file includes multi-provider configuration with commented
+  examples, and populates the language section based on detected project language.
   """
 
   alias Familiar.Config
@@ -12,8 +12,7 @@ defmodule Familiar.Config.Generator do
   Generate a default config.toml in the given `.familiar/` directory.
 
   Does not overwrite an existing config file. When `detected_language` is
-  provided and has known defaults, the language section is populated with
-  those values; otherwise, it is commented out.
+  provided and has known defaults, the language section is populated.
   """
   @spec generate_default(String.t(), String.t() | nil) :: :ok
   def generate_default(familiar_dir, detected_language) do
@@ -27,6 +26,29 @@ defmodule Familiar.Config.Generator do
     :ok
   end
 
+  @doc """
+  Detect project language from files in the given directory.
+  Returns the language name string or nil.
+  """
+  @spec detect_project_language(String.t()) :: String.t() | nil
+  def detect_project_language(project_dir) do
+    indicators = %{
+      "mix.exs" => "elixir",
+      "go.mod" => "go",
+      "package.json" => "javascript",
+      "Cargo.toml" => "rust",
+      "pyproject.toml" => "python",
+      "requirements.txt" => "python",
+      "Gemfile" => "ruby",
+      "pom.xml" => "java",
+      "build.gradle" => "java"
+    }
+
+    Enum.find_value(indicators, fn {file, lang} ->
+      if File.exists?(Path.join(project_dir, file)), do: lang
+    end)
+  end
+
   # -- Private --
 
   defp build_config_content(detected_language) do
@@ -34,7 +56,7 @@ defmodule Familiar.Config.Generator do
       "# Familiar project configuration",
       "# Edit this file to customize Familiar's behavior for this project.",
       "",
-      provider_section(),
+      providers_section(),
       "",
       language_section(detected_language),
       "",
@@ -46,15 +68,33 @@ defmodule Familiar.Config.Generator do
     |> Enum.join("\n")
   end
 
-  defp provider_section do
-    defaults = Config.defaults().provider
-
+  defp providers_section do
     [
-      "[provider]",
-      ~s(base_url = "#{defaults.base_url}"),
-      ~s(chat_model = "#{defaults.chat_model}"),
-      ~s(embedding_model = "#{defaults.embedding_model}"),
-      "timeout = #{defaults.timeout}"
+      "# === LLM Providers ===",
+      "# Configure one or more providers. Set default = true on the one to use.",
+      "# Override per-command with: fam chat --provider <name>",
+      "",
+      "# DeepSeek (OpenAI-compatible)",
+      "[providers.deepseek]",
+      ~s(type = "openai_compatible"),
+      ~s(base_url = "https://api.deepseek.com"),
+      ~s(api_key = ""),
+      ~s(chat_model = "deepseek-chat"),
+      "default = true",
+      "",
+      "# Qwen / DashScope (OpenAI-compatible)",
+      "# [providers.qwen]",
+      ~s(# type = "openai_compatible"),
+      ~s(# base_url = "https://dashscope.aliyuncs.com/compatible-mode"),
+      ~s(# api_key = ""),
+      ~s(# chat_model = "qwen-plus"),
+      "",
+      "# Ollama (local)",
+      "# [providers.ollama]",
+      ~s(# type = "ollama"),
+      ~s(# base_url = "http://localhost:11434"),
+      ~s(# chat_model = "llama3.2"),
+      ~s(# embedding_model = "nomic-embed-text")
     ]
     |> Enum.join("\n")
   end
@@ -72,13 +112,13 @@ defmodule Familiar.Config.Generator do
   defp language_section_commented do
     [
       "[language]",
-      "# name = \"elixir\"",
-      "# test_command = \"mix test\"",
-      "# build_command = \"mix compile\"",
-      "# lint_command = \"mix credo --strict\"",
-      "# dep_file = \"mix.exs\"",
-      "# skip_patterns = [\"_build/\", \"deps/\"]",
-      "# source_extensions = [\".ex\", \".exs\"]"
+      ~s(# name = "elixir"),
+      ~s(# test_command = "mix test"),
+      ~s(# build_command = "mix compile"),
+      ~s(# lint_command = "mix credo --strict"),
+      ~s(# dep_file = "mix.exs"),
+      ~s(# skip_patterns = ["_build/", "deps/"]),
+      ~s(# source_extensions = [".ex", ".exs"])
     ]
     |> Enum.join("\n")
   end
@@ -114,7 +154,7 @@ defmodule Familiar.Config.Generator do
   defp notifications_section do
     [
       "[notifications]",
-      "# provider = \"auto\"",
+      ~s(# provider = "auto"),
       "# enabled = true"
     ]
     |> Enum.join("\n")

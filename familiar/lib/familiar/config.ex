@@ -14,6 +14,7 @@ defmodule Familiar.Config do
               embedding_model: "nomic-embed-text",
               timeout: 120
             },
+            providers: %{},
             language: %{},
             scan: %{max_files: 200, large_project_threshold: 500},
             notifications: %{provider: "auto", enabled: true}
@@ -92,18 +93,72 @@ defmodule Familiar.Config do
   defp format_toml_error({:invalid_toml, msg}), do: msg
 
   defp validate_and_build(parsed) do
-    with {:ok, provider} <- validate_provider(parsed["provider"]),
+    {providers, default_provider} = parse_providers(parsed["providers"])
+
+    with {:ok, provider} <- resolve_provider(default_provider, parsed["provider"]),
          {:ok, language} <- validate_language(parsed["language"]),
          {:ok, scan} <- validate_scan(parsed["scan"]),
          {:ok, notifications} <- validate_notifications(parsed["notifications"]) do
       {:ok,
        %__MODULE__{
          provider: provider,
+         providers: providers,
          language: language,
          scan: scan,
          notifications: notifications
        }}
     end
+  end
+
+  @doc "Look up a named provider from the parsed config."
+  @spec get_provider(%__MODULE__{}, String.t()) ::
+          {:ok, map()} | {:error, {:unknown_provider, map()}}
+  def get_provider(%__MODULE__{providers: providers}, name) do
+    case Map.get(providers, name) do
+      nil -> {:error, {:unknown_provider, %{name: name}}}
+      provider -> {:ok, provider}
+    end
+  end
+
+  defp parse_providers(nil), do: {%{}, nil}
+
+  defp parse_providers(sections) when is_map(sections) do
+    providers =
+      Map.new(sections, fn {name, settings} ->
+        {name,
+         %{
+           type: settings["type"] || "ollama",
+           base_url: settings["base_url"],
+           api_key: settings["api_key"],
+           chat_model: settings["chat_model"],
+           embedding_model: settings["embedding_model"],
+           timeout: settings["timeout"] || 120
+         }}
+      end)
+
+    default_name =
+      Enum.find_value(sections, fn {name, settings} ->
+        if settings["default"] == true, do: name
+      end)
+
+    default_provider =
+      if default_name, do: Map.get(providers, default_name)
+
+    {providers, default_provider}
+  end
+
+  defp resolve_provider(nil, legacy_section), do: validate_provider(legacy_section)
+
+  defp resolve_provider(provider, _legacy) do
+    {:ok,
+     %{
+       base_url: provider.base_url || defaults().provider.base_url,
+       chat_model: provider.chat_model || defaults().provider.chat_model,
+       embedding_model: provider.embedding_model || defaults().provider.embedding_model,
+       timeout: provider.timeout || defaults().provider.timeout,
+       type: provider.type,
+       api_key: provider.api_key
+     }}
   end
 
   defp validate_provider(nil), do: {:ok, defaults().provider}

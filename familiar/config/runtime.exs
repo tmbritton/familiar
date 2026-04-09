@@ -32,11 +32,33 @@ if log_level = System.get_env("LOG_LEVEL") do
 end
 
 # -- LLM Provider Selection --
-# Set FAMILIAR_PROVIDER=openai_compatible to use remote APIs (DeepSeek, Qwen, etc.)
-# Requires: FAMILIAR_API_KEY, optionally FAMILIAR_BASE_URL and FAMILIAR_CHAT_MODEL
-if System.get_env("FAMILIAR_PROVIDER") == "openai_compatible" do
-  config :familiar, Familiar.Providers.LLM, Familiar.Providers.OpenAICompatibleAdapter
-  config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.StubEmbedder
+# Resolved from: FAMILIAR_PROVIDER env var > config.toml default provider > ollama
+provider_type =
+  System.get_env("FAMILIAR_PROVIDER") ||
+    (fn ->
+       project_dir = System.get_env("FAMILIAR_PROJECT_DIR") || File.cwd!()
+       config_path = Path.join([project_dir, ".familiar", "config.toml"])
+
+       if File.exists?(config_path) do
+         case Toml.decode_file(config_path) do
+           {:ok, %{"providers" => providers}} ->
+             Enum.find_value(providers, fn {_name, settings} ->
+               if settings["default"] == true, do: settings["type"]
+             end)
+
+           _ ->
+             nil
+         end
+       end
+     end).()
+
+case provider_type do
+  "openai_compatible" ->
+    config :familiar, Familiar.Providers.LLM, Familiar.Providers.OpenAICompatibleAdapter
+    config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.StubEmbedder
+
+  _ ->
+    nil
 end
 
 if System.get_env("PHX_SERVER") do
