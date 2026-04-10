@@ -2,6 +2,7 @@ defmodule Familiar.Knowledge.InitScannerTest do
   use Familiar.DataCase, async: false
   use Familiar.MockCase
 
+  alias Familiar.Knowledge
   alias Familiar.Knowledge.InitScanner
 
   @moduletag :tmp_dir
@@ -129,7 +130,7 @@ defmodule Familiar.Knowledge.InitScannerTest do
       # Embedder called for all entries (extraction + structural conventions + LLM conventions)
       Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn text ->
         assert is_binary(text)
-        {:ok, List.duplicate(0.1, 768)}
+        {:ok, List.duplicate(0.1, Knowledge.embedding_dimensions())}
       end)
 
       # Shell called for command validation (no mix.exs so unknown language → skip)
@@ -173,7 +174,7 @@ defmodule Familiar.Knowledge.InitScannerTest do
       # Structural conventions still get embedded
       Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn text ->
         assert is_binary(text)
-        {:ok, List.duplicate(0.1, 768)}
+        {:ok, List.duplicate(0.1, Knowledge.embedding_dimensions())}
       end)
 
       result = InitScanner.run(tmp_dir, progress_fn: fn _msg -> :ok end, file_system: @fs)

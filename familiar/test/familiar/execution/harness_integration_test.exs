@@ -12,6 +12,7 @@ defmodule Familiar.Execution.HarnessIntegrationTest do
 
   use Familiar.DataCase, async: false
 
+  import Familiar.Test.EmbeddingHelpers, only: [zero_vector: 0]
   import Mox
 
   alias Familiar.Execution.ExtensionLoader
@@ -43,7 +44,7 @@ defmodule Familiar.Execution.HarnessIntegrationTest do
 
     # Default mock stubs
     stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
-      {:ok, List.duplicate(0.0, 768)}
+      {:ok, zero_vector()}
     end)
 
     stub(Familiar.System.FileSystemMock, :stat, fn _path ->

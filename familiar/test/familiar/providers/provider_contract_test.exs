@@ -2,8 +2,10 @@ defmodule Familiar.Providers.ProviderContractTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  import Familiar.Test.EmbeddingHelpers, only: [zero_vector: 0]
   import Mox
 
+  alias Familiar.Knowledge
   alias Familiar.Knowledge.EmbedderMock
   alias Familiar.Providers.LLMMock
 
@@ -63,7 +65,7 @@ defmodule Familiar.Providers.ProviderContractTest do
   describe "Embedder.embed/1 contract" do
     property "always returns {:ok, [float()]} or {:error, {atom(), map()}} for valid input" do
       check all(text <- embed_text_gen()) do
-        vector = List.duplicate(0.1, 768)
+        vector = List.duplicate(0.1, Knowledge.embedding_dimensions())
 
         stub(EmbedderMock, :embed, fn _text ->
           {:ok, vector}
@@ -84,13 +86,13 @@ defmodule Familiar.Providers.ProviderContractTest do
     end
 
     property "embedding vectors have consistent dimensionality" do
+      expected_dim = Knowledge.embedding_dimensions()
+
       check all(text <- embed_text_gen()) do
-        stub(EmbedderMock, :embed, fn _text ->
-          {:ok, List.duplicate(0.0, 768)}
-        end)
+        stub(EmbedderMock, :embed, fn _text -> {:ok, zero_vector()} end)
 
         {:ok, vector} = EmbedderMock.embed(text)
-        assert length(vector) == 768
+        assert length(vector) == expected_dim
       end
     end
   end

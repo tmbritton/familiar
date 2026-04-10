@@ -11,6 +11,7 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
   use Familiar.DataCase, async: false
 
   import Ecto.Query
+  import Familiar.Test.EmbeddingHelpers, only: [zero_vector: 0]
   import Mox
 
   alias Familiar.CLI.Main
@@ -43,7 +44,7 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
 
     # Mock stubs — LLM returns role-based responses, handles interactive signal_ready
     stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
-      {:ok, List.duplicate(0.0, 768)}
+      {:ok, zero_vector()}
     end)
 
     stub(Familiar.System.FileSystemMock, :stat, fn _path ->

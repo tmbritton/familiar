@@ -1,6 +1,7 @@
 defmodule Familiar.Extensions.KnowledgeStoreTest do
   use Familiar.DataCase, async: false
 
+  import Familiar.Test.EmbeddingHelpers, only: [zero_vector: 0]
   import Mox
 
   alias Familiar.Extensions.KnowledgeStore
@@ -15,9 +16,7 @@ defmodule Familiar.Extensions.KnowledgeStoreTest do
     Repo.query!("DELETE FROM knowledge_entry_embeddings")
 
     # Stub embedder for search/store operations
-    stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
-      {:ok, List.duplicate(0.0, 768)}
-    end)
+    stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text -> {:ok, zero_vector()} end)
 
     # Stub FileSystem for freshness
     stub(Familiar.System.FileSystemMock, :stat, fn _path ->

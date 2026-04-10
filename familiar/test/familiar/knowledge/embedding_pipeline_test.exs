@@ -1,6 +1,7 @@
 defmodule Familiar.Knowledge.EmbeddingPipelineTest do
   use Familiar.DataCase, async: false
 
+  import Familiar.Test.EmbeddingHelpers
   import Mox
 
   alias Familiar.Knowledge
@@ -166,13 +167,5 @@ defmodule Familiar.Knowledge.EmbeddingPipelineTest do
 
       assert {:error, {:provider_unavailable, _}} = Knowledge.search_similar("query")
     end
-  end
-
-  # Generate a deterministic 768-dimensional vector.
-  # primary fills the first half, secondary fills the second half.
-  # This creates vectors with known cosine distance relationships.
-  defp deterministic_vector(primary, secondary) do
-    half = div(768, 2)
-    List.duplicate(primary, half) ++ List.duplicate(secondary, half)
   end
 end

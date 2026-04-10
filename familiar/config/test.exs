@@ -29,6 +29,11 @@ config :familiar, :extensions, []
 # directly in FreshnessTest — no coverage loss.
 config :familiar, :knowledge_background_maintenance, false
 
+# Skip the startup embedding-model drift warning in test env. Tests manage
+# their own EmbeddingMetadata state and should not see boot-time warnings
+# bleed into `capture_log` assertions.
+config :familiar, :skip_embedding_drift_check, true
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

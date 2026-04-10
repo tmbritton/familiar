@@ -13,8 +13,10 @@ defmodule Familiar.Knowledge do
 
   import Ecto.Query
 
+  alias Familiar.Daemon.Paths
   alias Familiar.Knowledge.Backup
   alias Familiar.Knowledge.ContentValidator
+  alias Familiar.Knowledge.EmbeddingMetadata
   alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.Freshness
   alias Familiar.Knowledge.SecretFilter
@@ -330,6 +332,7 @@ defmodule Familiar.Knowledge do
     with {:ok, entry} <- Repo.insert(changeset),
          {:ok, vector} <- embed_or_rollback(entry),
          :ok <- insert_embedding_or_rollback(entry, vector) do
+      maybe_record_embedding_model()
       {:ok, entry}
     else
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -338,6 +341,32 @@ defmodule Familiar.Knowledge do
       {:error, {type, details}} ->
         {:error, {type, details}}
     end
+  end
+
+  # AC4: when the first entry is stored on a fresh install and
+  # `EmbeddingMetadata.model_name` is still nil, auto-record the
+  # currently-configured model so the startup drift check stops warning
+  # about unset metadata. Fail-soft: any error here is logged and
+  # swallowed so a metadata-layer problem never fails a successful store.
+  defp maybe_record_embedding_model do
+    with nil <- EmbeddingMetadata.current_model(),
+         model when is_binary(model) <- current_embedding_model() do
+      case EmbeddingMetadata.set(model, embedding_dimensions()) do
+        {:ok, _} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("[Knowledge] Failed to auto-record embedding model: #{inspect(reason)}")
+
+          :ok
+      end
+    else
+      _ -> :ok
+    end
+  rescue
+    e ->
+      Logger.warning("[Knowledge] maybe_record_embedding_model crashed: #{inspect(e)}")
+      :ok
   end
 
   defp embed_or_rollback(entry) do
@@ -490,6 +519,125 @@ defmodule Familiar.Knowledge do
     end
   end
 
+  @doc """
+  Re-embed every entry in the knowledge store with the currently configured
+  embedder, replace each stored vector, and update
+  `Familiar.Knowledge.EmbeddingMetadata` with the new model + dimension.
+
+  Fail-soft per entry: any individual entry whose re-embed fails is logged
+  and accumulated into the `errors` list; the function still advances to
+  the remaining entries and updates the metadata if at least one succeeded
+  (or if the store was empty).
+
+  Options:
+    * `:on_progress` — `(processed :: integer(), total :: integer()) -> any()`
+      called after each entry is handled (success OR failure). The CLI uses
+      this to stream a "Re-embedding N/M" status line.
+    * `:embedder` — override the embedder function (arity 1) used to produce
+      vectors. Defaults to `&Familiar.Providers.embed/1`. Primarily for tests.
+
+  Returns:
+    `{:ok, %{processed: non_neg_integer(), failed: non_neg_integer(),
+             errors: [{entry_id :: integer(), reason :: term()}],
+             model: String.t() | nil,
+             dimensions: pos_integer()}}`
+  """
+  @spec reindex_embeddings(keyword()) ::
+          {:ok,
+           %{
+             processed: non_neg_integer(),
+             failed: non_neg_integer(),
+             errors: [{integer(), term()}],
+             model: String.t() | nil,
+             dimensions: pos_integer()
+           }}
+  def reindex_embeddings(opts \\ []) do
+    on_progress = Keyword.get(opts, :on_progress, fn _processed, _total -> :ok end)
+    embedder = Keyword.get(opts, :embedder, &Familiar.Providers.embed/1)
+
+    entries = Repo.all(Entry)
+    total = length(entries)
+    dimensions = embedding_dimensions()
+
+    {processed, failed, errors} =
+      entries
+      |> Enum.with_index(1)
+      |> Enum.reduce({0, 0, []}, fn {entry, idx}, {ok_count, fail_count, errs} ->
+        case reindex_single(entry, embedder) do
+          :ok ->
+            on_progress.(idx, total)
+            {ok_count + 1, fail_count, errs}
+
+          {:error, reason} ->
+            Logger.warning("[Knowledge.reindex] entry ##{entry.id} failed: #{inspect(reason)}")
+
+            on_progress.(idx, total)
+            {ok_count, fail_count + 1, [{entry.id, reason} | errs]}
+        end
+      end)
+
+    model = current_embedding_model()
+
+    if model && (processed > 0 or total == 0) do
+      _ = EmbeddingMetadata.set(model, dimensions)
+    end
+
+    {:ok,
+     %{
+       processed: processed,
+       failed: failed,
+       errors: Enum.reverse(errors),
+       model: model,
+       dimensions: dimensions
+     }}
+  end
+
+  defp reindex_single(entry, embedder) do
+    with {:ok, vector} <- embedder.(entry.text),
+         :ok <- replace_embedding(entry.id, vector) do
+      :ok
+    else
+      {:error, _} = err -> err
+      other -> {:error, {:unexpected_embedder_return, other}}
+    end
+  end
+
+  @doc """
+  Resolve the currently-configured embedding model name using the same
+  precedence chain as `Familiar.Providers.OpenAIEmbedder`:
+
+    env var > config.toml default provider > application config > nil
+
+  Returns the model string or `nil` if none is configured. Used by
+  `reindex_embeddings/1` and `Familiar.Application`'s drift check.
+  """
+  @spec current_embedding_model() :: String.t() | nil
+  def current_embedding_model do
+    System.get_env("FAMILIAR_EMBEDDING_MODEL") ||
+      project_embedding_model() ||
+      app_embedding_model()
+  end
+
+  defp project_embedding_model do
+    path = Paths.config_path()
+
+    # Only treat config.toml as a source when the file actually exists —
+    # Familiar.Config.load/1 falls back to built-in defaults otherwise,
+    # which would make this precedence step silently return
+    # "nomic-embed-text" on every install that hasn't created a config.
+    if File.exists?(path) do
+      case Familiar.Config.load(path) do
+        {:ok, config} -> Map.get(config.provider, :embedding_model)
+        _ -> nil
+      end
+    end
+  end
+
+  defp app_embedding_model do
+    Application.get_env(:familiar, :openai_compatible, [])
+    |> Keyword.get(:embedding_model)
+  end
+
   # -- Private --
 
   defp filter_text_in_attrs(attrs) do
@@ -513,15 +661,28 @@ defmodule Familiar.Knowledge do
     )
   end
 
-  @expected_embedding_dimensions 768
+  @doc """
+  Return the expected embedding vector length.
+
+  Sourced from `Application.get_env(:familiar, :embedding_dimensions)` so
+  tests and alternate providers can override it. Default is 1536, matching
+  `openai/text-embedding-3-small`. Changing this requires a matching
+  migration to recreate the sqlite-vec virtual table at the new dimension.
+  """
+  @spec embedding_dimensions() :: pos_integer()
+  def embedding_dimensions do
+    Application.get_env(:familiar, :embedding_dimensions, 1536)
+  end
 
   defp insert_embedding(entry_id, vector) do
-    if length(vector) != @expected_embedding_dimensions do
+    expected = embedding_dimensions()
+
+    if length(vector) != expected do
       {:error,
        {:storage_failed,
         %{
           reason: :dimension_mismatch,
-          expected: @expected_embedding_dimensions,
+          expected: expected,
           got: length(vector)
         }}}
     else

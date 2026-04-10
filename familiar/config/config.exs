@@ -29,6 +29,11 @@ config :familiar, :extensions, [Familiar.Extensions.Safety, Familiar.Extensions.
 config :familiar, Familiar.Providers.LLM, Familiar.Providers.OllamaAdapter
 config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.OllamaEmbedder
 config :familiar, Familiar.System.FileSystem, Familiar.System.LocalFileSystem
+
+# Expected embedding vector length. Matches `openai/text-embedding-3-small`.
+# Changing this requires a matching migration to recreate the sqlite-vec
+# virtual table. Tests read this via `Familiar.Knowledge.embedding_dimensions/0`.
+config :familiar, :embedding_dimensions, 1536
 config :familiar, Familiar.System.Shell, Familiar.System.RealShell
 config :familiar, Familiar.System.Clock, Familiar.System.RealClock
 

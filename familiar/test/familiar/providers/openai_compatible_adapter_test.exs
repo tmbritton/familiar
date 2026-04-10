@@ -112,9 +112,10 @@ defmodule Familiar.Providers.OpenAICompatibleAdapterTest do
   end
 
   describe "stub embedder" do
-    test "returns 768-dimensional zero vector" do
+    test "returns zero vector at the configured embedding dimension" do
+      expected = Familiar.Knowledge.embedding_dimensions()
       assert {:ok, vec} = StubEmbedder.embed("test text")
-      assert length(vec) == 768
+      assert length(vec) == expected
       assert Enum.all?(vec, &(&1 == 0.0))
     end
 

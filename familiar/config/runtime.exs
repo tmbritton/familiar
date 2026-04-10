@@ -32,30 +32,48 @@ if log_level = System.get_env("LOG_LEVEL") do
 end
 
 # -- LLM Provider Selection --
-# Resolved from: FAMILIAR_PROVIDER env var > config.toml default provider > ollama
+# Resolved from: FAMILIAR_PROVIDER env var > config.toml default provider > ollama.
+# We also grab the default provider's embedding_model so we can decide
+# whether to wire `Familiar.Providers.OpenAIEmbedder` or fall back to the
+# zero-vector stub.
+default_provider_settings =
+  (fn ->
+     project_dir = System.get_env("FAMILIAR_PROJECT_DIR") || File.cwd!()
+     config_path = Path.join([project_dir, ".familiar", "config.toml"])
+
+     if File.exists?(config_path) do
+       case Toml.decode_file(config_path) do
+         {:ok, %{"providers" => providers}} ->
+           Enum.find_value(providers, fn {_name, settings} ->
+             if settings["default"] == true, do: settings
+           end)
+
+         _ ->
+           nil
+       end
+     end
+   end).()
+
 provider_type =
   System.get_env("FAMILIAR_PROVIDER") ||
-    (fn ->
-       project_dir = System.get_env("FAMILIAR_PROJECT_DIR") || File.cwd!()
-       config_path = Path.join([project_dir, ".familiar", "config.toml"])
+    (default_provider_settings && default_provider_settings["type"])
 
-       if File.exists?(config_path) do
-         case Toml.decode_file(config_path) do
-           {:ok, %{"providers" => providers}} ->
-             Enum.find_value(providers, fn {_name, settings} ->
-               if settings["default"] == true, do: settings["type"]
-             end)
-
-           _ ->
-             nil
-         end
-       end
-     end).()
+embedding_model =
+  System.get_env("FAMILIAR_EMBEDDING_MODEL") ||
+    (default_provider_settings && default_provider_settings["embedding_model"])
 
 case provider_type do
   "openai_compatible" ->
     config :familiar, Familiar.Providers.LLM, Familiar.Providers.OpenAICompatibleAdapter
-    config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.StubEmbedder
+
+    # Only wire the real embedder when the user has actually configured an
+    # embedding_model — otherwise StubEmbedder keeps CRUD working while
+    # semantic search gracefully returns zero-vector results.
+    if is_binary(embedding_model) and embedding_model != "" do
+      config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.OpenAIEmbedder
+    else
+      config :familiar, Familiar.Knowledge.Embedder, Familiar.Providers.StubEmbedder
+    end
 
   _ ->
     nil

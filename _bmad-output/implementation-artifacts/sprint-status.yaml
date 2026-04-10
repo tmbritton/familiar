@@ -155,7 +155,7 @@ development_status:
   7.5-4-multi-provider-config: done
   7.5-5-cwd-audit-project-paths: done
   7.5-6-true-workflow-resume: done
-  7.5-7-openai-compatible-embedder: ready-for-dev
+  7.5-7-openai-compatible-embedder: done
 
   # Epic 8: MCP Support — stories TBD
   # Familiar as MCP server (expose tools to editors) and MCP client (use external MCP servers).

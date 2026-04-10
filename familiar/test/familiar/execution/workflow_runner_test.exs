@@ -1,6 +1,7 @@
 defmodule Familiar.Execution.WorkflowRunnerTest do
   use Familiar.DataCase, async: false
 
+  import Familiar.Test.EmbeddingHelpers, only: [zero_vector: 0]
   import Mox
 
   alias Familiar.Execution.WorkflowRunner
@@ -13,9 +14,7 @@ defmodule Familiar.Execution.WorkflowRunnerTest do
   setup do
     Mox.set_mox_global()
 
-    stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
-      {:ok, List.duplicate(0.0, 768)}
-    end)
+    stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text -> {:ok, zero_vector()} end)
 
     stub(Familiar.System.FileSystemMock, :stat, fn _path ->
       {:ok, %{mtime: ~U[2020-01-01 00:00:00Z], size: 100}}

@@ -11,13 +11,12 @@ defmodule Familiar.Providers.StubEmbedder do
 
   require Logger
 
-  @dimension 768
-  @zero_vector List.duplicate(0.0, @dimension)
+  alias Familiar.Knowledge
 
   @impl true
   def embed(_text) do
     log_stub_warning()
-    {:ok, @zero_vector}
+    {:ok, List.duplicate(0.0, Knowledge.embedding_dimensions())}
   end
 
   defp log_stub_warning do

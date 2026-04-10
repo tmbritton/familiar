@@ -11,6 +11,8 @@ defmodule Familiar.Knowledge.KnowledgeIntegrationTest do
   use Familiar.DataCase, async: false
   use Familiar.MockCase
 
+  import Familiar.Test.EmbeddingHelpers
+
   alias Familiar.Knowledge
   alias Familiar.Knowledge.Backup
   alias Familiar.Knowledge.Entry
@@ -51,19 +53,15 @@ defmodule Familiar.Knowledge.KnowledgeIntegrationTest do
 
   # -- Helpers --
 
-  defp deterministic_vector(primary, secondary) do
-    half = div(768, 2)
-    List.duplicate(primary, half) ++ List.duplicate(secondary, half)
-  end
-
   defp stub_embedder_sequential do
     counter = :counters.new(1, [:atomics])
+    dims = Knowledge.embedding_dimensions()
 
     stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
       idx = :counters.get(counter, 1)
       :counters.add(counter, 1, 1)
-      dim = rem(idx, 768)
-      vector = List.duplicate(0.0, 768) |> List.replace_at(dim, 1.0)
+      dim = rem(idx, dims)
+      vector = zero_vector() |> List.replace_at(dim, 1.0)
       {:ok, vector}
     end)
   end

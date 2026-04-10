@@ -9,6 +9,8 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
   use Familiar.DataCase, async: false
   use Familiar.MockCase
 
+  import Familiar.Test.EmbeddingHelpers, only: [zero_vector: 0]
+
   alias Familiar.Knowledge
   alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.InitScanner
@@ -199,12 +201,13 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
 
   defp stub_embedder_deterministic do
     counter = :counters.new(1, [:atomics])
+    dims = Knowledge.embedding_dimensions()
 
     Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
       idx = :counters.get(counter, 1)
       :counters.add(counter, 1, 1)
-      dim = rem(idx, 768)
-      vector = List.duplicate(0.0, 768) |> List.replace_at(dim, 1.0)
+      dim = rem(idx, dims)
+      vector = zero_vector() |> List.replace_at(dim, 1.0)
       {:ok, vector}
     end)
   end
@@ -461,8 +464,8 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
   describe "retrieval verification" do
     test "search_similar returns entries ordered by distance with distinct vectors" do
       # Store two entries with known distinct vectors
-      auth_vector = List.duplicate(0.0, 768) |> List.replace_at(0, 1.0)
-      db_vector = List.duplicate(0.0, 768) |> List.replace_at(1, 1.0)
+      auth_vector = zero_vector() |> List.replace_at(0, 1.0)
+      db_vector = zero_vector() |> List.replace_at(1, 1.0)
 
       # Stub embedder to return specific vectors per content
       Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn text ->
@@ -495,7 +498,7 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
 
       # Search with vector close to auth (should return auth first)
       query_vector =
-        List.duplicate(0.0, 768)
+        zero_vector()
         |> List.replace_at(0, 0.9)
         |> List.replace_at(1, 0.1)
 
@@ -515,10 +518,13 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
       assert first.distance <= second.distance
     end
 
-    test "768-dim enforcement rejects wrong dimension vectors" do
+    test "dimension enforcement rejects wrong dimension vectors" do
+      expected = Knowledge.embedding_dimensions()
+      wrong = if expected == 512, do: 256, else: 512
+
       # Stub embedder to return wrong-dimension vector
       Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
-        {:ok, List.duplicate(0.1, 512)}
+        {:ok, List.duplicate(0.1, wrong)}
       end)
 
       result =
@@ -530,7 +536,8 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
           metadata: "{}"
         })
 
-      assert {:error, {:storage_failed, %{reason: :dimension_mismatch, expected: 768, got: 512}}} =
+      assert {:error,
+              {:storage_failed, %{reason: :dimension_mismatch, expected: ^expected, got: ^wrong}}} =
                result
 
       # Verify no orphan entry left behind
@@ -540,7 +547,7 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
 
     test "entry fields are populated correctly after store_with_embedding" do
       Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
-        {:ok, List.duplicate(0.1, 768)}
+        {:ok, List.duplicate(0.1, Knowledge.embedding_dimensions())}
       end)
 
       {:ok, entry} =
@@ -563,7 +570,7 @@ defmodule Familiar.Knowledge.FoundationIntegrationTest do
 
     test "search_similar respects limit option" do
       Mox.stub(Familiar.Knowledge.EmbedderMock, :embed, fn _text ->
-        {:ok, List.duplicate(0.1, 768)}
+        {:ok, List.duplicate(0.1, Knowledge.embedding_dimensions())}
       end)
 
       for i <- 1..5 do

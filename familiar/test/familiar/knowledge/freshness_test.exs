@@ -1,6 +1,7 @@
 defmodule Familiar.Knowledge.FreshnessTest do
   use Familiar.DataCase, async: false
 
+  import Familiar.Test.EmbeddingHelpers
   import Mox
 
   alias Familiar.Knowledge
@@ -430,10 +431,5 @@ defmodule Familiar.Knowledge.FreshnessTest do
       )
 
     updated
-  end
-
-  defp deterministic_vector(primary, secondary) do
-    half = div(768, 2)
-    List.duplicate(primary, half) ++ List.duplicate(secondary, half)
   end
 end

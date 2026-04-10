@@ -1,6 +1,7 @@
 defmodule Familiar.Knowledge.ManagementTest do
   use Familiar.DataCase, async: false
 
+  import Familiar.Test.EmbeddingHelpers, only: [zero_vector: 0]
   import Mox
 
   alias Familiar.Knowledge
@@ -22,10 +23,11 @@ defmodule Familiar.Knowledge.ManagementTest do
     :ok
   end
 
+  # management_test uses a 2-index-replace shape rather than the half/half
+  # shape of the shared helper. Keep the local function but read dimensions
+  # via `zero_vector/0` so a future dim migration is automatic.
   defp deterministic_vector(primary, secondary \\ 0) do
-    base = List.duplicate(0.0, 768)
-
-    base
+    zero_vector()
     |> List.replace_at(0, primary / 100)
     |> List.replace_at(1, secondary / 100)
   end

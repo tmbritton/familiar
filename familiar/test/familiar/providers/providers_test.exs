@@ -1,6 +1,7 @@
 defmodule Familiar.Providers.ProvidersTest do
   use Familiar.MockCase
 
+  alias Familiar.Knowledge
   alias Familiar.Knowledge.EmbedderMock
   alias Familiar.Providers
   alias Familiar.Providers.LLMMock
@@ -50,7 +51,7 @@ defmodule Familiar.Providers.ProvidersTest do
 
   describe "embed/1" do
     test "delegates to configured Embedder adapter" do
-      vector = List.duplicate(0.5, 768)
+      vector = List.duplicate(0.5, Knowledge.embedding_dimensions())
 
       expect(EmbedderMock, :embed, fn text ->
         assert text == "test input"

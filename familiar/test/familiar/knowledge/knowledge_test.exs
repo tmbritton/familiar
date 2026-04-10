@@ -1,6 +1,7 @@
 defmodule Familiar.Knowledge.KnowledgeTest do
   use Familiar.DataCase, async: false
 
+  import Familiar.Test.EmbeddingHelpers
   import Mox
 
   alias Familiar.Knowledge
@@ -401,11 +402,5 @@ defmodule Familiar.Knowledge.KnowledgeTest do
       assert {:ok, health} = Knowledge.health()
       assert health.signal == :red
     end
-  end
-
-  # Generate a deterministic 768-dimensional vector.
-  defp deterministic_vector(primary, secondary) do
-    half = div(768, 2)
-    List.duplicate(primary, half) ++ List.duplicate(secondary, half)
   end
 end

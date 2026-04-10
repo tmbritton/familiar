@@ -44,10 +44,70 @@ defmodule Familiar.Application do
     case result do
       {:ok, _pid} ->
         load_extensions()
+        check_embedding_drift()
         result
 
       _ ->
         result
+    end
+  end
+
+  # Warn the user once per VM lifetime when the configured embedding model
+  # differs from the model that produced the stored vectors. Runs under
+  # `Task.start/1` so a slow Repo can't block the boot path. Skipped
+  # entirely in test env and in CLI mode before the Repo is reachable.
+  defp check_embedding_drift do
+    cond do
+      Application.get_env(:familiar, :skip_embedding_drift_check, false) ->
+        :ok
+
+      :persistent_term.get({__MODULE__, :drift_warned}, false) ->
+        :ok
+
+      true ->
+        Task.start(fn ->
+          try do
+            do_check_embedding_drift()
+          rescue
+            e ->
+              Logger.warning("[Familiar] Embedding drift check failed: #{inspect(e)}")
+          catch
+            :exit, reason ->
+              Logger.warning("[Familiar] Embedding drift check exited: #{inspect(reason)}")
+          end
+        end)
+
+        :ok
+    end
+  end
+
+  defp do_check_embedding_drift do
+    alias Familiar.Knowledge
+    alias Familiar.Knowledge.EmbeddingMetadata
+
+    configured = Knowledge.current_embedding_model()
+
+    case EmbeddingMetadata.check_drift(configured) do
+      :ok ->
+        :ok
+
+      {:warning, :model_changed, %{stored: stored, configured: configured}} ->
+        :persistent_term.put({__MODULE__, :drift_warned}, true)
+
+        Logger.warning(
+          "[Familiar] Embedding model changed: stored=#{stored} configured=#{configured}. " <>
+            "Run `fam context --reindex` to re-embed knowledge entries with the new model. " <>
+            "Search results will be inaccurate until reindex completes. " <>
+            "(Cost: ~$0.04 per 10k entries with text-embedding-3-small.)"
+        )
+
+      {:warning, :model_unset, %{configured: configured}} ->
+        :persistent_term.put({__MODULE__, :drift_warned}, true)
+
+        Logger.warning(
+          "[Familiar] Embedding model is not recorded (stored=unset) but configured=#{configured}. " <>
+            "Run `fam context --reindex` to re-embed knowledge entries and record the active model."
+        )
     end
   end
 

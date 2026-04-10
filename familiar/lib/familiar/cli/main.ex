@@ -110,7 +110,8 @@ defmodule Familiar.CLI.Main do
           provider: :string,
           id: :integer,
           status: :string,
-          limit: :integer
+          limit: :integer,
+          reindex: :boolean
         ],
         aliases: [j: :json, q: :quiet, h: :help, r: :role]
       )
@@ -142,6 +143,7 @@ defmodule Familiar.CLI.Main do
         :id,
         :status,
         :limit,
+        :reindex,
         :_invalid
       ])
 
@@ -406,12 +408,20 @@ defmodule Familiar.CLI.Main do
   end
 
   defp run_with_daemon({"context", args, flags}, deps) do
+    reindex = Map.get(flags, :reindex, false)
+    refresh = Map.get(flags, :refresh, false)
+
     cond do
+      reindex and refresh ->
+        {:error,
+         {:usage_error,
+          %{message: "Cannot combine --reindex and --refresh; run them separately."}}}
+
       Map.get(flags, :health, false) ->
         health_fn = Map.get(deps, :context_health_fn, &Knowledge.health/1)
         health_fn.([])
 
-      Map.get(flags, :refresh, false) ->
+      refresh ->
         path_filter = find_path_arg(args)
         refresh_fn = Map.get(deps, :refresh_fn, &Management.refresh/2)
         project_dir = Map.get(deps, :project_dir, Paths.project_dir())
@@ -420,12 +430,15 @@ defmodule Familiar.CLI.Main do
       Map.get(flags, :compact, false) ->
         run_compact(flags, deps)
 
+      reindex ->
+        run_context_reindex(deps)
+
       true ->
         {:error,
          {:usage_error,
           %{
             message:
-              "Usage: fam context --refresh [path] | --compact [--apply <indices>] | --health"
+              "Usage: fam context --refresh [path] | --compact [--apply <indices>] | --health | --reindex"
           }}}
     end
   end
@@ -789,6 +802,31 @@ defmodule Familiar.CLI.Main do
              {:ok, pairs} <- parse_apply_indices(indices_str, candidates) do
           compact_fn.(pairs, [])
         end
+    end
+  end
+
+  defp run_context_reindex(deps) do
+    reindex_fn = Map.get(deps, :reindex_fn, &Knowledge.reindex_embeddings/1)
+
+    last_progress = :counters.new(1, [:atomics])
+    start_ms = System.monotonic_time(:millisecond)
+
+    on_progress = fn processed, total ->
+      now = System.monotonic_time(:millisecond)
+      last = :counters.get(last_progress, 1) + start_ms
+      # Throttle to ~once per 500ms to avoid overwhelming stderr on big stores.
+      if now - last >= 500 or processed == total do
+        :counters.put(last_progress, 1, now - start_ms)
+        IO.puts(:stderr, "[familiar] Re-embedding #{processed}/#{total}")
+      end
+    end
+
+    case reindex_fn.(on_progress: on_progress) do
+      {:ok, %{} = summary} ->
+        {:ok, %{reindex: summary}}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -1674,6 +1712,9 @@ defmodule Familiar.CLI.Main do
       %{entry_count: _, signal: _} = health ->
         format_health_text(health)
 
+      %{reindex: summary} ->
+        format_reindex_summary(summary)
+
       %{scanned: s, updated: u, created: c, removed: r, preserved: p} ->
         lines = [
           "Context refresh complete:",
@@ -1698,6 +1739,35 @@ defmodule Familiar.CLI.Main do
   end
 
   def text_formatter(_), do: nil
+
+  defp format_reindex_summary(%{processed: processed, failed: failed} = summary) do
+    model = Map.get(summary, :model) || "unset"
+    errors = Map.get(summary, :errors, [])
+
+    base =
+      "Reindexed #{processed} entr#{if processed == 1, do: "y", else: "ies"} " <>
+        "(#{failed} failed). Embedding model is now #{model}."
+
+    if errors == [] do
+      base
+    else
+      error_lines =
+        errors
+        |> Enum.take(10)
+        |> Enum.map(fn {id, reason} ->
+          "  - entry ##{id}: #{inspect(reason, limit: 3)}"
+        end)
+
+      truncated =
+        if length(errors) > 10 do
+          ["  ... (#{length(errors) - 10} more)"]
+        else
+          []
+        end
+
+      Enum.join([base, "Errors:" | error_lines ++ truncated], "\n")
+    end
+  end
 
   defp format_workflow_detail(wf) do
     step_lines =
@@ -2028,6 +2098,7 @@ defmodule Familiar.CLI.Main do
       context --refresh [path]  Re-scan project or path
       context --compact  Find and consolidate duplicate entries
       context --health   Show knowledge store health metrics
+      context --reindex  Re-embed all knowledge entries with the current model
       backup             Create knowledge store backup
       restore            List available backups
       restore <timestamp> Restore from a specific backup
