@@ -786,7 +786,7 @@ defmodule Familiar.CLI.Main do
     workflow_fn = Map.get(deps, :workflow_fn, &WorkflowRunner.run_workflow/3)
 
     opts =
-      [scope: scope]
+      [scope: scope, familiar_dir: Paths.familiar_dir()]
       |> maybe_add_input_fn(deps)
 
     case workflow_fn.(path, %{task: description}, opts) do
