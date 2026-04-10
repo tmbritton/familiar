@@ -14,6 +14,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.Execution.AgentSupervisor
   alias Familiar.Execution.ToolRegistry
   alias Familiar.Execution.WorkflowRunner
+  alias Familiar.Execution.WorkflowRuns
   alias Familiar.Knowledge
   alias Familiar.Knowledge.Backup
   alias Familiar.Knowledge.ConventionReviewer
@@ -89,7 +90,7 @@ defmodule Familiar.CLI.Main do
   @doc false
   @spec parse_args([String.t()]) :: {String.t(), [String.t()], map()}
   def parse_args(argv) do
-    {flags, args, _invalid} =
+    {flags, args, invalid} =
       OptionParser.parse(argv,
         strict: [
           json: :boolean,
@@ -106,12 +107,21 @@ defmodule Familiar.CLI.Main do
           role: :string,
           scope: :string,
           cleanup: :boolean,
-          provider: :string
+          provider: :string,
+          id: :integer,
+          status: :string,
+          limit: :integer
         ],
         aliases: [j: :json, q: :quiet, h: :help, r: :role]
       )
 
-    flag_map = Enum.into(flags, %{})
+    # Stash any rejected switches so command handlers can fail loudly instead
+    # of silently ignoring bad input (e.g., `--id abc` previously fell through
+    # to the no-arg path of `fam workflows resume`).
+    flag_map =
+      flags
+      |> Enum.into(%{})
+      |> Map.put(:_invalid, invalid)
 
     format_flags = Map.take(flag_map, [:json, :quiet])
 
@@ -128,7 +138,11 @@ defmodule Familiar.CLI.Main do
         :role,
         :scope,
         :cleanup,
-        :provider
+        :provider,
+        :id,
+        :status,
+        :limit,
+        :_invalid
       ])
 
     all_flags = Map.merge(format_flags, context_flags)
@@ -585,6 +599,14 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  defp run_with_daemon({"workflows", ["resume" | _], flags}, deps) do
+    run_workflows_resume(flags, deps)
+  end
+
+  defp run_with_daemon({"workflows", ["list-runs" | _], flags}, deps) do
+    run_workflows_list_runs(flags, deps)
+  end
+
   defp run_with_daemon({"workflows", [name | _], _}, deps) do
     parse_fn = Map.get(deps, :parse_workflow_fn, &WorkflowRunner.parse/1)
     path = Path.join([Paths.familiar_dir(), "workflows", "#{name}.md"])
@@ -768,6 +790,113 @@ defmodule Familiar.CLI.Main do
           compact_fn.(pairs, [])
         end
     end
+  end
+
+  defp run_workflows_resume(flags, deps) do
+    latest_fn = Map.get(deps, :latest_resumable_fn, &WorkflowRuns.latest_resumable/1)
+    get_fn = Map.get(deps, :get_workflow_run_fn, &WorkflowRuns.get/1)
+    resume_fn = Map.get(deps, :resume_workflow_fn, &WorkflowRunner.resume_workflow/2)
+
+    with :ok <- reject_invalid_id(flags),
+         {:ok, run} <- find_resumable_run(Map.get(flags, :id), latest_fn, get_fn) do
+      IO.puts(
+        :stderr,
+        "[familiar] Resuming workflow run ##{run.id}: #{run.name} " <>
+          "(step #{run.current_step_index}/#{length_or_unknown(run)})"
+      )
+
+      maybe_warn_running_row(run)
+
+      case resume_fn.(run.id, familiar_dir: Paths.familiar_dir()) do
+        {:ok, result} ->
+          {:ok, %{workflow: run.name, run_id: run.id, steps: result.steps}}
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  # Resuming a row that is still marked `running` is allowed (the design
+  # explicitly supports the "I killed fam, pick back up" use case), but if
+  # another instance is genuinely still processing the row, both runners
+  # will race to update the same checkpoint. Warn so the user can decide.
+  defp maybe_warn_running_row(%{status: "running", id: id}) do
+    IO.puts(
+      :stderr,
+      "[familiar] Warning: run ##{id} is still marked running. If another " <>
+        "instance is processing it, both will race the same checkpoint."
+    )
+  end
+
+  defp maybe_warn_running_row(_), do: :ok
+
+  defp find_resumable_run(nil, latest_fn, _get_fn), do: latest_fn.([])
+  defp find_resumable_run(id, _latest_fn, get_fn) when is_integer(id), do: get_fn.(id)
+
+  # OptionParser puts unparseable strict-flag values into the `:_invalid` list.
+  # Detect a rejected `--id` (or any other flag here) and refuse rather than
+  # silently falling through to `latest_resumable`.
+  defp reject_invalid_id(%{_invalid: invalid}) when is_list(invalid) do
+    case Enum.find(invalid, fn {name, _} -> name == "--id" end) do
+      nil ->
+        :ok
+
+      {_, raw} ->
+        {:error,
+         {:usage_error, %{message: "Invalid --id value: #{inspect(raw)} (expected integer)"}}}
+    end
+  end
+
+  defp reject_invalid_id(_), do: :ok
+
+  defp length_or_unknown(%{workflow_path: nil}), do: "?"
+
+  defp length_or_unknown(%{workflow_path: path}) do
+    case WorkflowRunner.parse(path) do
+      {:ok, wf} -> "#{length(wf.steps)}"
+      {:error, _} -> "?"
+    end
+  end
+
+  defp run_workflows_list_runs(flags, deps) do
+    list_fn = Map.get(deps, :list_workflow_runs_fn, &WorkflowRuns.list/1)
+
+    list_opts =
+      []
+      |> maybe_put(:status, Map.get(flags, :status))
+      |> maybe_put(:scope, Map.get(flags, :scope))
+      |> maybe_put(:limit, Map.get(flags, :limit, 20))
+
+    case list_fn.(list_opts) do
+      {:ok, runs} ->
+        {:ok,
+         %{
+           runs:
+             Enum.map(runs, fn run ->
+               %{
+                 id: run.id,
+                 name: run.name,
+                 status: run.status,
+                 step: run.current_step_index,
+                 updated_at: run.updated_at,
+                 last_error: truncate_error(run.last_error)
+               }
+             end)
+         }}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp truncate_error(nil), do: nil
+
+  defp truncate_error(msg) when is_binary(msg) do
+    if String.length(msg) > 60, do: String.slice(msg, 0, 57) <> "...", else: msg
   end
 
   defp run_workflow_command(command, workflow_name, args, deps) do
@@ -1225,7 +1354,10 @@ defmodule Familiar.CLI.Main do
     }
   end
 
-  defp text_formatter("roles") do
+  @doc false
+  def text_formatter(command)
+
+  def text_formatter("roles") do
     fn
       %{roles: roles} ->
         header = "Available roles (#{length(roles)}):\n"
@@ -1256,7 +1388,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("skills") do
+  def text_formatter("skills") do
     fn
       %{skills: skills} ->
         header = "Available skills (#{length(skills)}):\n"
@@ -1292,7 +1424,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("validate") do
+  def text_formatter("validate") do
     fn
       %{validation: v} ->
         format_validation_results(v)
@@ -1302,7 +1434,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("sessions") do
+  def text_formatter("sessions") do
     fn
       %{sessions: sessions} ->
         format_sessions_list(sessions)
@@ -1339,7 +1471,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("workflows") do
+  def text_formatter("workflows") do
     fn
       %{workflows: workflows} ->
         header = "Available workflows (#{length(workflows)}):\n"
@@ -1357,12 +1489,15 @@ defmodule Familiar.CLI.Main do
       %{workflow: wf} ->
         format_workflow_detail(wf)
 
+      %{runs: runs} ->
+        format_workflow_runs_table(runs)
+
       other ->
         inspect(other, pretty: true)
     end
   end
 
-  defp text_formatter("extensions") do
+  def text_formatter("extensions") do
     fn
       %{extensions: extensions} ->
         format_extensions_list(extensions)
@@ -1372,7 +1507,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("chat") do
+  def text_formatter("chat") do
     fn
       %{chat: "ended", status: status, last_response: response} ->
         "Chat session #{status}.\n\n#{response}"
@@ -1385,7 +1520,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter(cmd) when cmd in ~w(plan do fix) do
+  def text_formatter(cmd) when cmd in ~w(plan do fix) do
     fn
       %{workflow: workflow, steps: steps} ->
         header = "Workflow: #{workflow} (#{length(steps)} steps)\n"
@@ -1405,21 +1540,21 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("health") do
+  def text_formatter("health") do
     fn %{status: status, version: version} ->
       "Daemon is #{status} (version #{version})"
     end
   end
 
-  defp text_formatter("version") do
+  def text_formatter("version") do
     fn %{version: version} -> "fam #{version}" end
   end
 
-  defp text_formatter("help") do
+  def text_formatter("help") do
     fn %{help: text} -> text end
   end
 
-  defp text_formatter("daemon") do
+  def text_formatter("daemon") do
     fn
       %{daemon: status, port: port} -> "Daemon: #{status} on port #{port}"
       %{daemon: status} -> "Daemon: #{status}"
@@ -1429,7 +1564,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("init") do
+  def text_formatter("init") do
     fn summary ->
       lines = [
         "Initialization complete!",
@@ -1456,7 +1591,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("search") do
+  def text_formatter("search") do
     fn
       %{results: results, query: query, summary: summary} ->
         "#{summary}\n\n---\nRaw results (#{length(results)} found) for \"#{query}\""
@@ -1466,17 +1601,17 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("conventions") do
+  def text_formatter("conventions") do
     fn %{conventions: conventions, review_mode: review_mode} ->
       format_conventions_text(conventions, review_mode)
     end
   end
 
-  defp text_formatter("config") do
+  def text_formatter("config") do
     fn config -> format_config_text(config) end
   end
 
-  defp text_formatter("entry") do
+  def text_formatter("entry") do
     fn entry ->
       freshness_tag = if entry[:freshness], do: " [#{entry.freshness}]", else: ""
 
@@ -1503,25 +1638,25 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("edit") do
+  def text_formatter("edit") do
     fn %{id: id} -> "Entry ##{id} updated" end
   end
 
-  defp text_formatter("delete") do
+  def text_formatter("delete") do
     fn %{id: id} -> "Entry ##{id} deleted" end
   end
 
-  defp text_formatter("status") do
+  def text_formatter("status") do
     fn data -> format_health_text(Map.delete(data, :command)) end
   end
 
-  defp text_formatter("backup") do
+  def text_formatter("backup") do
     fn %{path: path, size: size, filename: _} ->
       "Backup created: #{path} (#{format_size(size)})"
     end
   end
 
-  defp text_formatter("restore") do
+  def text_formatter("restore") do
     fn
       %{restored: filename, status: _} ->
         "Restored from #{filename}. Restart daemon with `fam daemon restart`."
@@ -1534,7 +1669,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter("context") do
+  def text_formatter("context") do
     fn
       %{entry_count: _, signal: _} = health ->
         format_health_text(health)
@@ -1562,7 +1697,7 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  defp text_formatter(_), do: nil
+  def text_formatter(_), do: nil
 
   defp format_workflow_detail(wf) do
     step_lines =
@@ -1581,6 +1716,45 @@ defmodule Familiar.CLI.Main do
 
     List.flatten(lines) |> Enum.join("\n")
   end
+
+  defp format_workflow_runs_table([]) do
+    "No workflow runs found."
+  end
+
+  defp format_workflow_runs_table(runs) do
+    header_row =
+      [
+        String.pad_trailing("ID", 6),
+        String.pad_trailing("NAME", 24),
+        String.pad_trailing("STATUS", 10),
+        String.pad_trailing("STEP", 6),
+        String.pad_trailing("UPDATED", 20),
+        "ERROR"
+      ]
+      |> Enum.join(" ")
+
+    lines =
+      Enum.map(runs, fn r ->
+        [
+          String.pad_trailing("##{r.id}", 6),
+          String.pad_trailing(truncate_str(r.name, 24), 24),
+          String.pad_trailing(r.status, 10),
+          String.pad_trailing("#{r.step}", 6),
+          String.pad_trailing(format_dt(r.updated_at), 20),
+          r.last_error || ""
+        ]
+        |> Enum.join(" ")
+      end)
+
+    "Workflow runs (#{length(runs)}):\n" <> header_row <> "\n" <> Enum.join(lines, "\n")
+  end
+
+  defp truncate_str(str, max) when is_binary(str) do
+    if String.length(str) > max, do: String.slice(str, 0, max - 1) <> "…", else: str
+  end
+
+  defp format_dt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  defp format_dt(_), do: ""
 
   defp format_extensions_list([]), do: "No extensions loaded."
 
@@ -1835,6 +2009,8 @@ defmodule Familiar.CLI.Main do
       skills <name>      Show details for a specific skill
       workflows          List all available workflows
       workflows <name>   Show details for a specific workflow
+      workflows resume [--id <n>]       Resume an interrupted workflow run
+      workflows list-runs [--status s] [--scope s] [--limit n]  List workflow runs
       extensions         List loaded extensions and their tools
       sessions           List conversation sessions
       sessions <id>      Show session details and recent messages

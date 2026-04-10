@@ -31,6 +31,7 @@ defmodule Familiar.Execution.WorkflowRunner do
   alias Familiar.Daemon.Paths
   alias Familiar.Execution.AgentSupervisor
   alias Familiar.Execution.ToolRegistry
+  alias Familiar.Execution.WorkflowRuns
 
   # -- Data Structures --
 
@@ -184,7 +185,8 @@ defmodule Familiar.Execution.WorkflowRunner do
   @spec run_workflow(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run_workflow(path, context \\ %{}, opts \\ []) do
     with {:ok, workflow} <- parse(path) do
-      run_workflow_parsed(workflow, context, opts)
+      # Stash the absolute path so resume_workflow/2 can reparse later.
+      run_workflow_parsed(workflow, context, Keyword.put(opts, :workflow_path, Path.expand(path)))
     end
   end
 
@@ -206,6 +208,109 @@ defmodule Familiar.Execution.WorkflowRunner do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc """
+  Resume a previously persisted workflow run from its last checkpoint.
+
+  Loads the row via `Familiar.Execution.WorkflowRuns.get/1`, re-parses the
+  workflow markdown from the stored `workflow_path`, and starts a new
+  `WorkflowRunner` GenServer preloaded with `current_step_index` and
+  `step_results`. The new runner reuses the same `run_id` so subsequent
+  checkpoints update the same row.
+
+  Returns:
+    * `{:ok, %{steps: [...]}}` on completion
+    * `{:error, {:workflow_run_not_found, _}}`
+    * `{:error, {:workflow_already_completed, %{id: id}}}`
+    * `{:error, {:workflow_path_missing, %{id: id}}}`
+    * any parse error from the stored workflow path
+  """
+  @spec resume_workflow(integer(), keyword()) :: {:ok, map()} | {:error, term()}
+  def resume_workflow(run_id, opts \\ []) when is_integer(run_id) do
+    with {:ok, run} <- WorkflowRuns.get(run_id),
+         :ok <- check_resumable(run),
+         {:ok, workflow_path} <- require_workflow_path(run),
+         {:ok, workflow} <- parse(workflow_path),
+         :ok <- ensure_incomplete(run, workflow) do
+      context = run.initial_context || %{}
+
+      resume_opts =
+        opts
+        |> Keyword.merge(
+          workflow: workflow,
+          context: atomize_context(context),
+          caller: self(),
+          run_id: run.id,
+          resume_from: %{
+            current_step_index: run.current_step_index,
+            # DB stores step_results chronologically; memory wants newest-first.
+            step_results:
+              run.step_results |> List.wrap() |> atomize_step_results() |> Enum.reverse()
+          }
+        )
+
+      case start_link(resume_opts) do
+        {:ok, pid} ->
+          run(pid)
+          timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
+          input_fn = Keyword.get(opts, :input_fn)
+          await_completion(pid, timeout, input_fn)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp check_resumable(%{status: "completed", id: id}),
+    do: {:error, {:workflow_already_completed, %{id: id}}}
+
+  defp check_resumable(_run), do: :ok
+
+  defp require_workflow_path(%{workflow_path: nil, id: id}),
+    do: {:error, {:workflow_path_missing, %{id: id}}}
+
+  defp require_workflow_path(%{workflow_path: path}), do: {:ok, path}
+
+  # Edge case: row was already advanced past the final step but never marked
+  # completed (e.g., the GenServer crashed between checkpoint and complete).
+  # Treat it as done and finalize the row. If the finalize itself fails, the
+  # row is permanently stuck — surface a distinct error so the user knows
+  # they need to intervene rather than seeing the same `already_completed`
+  # error on every subsequent resume attempt.
+  defp ensure_incomplete(run, workflow) do
+    if run.current_step_index >= length(workflow.steps) do
+      case WorkflowRuns.complete(run.id) do
+        {:ok, _} ->
+          {:error, {:workflow_already_completed, %{id: run.id}}}
+
+        {:error, reason} ->
+          {:error, {:workflow_finalize_failed, %{id: run.id, reason: reason}}}
+      end
+    else
+      :ok
+    end
+  end
+
+  # Ecto JSON load gives us string keys; convert top-level atoms agents
+  # expect (:task) so existing workflows keep working without change.
+  defp atomize_context(ctx) when is_map(ctx) do
+    Map.new(ctx, fn {k, v} -> {atomize_key(k), v} end)
+  end
+
+  defp atomize_context(_), do: %{}
+
+  defp atomize_key("task"), do: :task
+  defp atomize_key(k) when is_atom(k), do: k
+  defp atomize_key(k), do: k
+
+  defp atomize_step_results(results) do
+    Enum.map(results, fn
+      %{"step" => s, "output" => o} -> %{step: s, output: o}
+      %{step: _, output: _} = m -> m
+      other -> other
+    end)
   end
 
   @doc """
@@ -236,23 +341,68 @@ defmodule Familiar.Execution.WorkflowRunner do
     context = Keyword.get(opts, :context, %{})
     caller = Keyword.get(opts, :caller)
     scope = Keyword.get(opts, :scope, "agent")
+    workflow_path = Keyword.get(opts, :workflow_path)
+    run_id = Keyword.get(opts, :run_id)
+    resume_from = Keyword.get(opts, :resume_from)
     extra_opts = Keyword.take(opts, [:familiar_dir, :supervisor])
 
-    {:ok,
-     %{
-       workflow: workflow,
-       initial_context: context,
-       caller: caller,
-       scope: scope,
-       status: :pending,
-       current_step_index: 0,
-       step_results: [],
-       agent_pid: nil,
-       agent_id: nil,
-       monitor_ref: nil,
-       step_handled: false,
-       extra_opts: extra_opts
-     }}
+    {current_step_index, step_results} =
+      case resume_from do
+        %{current_step_index: idx, step_results: results}
+        when is_integer(idx) and is_list(results) ->
+          {idx, results}
+
+        _ ->
+          {0, []}
+      end
+
+    state = %{
+      workflow: workflow,
+      workflow_path: workflow_path,
+      initial_context: context,
+      caller: caller,
+      scope: scope,
+      status: :pending,
+      current_step_index: current_step_index,
+      step_results: step_results,
+      agent_pid: nil,
+      agent_id: nil,
+      monitor_ref: nil,
+      step_handled: false,
+      extra_opts: extra_opts,
+      run_id: run_id
+    }
+
+    if is_nil(run_id) do
+      # Fresh run — defer the DB insert to handle_continue so a slow repo
+      # can't block the caller's start_link timeout window.
+      {:ok, state, {:continue, :persist_start}}
+    else
+      # Resume path — row already exists, nothing to persist yet.
+      {:ok, state}
+    end
+  end
+
+  @impl true
+  def handle_continue(:persist_start, state) do
+    opts = [
+      workflow_path: state.workflow_path,
+      scope: state.scope,
+      initial_context: sanitize_context(state.initial_context)
+    ]
+
+    case safe_call(fn -> WorkflowRuns.create(state.workflow.name, opts) end) do
+      {:ok, run} ->
+        {:noreply, %{state | run_id: run.id}}
+
+      {:error, reason} ->
+        Logger.warning(
+          "[WorkflowRunner] Failed to persist workflow start for '#{state.workflow.name}': " <>
+            inspect(reason)
+        )
+
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -388,11 +538,14 @@ defmodule Familiar.Execution.WorkflowRunner do
 
     step_result = %{step: step.name, output: content}
     new_results = [step_result | state.step_results]
+    new_index = state.current_step_index + 1
+
+    persist_checkpoint(state, new_index, new_results)
 
     state = %{
       state
       | step_results: new_results,
-        current_step_index: state.current_step_index + 1,
+        current_step_index: new_index,
         agent_pid: nil,
         agent_id: nil,
         monitor_ref: nil,
@@ -412,6 +565,8 @@ defmodule Familiar.Execution.WorkflowRunner do
   defp complete_workflow(state) do
     Logger.info("[WorkflowRunner] Workflow '#{state.workflow.name}' completed successfully")
 
+    persist_complete(state)
+
     state = %{state | status: :completed}
     result = {:ok, %{steps: Enum.reverse(state.step_results)}}
     notify_caller(state, {:workflow_done, self(), result})
@@ -419,10 +574,112 @@ defmodule Familiar.Execution.WorkflowRunner do
   end
 
   defp fail_workflow(state, reason) do
+    persist_fail(state, reason)
+
     state = %{state | status: :failed}
     notify_caller(state, {:workflow_done, self(), {:error, reason}})
     state
   end
+
+  # -- Private: Persistence (fail-soft) --
+
+  defp persist_checkpoint(%{run_id: nil}, _index, _results), do: :ok
+
+  defp persist_checkpoint(%{run_id: id, workflow: workflow}, index, results)
+       when is_integer(id) do
+    # step_results live newest-first in memory; persist chronologically so
+    # the row is human-readable and `fam workflows list-runs` surfaces steps
+    # in execution order.
+    chronological = Enum.reverse(results)
+
+    case safe_call(fn -> WorkflowRuns.checkpoint(id, index, chronological) end) do
+      {:ok, _run} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[WorkflowRunner] Failed to persist checkpoint for '#{workflow.name}' " <>
+            "step #{index}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp persist_complete(%{run_id: nil}), do: :ok
+
+  defp persist_complete(%{run_id: id, workflow: workflow}) when is_integer(id) do
+    case safe_call(fn -> WorkflowRuns.complete(id) end) do
+      {:ok, _run} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[WorkflowRunner] Failed to mark '#{workflow.name}' completed: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp persist_fail(%{run_id: nil}, _reason), do: :ok
+
+  defp persist_fail(%{run_id: id, workflow: workflow}, reason) when is_integer(id) do
+    case safe_call(fn -> WorkflowRuns.fail(id, reason) end) do
+      {:ok, _run} ->
+        :ok
+
+      {:error, write_error} ->
+        Logger.warning(
+          "[WorkflowRunner] Failed to mark '#{workflow.name}' failed: #{inspect(write_error)}"
+        )
+    end
+  end
+
+  # Wraps a persistence call so DB errors or repo-not-running crashes
+  # never propagate out of the runner GenServer.
+  defp safe_call(fun) do
+    fun.()
+  rescue
+    e -> {:error, {:persistence_exception, e}}
+  catch
+    :exit, reason -> {:error, {:persistence_exit, reason}}
+  end
+
+  # Ensure the initial context can be JSON-encoded. Any PIDs/refs/tuples
+  # sneak in via integration tests and planning sessions; strip or stringify
+  # them rather than crashing the GenServer.
+  #
+  # Detects key collisions caused by stringification — e.g., a context with
+  # both `:foo` (atom) and `"foo"` (binary) keys would otherwise collapse
+  # silently into a single entry, dropping one of the values. When a
+  # collision is detected we keep the first value and log a warning so the
+  # data loss isn't invisible.
+  defp sanitize_context(ctx) when is_map(ctx) do
+    Enum.reduce(ctx, %{}, fn {k, v}, acc ->
+      key = to_json_key(k)
+      value = json_safe(v)
+
+      if Map.has_key?(acc, key) do
+        Logger.warning(
+          "[WorkflowRunner] sanitize_context dropped a value: key #{inspect(k)} " <>
+            "stringifies to #{inspect(key)} which already exists in the sanitized map"
+        )
+
+        acc
+      else
+        Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp sanitize_context(_), do: %{}
+
+  defp to_json_key(k) when is_atom(k), do: Atom.to_string(k)
+  defp to_json_key(k) when is_binary(k), do: k
+  defp to_json_key(k), do: inspect(k)
+
+  defp json_safe(v) when is_binary(v) or is_number(v) or is_boolean(v) or is_nil(v), do: v
+  defp json_safe(v) when is_atom(v), do: Atom.to_string(v)
+  defp json_safe(v) when is_list(v), do: Enum.map(v, &json_safe/1)
+  defp json_safe(v) when is_map(v), do: sanitize_context(v)
+  defp json_safe(v), do: inspect(v)
 
   defp notify_caller(%{caller: nil}, _msg), do: :ok
   defp notify_caller(%{caller: pid}, msg), do: send(pid, msg)

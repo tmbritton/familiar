@@ -23,7 +23,8 @@ defmodule Familiar.Execution do
       Familiar.Execution.AgentSupervisor,
       Familiar.Execution.PromptAssembly,
       Familiar.Execution.FileWatcher,
-      Familiar.Execution.WorkflowRunner
+      Familiar.Execution.WorkflowRunner,
+      Familiar.Execution.WorkflowRuns
     ]
 
   @doc "Dispatch a task for execution."
