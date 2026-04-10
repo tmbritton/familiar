@@ -19,7 +19,7 @@ defmodule Familiar.Execution.Tools do
   @doc false
   def read_file(args, _context) do
     with {:ok, path} <- require_arg(args, :path) do
-      case file_system().read(path) do
+      case file_system().read(project_path(path)) do
         {:ok, content} -> {:ok, %{content: content}}
         {:error, _} = error -> error
       end
@@ -30,7 +30,7 @@ defmodule Familiar.Execution.Tools do
   def write_file(args, context) do
     with {:ok, path} <- require_arg(args, :path) do
       content = get_arg(args, :content) || ""
-      do_write_file(path, content, Map.get(context, :task_id))
+      do_write_file(project_path(path), content, Map.get(context, :task_id))
     end
   end
 
@@ -52,7 +52,7 @@ defmodule Familiar.Execution.Tools do
   @doc false
   def delete_file(args, context) do
     with {:ok, path} <- require_arg(args, :path) do
-      do_delete_file(path, Map.get(context, :task_id))
+      do_delete_file(project_path(path), Map.get(context, :task_id))
     end
   end
 
@@ -75,7 +75,7 @@ defmodule Familiar.Execution.Tools do
   def list_files(args, _context) do
     path = get_arg(args, :path) || "."
 
-    case file_system().ls(path) do
+    case file_system().ls(project_path(path)) do
       {:ok, files} -> {:ok, %{files: files}}
       {:error, _} = error -> error
     end
@@ -83,7 +83,7 @@ defmodule Familiar.Execution.Tools do
 
   @doc false
   def search_files(args, _context) do
-    path = get_arg(args, :path) || "."
+    path = project_path(get_arg(args, :path) || ".")
 
     with {:ok, pattern} <- require_arg(args, :pattern) do
       if pattern == "" do
@@ -102,7 +102,9 @@ defmodule Familiar.Execution.Tools do
     with {:ok, command} <- require_arg(args, :command),
          {executable, cmd_args} <- parse_command(command),
          :ok <- validate_executable(executable) do
-      case shell().cmd(executable, cmd_args, []) do
+      cmd_opts = project_cmd_opts()
+
+      case shell().cmd(executable, cmd_args, cmd_opts) do
         {:ok, result} -> {:ok, result}
         {:error, _} = error -> error
       end
@@ -250,6 +252,29 @@ defmodule Familiar.Execution.Tools do
 
   defp shell do
     Application.get_env(:familiar, Familiar.System.Shell, Familiar.System.RealShell)
+  end
+
+  defp project_cmd_opts do
+    case System.get_env("FAMILIAR_PROJECT_DIR") do
+      nil -> []
+      dir -> [cd: dir]
+    end
+  end
+
+  # Resolve a path relative to the project directory (not the Familiar source dir)
+  # Only resolves when FAMILIAR_PROJECT_DIR is set (CLI mode via bin/fam)
+  defp project_path(path) do
+    case System.get_env("FAMILIAR_PROJECT_DIR") do
+      nil ->
+        path
+
+      project_dir ->
+        if Path.type(path) == :absolute do
+          path
+        else
+          Path.join(project_dir, path)
+        end
+    end
   end
 
   defp parse_command(command) when is_binary(command) do

@@ -284,11 +284,14 @@ defmodule Familiar.Execution.AgentProcess do
     # Persist assistant message
     tool_calls_json = if tool_calls == [], do: "[]", else: Jason.encode!(tool_calls)
 
+    # Use placeholder for tool-call-only messages (content may be nil/empty)
+    persist_content = if content in [nil, ""], do: "(tool call)", else: content
+
     log_add_message(
       Conversations.add_message(
         state.conversation_id,
         "assistant",
-        content || "",
+        persist_content,
         tool_calls: tool_calls_json
       )
     )
