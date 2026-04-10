@@ -32,6 +32,8 @@ defmodule Familiar.Execution.FileWatcher do
 
   require Logger
 
+  alias Familiar.Daemon.Paths
+
   @default_debounce_ms 500
   @default_ignore_patterns [".git/", "_build/", "deps/", "node_modules/", ".familiar/"]
 
@@ -52,7 +54,9 @@ defmodule Familiar.Execution.FileWatcher do
 
   @impl true
   def init(opts) do
-    project_dir = Keyword.get_lazy(opts, :project_dir, &File.cwd!/0)
+    project_dir =
+      Keyword.get_lazy(opts, :project_dir, fn -> Paths.project_dir() end)
+
     debounce_ms = Keyword.get(opts, :debounce_ms, @default_debounce_ms)
     ignore_patterns = Keyword.get(opts, :ignore_patterns, @default_ignore_patterns)
     notify_ready = Keyword.get(opts, :notify_ready)
