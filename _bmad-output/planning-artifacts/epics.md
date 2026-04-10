@@ -1359,10 +1359,283 @@ LiveView interface for observing agent activity, browsing the knowledge store, a
 
 ## Epic 8: CLI Management & Session Handling (Phase 3 — placeholder)
 
-**Deferred until Epic 5 is complete.**
-
-CLI commands for managing roles (`fam roles`), skills (`fam skills`), workflows (`fam workflows`), and extensions (`fam extensions`). Interactive session timeout/resume for multi-turn workflow steps. Language extensibility via config files. Scope depends on what Epic 5 and 6 reveal about the management surface area.
+**[Superseded 2026-04-10]** This epic's scope was delivered as **Epic 7** after a reorder that moved CLI management earlier. Epic 7 shipped `fam roles/skills/workflows/extensions/sessions/validate`. Interactive session timeout/resume was delivered in Story 7.5-6. Language extensibility is already in the config.toml + `Generator.detect_project_language/1`. **See Epic 8 below for the current MCP Support content.**
 
 ---
 
-**Phase 3 note:** Epics 6-8 are intentionally light. Detailed story breakdowns will be written when Epic 5 nears completion and the harness capabilities are proven. Vision clarifies as work commences.
+**Phase 3 note (original):** Epics 6-8 were intentionally light. Detailed story breakdowns were written as work commenced, and the epic numbering was reordered as scope clarified.
+
+---
+
+## Story 7.5-8: Project-Dir Resolution & Entry-Point Hardening
+
+*(Added 2026-04-10 to the in-progress Epic 7.5. Epic 7.5 itself has no formal writeup — see sprint-status.yaml and individual `7.5-*.md` artifacts for prior stories. This is an immediate priority: the pain already exists for multiple processes that need to know the project directory; pulled forward from Epic 11 Story 11-4 where it was originally scoped.)*
+
+As a Familiar user whose daemon, CLI, escript, and background jobs all need to agree on which directory is "the project",
+I want a single explicit resolution path used by every entry point, with loud failure when it can't resolve,
+So that processes spawned by editors, CI, launchd, systemd, or unfamiliar shells don't silently fall back to the wrong directory and corrupt state — and so that debugging "why is Familiar looking at `/tmp`?" takes seconds instead of hours.
+
+**Why now:** Story 7.5-5 audited `File.cwd!/0` usage and routed most callers through `Familiar.Daemon.Paths.project_dir/0`. That closed the bulk of the obvious holes but left the *entry-point* question unsolved: when a process first starts (daemon boot, escript invocation, CLI command against a running daemon, `fam mcp serve` spawned by an editor, background job from a supervisor restart), what decides which project it belongs to? Today the answer is "whatever was in cwd at spawn time, unless `FAMILIAR_PROJECT_DIR` is set," with no walk-up, no validation that the result is a Familiar project, and inconsistent error messages across entry points. Epic 11 Story 11-4 exposed this pain for `fam mcp serve`, but the same pain already bites existing processes. Fix it once for everyone before MCP builds on top of it.
+
+**Scope:**
+
+*Audit and standardize.* Enumerate every entry point that resolves `project_dir`: (1) `fam` escript startup, (2) daemon `application.ex` boot, (3) each `fam` CLI command's pre-flight, (4) `Familiar.Execution.WorkflowRunner` resume path, (5) background jobs spawned from supervisors (embedding indexer, file watcher, knowledge store maintenance, drift check), (6) test helpers. For each, confirm it goes through `Paths.project_dir/0` — any that still call `File.cwd!/0` directly or read `FAMILIAR_PROJECT_DIR` directly get replaced.
+
+*Single precedence chain in `Paths.resolve_project_dir/1`.* New function that accepts an optional explicit override and returns `{:ok, dir, source}` or `{:error, reason}`. Precedence:
+
+1. **Explicit argument** (e.g. `--project-dir` flag value passed by CLI commands). Source = `:explicit`.
+2. **`FAMILIAR_PROJECT_DIR` env var.** Source = `:env`.
+3. **Cwd walk-up** — starting from `File.cwd!/0`, walk parent directories looking for a `.familiar/` subdir; stop at filesystem root or `$HOME`. Source = `{:walk_up, found_at}`. This is new behavior modeled on how `git` resolves the repo root. It is the single biggest QoL win in this story — `fam` commands become usable anywhere inside a project tree, not just at the root.
+4. **Hard error** with `{:error, {:project_dir_unresolvable, %{cwd: ..., checked_env: true}}}`.
+
+`Paths.project_dir/0` keeps its current signature but becomes a thin wrapper over `resolve_project_dir/1` that raises on error (for code paths that can't handle the error tuple gracefully). New `Paths.project_dir_or_error/0` for callers that can.
+
+*Validation.* Whatever dir is resolved, confirm it contains a `.familiar/` subdirectory before returning success. If not, `{:error, {:not_a_familiar_project, %{path: resolved_dir, source: source}}}` — distinct from `:project_dir_unresolvable` so the error message can be specific ("I found a directory, but it isn't a Familiar project — run `fam init` or point elsewhere").
+
+*Error messages.* Add `:project_dir_unresolvable` and `:not_a_familiar_project` to `Familiar.CLI.Output.error_message/2`. Both messages must include: (a) the directory that was checked, (b) whether `FAMILIAR_PROJECT_DIR` was set and what it contained, (c) a copy-pasteable fix showing both `--project-dir /path` and `FAMILIAR_PROJECT_DIR=/path fam <cmd>` syntax, (d) a one-line pointer to `fam where` for debugging.
+
+*`fam where` command.* New subcommand that prints:
+
+```
+project_dir:  /home/user/code/myapp
+source:       walk-up (found .familiar/ at /home/user/code/myapp)
+cwd:          /home/user/code/myapp/lib/myapp
+env:          FAMILIAR_PROJECT_DIR (unset)
+familiar_dir: /home/user/code/myapp/.familiar  (exists)
+config:       /home/user/code/myapp/.familiar/config.toml  (exists)
+daemon:       running (pid 12345, socket /home/user/code/myapp/.familiar/daemon.sock)
+```
+
+`--json` emits the same as a data envelope. When resolution *fails*, `fam where` prints what it tried and exits with `:project_dir_unresolvable` — so the user can run it from a broken shell to see exactly what the precedence chain saw. This is the single most valuable debugging artifact this story ships.
+
+*Tests.* Unit tests for `resolve_project_dir/1` covering all four precedence branches + both error cases. Integration-ish tests for `fam where` from (a) inside a project, (b) inside a subdirectory of a project, (c) outside any project, (d) with `FAMILIAR_PROJECT_DIR` set to a bogus path. Existing entry-point tests that touched `project_dir` get updated. Flake stress test per the zero-tolerance policy.
+
+**Out of scope (explicitly):** Multi-project daemon support (running one daemon process against several projects) — out. Per-user config dir (`$XDG_CONFIG_HOME/familiar`) — out. Changing `.familiar/` to a dotfile search pattern (`.familiar` or `familiar.toml` in the way some tools support either) — out.
+
+**Follow-on cleanup in Epic 11 Story 11-4:** With `resolve_project_dir/1` in place, `fam mcp serve` just calls it with the `--project-dir` value and gets the full precedence + walk-up + error messages for free. Story 11-4 scope shrinks to "call the existing resolver; surface the resulting error in the editor-config format."
+
+---
+
+## Epic 7.6: Safety Removal & Sandboxing Posture (3 stories — drafted 2026-04-10)
+
+Remove the `Familiar.Extensions.Safety` extension and reframe execution safety honestly: Familiar runs LLM-generated tool calls including file writes and shell commands, the LLM is an untrusted actor, and the only meaningful boundary is the OS sandbox the user chooses to run Familiar inside. This epic takes the system from "we have a safety module that pattern-matches dangerous tool names" (false confidence — an LLM can trivially call `sh` instead of `run_command`) to "we give you a container recipe and a clear warning."
+
+**Why now:** Epic 8 (MCP Support) is about to expose Familiar's tools over a wire protocol to external editors *and* let Familiar invoke external MCP servers' tools. Both directions make the Safety extension's name-pattern approach even weaker — external tools with names like `github__delete_repository` or `postgres__execute_sql` don't match any built-in pattern, and editors calling into Familiar have no TTY for confirmation prompts. Better to remove the theater before building a second wire that depends on it.
+
+**Design principles:**
+- **Container is the boundary.** The honest security story is OS-level isolation, not runtime pattern matching. Prior art: Pi (which Familiar's architecture already borrows from) took the same stance.
+- **Warn prominently, don't police softly.** The user should see a sandboxing warning during `fam init`, in `fam --help`, and at the top of the README. The warning should name the risk explicitly (LLM-generated shell commands, file writes) and link to `docs/sandboxing.md`.
+- **Pure subtraction for code.** No replacement safety layer. The `Familiar.Extension` behaviour stays (other extensions still use it); the `before_tool_call` / `after_tool_call` hook points stay (useful for logging, metrics, knowledge retrieval); the ability to return `{:halt, reason}` from a hook stays (still a valid extension capability, just nobody ships a built-in extension that uses it).
+- **Keep what isn't execution safety.** Secret filtering in the knowledge store (Story 2-6) is *data hygiene*, not execution safety — it prevents API keys from landing in embeddings, which is still worth doing. Stays.
+- **`--read-only` in `fam mcp serve` reframes.** Instead of "Safety vetoes write tools," it becomes "write tools aren't registered with the MCP dispatcher." Same outcome, honest framing. Implementation detail carried into Epic 8.
+
+### Story 7.6-1: Remove Safety Extension
+
+As a Familiar maintainer,
+I want the `Familiar.Extensions.Safety` module and every integration point deleted,
+So that the codebase stops providing a false-confidence safety layer that an adversarial LLM can trivially bypass.
+
+**Scope:** Delete `familiar/lib/familiar/extensions/safety.ex` and `familiar/test/familiar/extensions/safety_test.exs`. Remove Safety references from `execution/hooks.ex`, `execution/tools.ex`, `execution/agent_process.ex`, `execution/tool_registry.ex`, `execution/extension.ex`, `extensions/extensions.ex`, `knowledge/default_files.ex`, `knowledge/backup.ex`. Remove Safety from the default extensions list in `Familiar.Extensions`. Update affected tests (`harness_integration_test.exs`, `knowledge_integration_test.exs`, `hooks_test.exs`, `default_files_test.exs`, `path_resolution_defaults_test.exs`, `workflows_extensions_test.exs`, `tool_registry_test.exs`, `agent_process_test.exs`) — either delete Safety-specific test cases or strip Safety setup from shared fixtures. Remove any Safety-specific error atoms from `Familiar.CLI.Output.error_message/2`. Keep the `Familiar.Extension` behaviour, the `before_tool_call` / `after_tool_call` hook points, and the `{:halt, reason}` return contract fully intact. Verify: `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix credo --strict`, `mix test`, `mix dialyzer` all clean. Stress-test any touched test files 50x per the flaky-test policy.
+
+### Story 7.6-2: Sandboxing Warning + Reference Container
+
+As a Familiar user,
+I want a prominent warning about execution risk plus a copy-pasteable container recipe,
+So that I understand Familiar is running untrusted LLM output on my machine and I know exactly how to sandbox it.
+
+**Scope:** Three artifacts.
+
+*Warning surface.* Add a clearly-marked security notice to (1) `README.md` top section above installation, (2) `fam --help` main usage output (one line pointing at `docs/sandboxing.md` and the dedicated `fam security` subcommand below), (3) the success output of `fam init` (a boxed notice after the "Project initialized" line), (4) a new `fam security` subcommand that prints the full warning + sandboxing recommendations to stdout for users who want to re-read it later. Warning text must explicitly name: LLM generates tool calls, tool calls include `write_file` / `delete_file` / `run_command`, the LLM is an untrusted actor, running outside a container puts the user's host filesystem and network at risk.
+
+*Reference Dockerfile.* Restore a minimal `familiar/Dockerfile` (the one deleted in Story 7.5-3). Multi-stage build: `hexpm/elixir` builder → `debian:bookworm-slim` runtime. Installs the escript from Story 7.5-3 to `/usr/local/bin/fam`. Runs as non-root user. Mounts `/workspace` as the project dir with `FAMILIAR_PROJECT_DIR=/workspace`. `CMD ["fam", "help"]` as default. Ships alongside a `familiar/docker-compose.yml` that wires the workspace mount and an LLM provider env var. The README's quick-start becomes `docker compose run --rm familiar init` rather than a native install.
+
+*Sandboxing doc.* New `familiar/docs/sandboxing.md` covering: (1) why we don't ship runtime safety — the honest "LLM-generated commands + name-pattern matching = theater" explanation, (2) recommended Docker invocation with `--network`, `--read-only`, and `--cap-drop` flags for users who want more isolation than docker-compose defaults, (3) recommended Podman invocation (users wary of Docker daemon), (4) how to run Familiar inside an ephemeral VM (Firecracker, QEMU) for paranoid workflows, (5) a "what a sandbox does NOT protect you from" section (data exfiltration via LLM provider API calls, prompt injection that steals secrets from env vars the container has, etc.) — because we're being honest now.
+
+### Story 7.6-3: Planning Docs & Epic 5/8 Reframing
+
+As a Familiar maintainer,
+I want the planning artifacts to reflect the Safety removal and the new sandboxing posture,
+So that future story work and epic drafts don't accidentally re-introduce the Safety concept or depend on it.
+
+**Scope:** Update `_bmad-output/planning-artifacts/architecture.md` — remove Safety from the extension list, replace the "runtime safety" section with a "sandboxing posture" section pointing at `docs/sandboxing.md`, update any tool-call sequence diagrams that show Safety as a pipeline step. Update `_bmad-output/planning-artifacts/epics.md` — mark Epic 5 Story 5-6 (Safety Extension) with a "**[Superseded 2026-04-10 by Epic 7.6-1]**" note and update Epic 5 summary to mention Safety was removed. (Epic 8 and Epic 11, drafted 2026-04-10 after this epic, already reflect the post-Safety posture — no retro-edits needed on them.) Do **not** rewrite historical implementation artifacts (Story 5-6 artifact, Epic 5 retro, 2-6 secret filtering) — they're historical records of work done and should read as "this existed and was later removed." Update `_bmad-output/planning-artifacts/prd-validation-report.md` and `implementation-readiness-report-2026-04-01.md` only if they contain claims that actively contradict the new posture (stale references are fine; active contradictions need footnotes). Add an entry to the project memory (`project_sandboxing_posture.md`) recording the decision and its rationale so future conversations don't accidentally propose adding Safety back.
+
+---
+
+**Epic 7.6 Summary:** 3 stories. Removes the Safety extension in pure subtraction, replaces it with a prominent warning surface and a reference Docker container, and updates planning artifacts so Epic 8 (and everything after) builds on the honest "container is the boundary" stance instead of the false-confidence safety pattern matcher. No runtime safety replacement — the Extension behaviour and hook points stay, they're just not used to police tool calls by any built-in extension. Post-epic: Epic 8 friction items that depended on Safety (confirmation in serve mode, external MCP tool vetoing) collapse; the surviving friction items get folded into Epic 8 story scope.
+
+---
+
+## Epic 8: MCP Client Support (5 stories — drafted 2026-04-10, split 2026-04-10)
+
+Let Familiar agents call external MCP servers (GitHub, Linear, Postgres, Playwright, filesystem, etc.) as first-class tools. Each configured MCP server shows up in Familiar as an extension whose tools are registered in the existing `ToolRegistry` and made available to every agent alongside built-in tools.
+
+**Scope split note:** This epic was originally drafted as "MCP Support" covering both client (Familiar uses external MCP servers) *and* server (Familiar exposes its tools to editors over stdio). On 2026-04-10 the server direction was moved post-MVP to Epic 11 on the grounds that (a) letting users augment Familiar's agent capabilities with the huge and growing MCP ecosystem is much higher-leverage than the opposite direction, and (b) anyone who wants Claude Code or Cursor to drive Familiar can point their editor at the `fam` CLI documentation — the CLI is already fully functional and JSON-output-capable, so no MCP server plumbing is required to get that integration.
+
+**Why now:** Epic 7.5 finished the provider story, so Familiar now has real LLMs and actual knowledge retrieval. The next big capability unlock is removing the "you need to write an Elixir extension for every integration" ceiling — MCP turns every MCP-spec-compliant server on GitHub, npm, or PyPI into a drop-in tool provider for Familiar agents, with zero code changes per integration.
+
+**Design principles:**
+- **Reuse `ToolRegistry` and `Extensions`.** MCP is a transport + schema — the agent harness doesn't care. Every external MCP tool registers through `ToolRegistry.register/4`, so the LLM sees them exactly like built-in tools and existing hooks (logging, knowledge retrieval, etc.) fire unchanged.
+- **Subprocess per server over stdio.** Familiar launches each MCP server as a subprocess via `Port.open/2` and speaks line-delimited JSON-RPC over pipes. That's how every editor-hosted MCP client works today and covers every MCP server shipped on npm. HTTP/SSE transport for remote MCP servers is post-MVP.
+- **Tools first, resources later.** The MCP spec has four capabilities: tools, resources, prompts, sampling. The client MVP only implements `tools/list` + `tools/call`. Consuming external *resources* (read-only data sources) is a natural follow-up but not required to hit the main goal of "more tools."
+- **Match Claude Code's MCP management UX.** Users expect `fam mcp add/list/get/remove/enable/disable` to mirror `claude mcp add/list/get/remove` so muscle memory transfers. The runtime source of truth is an `mcp_servers` SQLite table; `.familiar/config.toml` `[[mcp.servers]]` entries are a *second* source merged in at boot for checked-in project servers. CLI mutations only touch the DB, so no file-watcher or config-reload plumbing is needed — the daemon simply restarts the affected `Familiar.MCP.Client` child after a DB write.
+- **Container is the boundary.** Per Epic 7.6, Familiar has no runtime safety layer — the honest sandbox is the OS. External MCP servers run in the same container as Familiar itself (not in nested sandboxes), so they inherit whatever filesystem and network access the user gave Familiar. The sandboxing docs should explicitly cover this.
+- **No new dependencies unless required.** `Jason` covers the JSON-RPC envelope; Erlang's `Port` covers the subprocess plumbing. No new hex packages expected.
+
+### Story 8-1: MCP Protocol Codec & Dispatcher
+
+As a developer building MCP support,
+I want a pure module that encodes and decodes JSON-RPC 2.0 envelopes plus a method dispatcher,
+So that the client GenServer has a well-tested wire format with no coupling to transport details, and the same codec can be reused by Epic 11 if the server direction ships later.
+
+**Scope:** `Familiar.MCP.Protocol` — `encode_request/3`, `encode_response/3`, `encode_error/3`, `decode/1` (returns `{:request, id, method, params}` / `{:response, id, result}` / `{:error, id, code, message}` / `{:notification, method, params}`). Standard JSON-RPC error codes (`-32700 parse error`, `-32600 invalid request`, `-32601 method not found`, `-32602 invalid params`, `-32603 internal error`). `Familiar.MCP.Dispatcher` — method → handler routing table, each handler is `(params, context) -> {:ok, result} | {:error, code, message}`. 100% coverage; property tests for encode/decode round-trip. Pure module, no GenServer, no IO — transport-agnostic.
+
+### Story 8-2: MCP Client Connection
+
+As an agent author,
+I want Familiar to launch external MCP server subprocesses and register their tools in `ToolRegistry`,
+So that my agents can call GitHub, Postgres, Playwright, and other MCP servers without me writing a new Elixir extension per integration.
+
+**Scope:** `Familiar.MCP.Client` — per-connection GenServer supervised under `Familiar.MCP.ClientSupervisor` (DynamicSupervisor). `start_link(name, command, args, env)` spawns the external server via `Port.open/2` with line framing, performs the MCP `initialize` handshake, calls `tools/list`, and registers each discovered tool in `ToolRegistry` with name `"<namespace>__<tool_name>"` so tools from different MCP servers don't collide. Tool call path: the registered function in `ToolRegistry` translates Familiar args → JSON-RPC `tools/call` → waits for response → translates result back. Env values are expanded through `Familiar.Config.expand_env/1` at launch time so `${VAR}` references resolve to process env. Crash-safe: if the external process dies, the client GenServer cleans up its registered tools and the supervisor restarts it (with an exponential backoff on repeated failures). Connect/call timeouts configurable per-server.
+
+**Friction items baked into scope** (from design review):
+- **Async startup.** Slow-to-initialize MCP servers (ones that load models, establish cloud auth, etc.) must not block daemon boot. The client GenServer returns from `init/1` immediately and does the handshake + `tools/list` in a `handle_continue/2`. Until the handshake completes, its state is `:connecting`; `ToolRegistry` calls to an unregistered tool return `{:error, :tool_not_yet_available}` with a helpful message.
+- **Explicit status state machine.** `:connecting`, `:connected`, `:handshake_failed`, `:crashed`, `:disabled`, `:unreachable` — no lumping into a single "error" bucket. Each state has a reason string surfaced by `fam mcp list` / `fam mcp get`.
+- **Reserved tool-name prefixes.** Reject server names that would collide with built-in tools (check against `ToolRegistry.list/0` at server-creation time in Story 8-3), and reserve `fam_` as a prefix Familiar may use for future built-ins.
+- **Graceful degradation on removal.** If an agent is mid-call when a server is removed, the in-flight call returns `{:error, :mcp_server_removed}` instead of crashing the agent process.
+
+### Story 8-3: MCP Server Storage & Client Extension
+
+As a Familiar user,
+I want MCP server configurations stored durably so CLI-added servers persist across daemon restarts and `config.toml`-declared servers load automatically,
+So that I can manage MCP servers the same way Claude Code does while still supporting checked-in project configs.
+
+**Scope:** Two pieces.
+
+*Storage layer.* New `mcp_servers` table migration: `name` (unique), `command`, `args_json`, `env_json`, `disabled` (bool), `read_only` (bool), timestamps. `Familiar.MCP.Servers` context module with `list/0`, `get/1`, `create/1`, `update/2`, `delete/1`, `enable/1`, `disable/1` functions returning `{:ok, server}` / `{:error, changeset | :not_found}`. Changeset validates name format (`^[a-z][a-z0-9_-]*$` so it's safe as a tool-name prefix), rejects names that collide with built-in `ToolRegistry` entries or the reserved `fam_` prefix, requires `command`, JSON-encodes `args` and `env`. Env values support `${VAR}` interpolation resolved at client-launch time (not at write time) so secrets aren't stored literally — **reuse the existing `Familiar.Config.expand_env/1` helper** at `familiar/lib/familiar/config.ex:265` (already used for provider `api_key` / `base_url` / `chat_model` / `embedding_model` settings). It's currently `defp`; promote it to `def` (or extract to a small `Familiar.Config.EnvExpander` module) as part of this story so `Familiar.MCP.Client` can call it without duplicating the regex. Document the `${VAR}` syntax in the changeset doc and `fam mcp add --help`.
+
+*Client extension.* `Familiar.Extensions.MCPClient` implements `Familiar.Extension`. On init, builds its server list by merging two sources: (1) rows from `Familiar.MCP.Servers.list/0` (source = `:db`), (2) `[[mcp.servers]]` entries from `.familiar/config.toml` (source = `:config`). DB entries win on name collision; a warning is logged if a name appears in both. For each enabled entry, starts a `Familiar.MCP.Client` child under the extension's supervisor (Story 8-2). The extension exposes `reload_server/1` so the management CLI (Story 8-4) can trigger a single-server restart after a DB mutation without bouncing the whole extension. `fam extensions` output shows each connected MCP server with its source marker (`db` or `config`), status (from the Story 8-2 state machine), and discovered tool count. Configuration errors (missing command, unreachable server) log warnings and keep the extension alive with the bad server in an error state — they do not crash boot.
+
+*`--read-only` semantics.* The `read_only` flag on an `mcp_servers` row is a **capability filter**, not a safety veto. When it's set, the client registers only the tools whose names match a read-only name pattern (default allowlist: `list_*`, `get_*`, `read_*`, `search_*`, `query_*`, `describe_*`, `show_*`, `fetch_*`); all other discovered tools are simply not added to `ToolRegistry` for that server. The pattern list is configurable per server via an optional `read_only_patterns` field in Story 8-4's `add-json`. This is honest: "we don't register write tools" is a true statement; "we veto write tools at runtime" would be the Safety theater that Epic 7.6 removed.
+
+### Story 8-4: `fam mcp` Management CLI
+
+As a Familiar user,
+I want `fam mcp add/list/get/remove/enable/disable` subcommands that mirror Claude Code's MCP UX,
+So that managing MCP servers feels identical across the two tools and doesn't require hand-editing TOML for every change.
+
+**Scope:** New `fam mcp` command group with management subcommands, all writing to the `mcp_servers` table via `Familiar.MCP.Servers` and triggering a live reload via `Familiar.Extensions.MCPClient.reload_server/1`.
+
+- `fam mcp add <name> <command> [args...] [--env KEY=VALUE]... [--read-only] [--disabled]` — inserts a new row. Refuses if name already exists in DB; warns and refuses if name collides with a `config.toml` entry. Prints the resulting config in the same format as `get`. Supports repeated `--env` flags for multiple vars. **Literal-secret warning:** if any `--env` value does not contain `${VAR}` / `$VAR` (i.e. the user pasted a raw token), emit a prominent warning to stderr: `"Note: <KEY> was stored as a literal value. To reference an environment variable instead, use --env <KEY>='${<KEY>}'. The literal value is now in the .familiar database and your shell history."` Still performs the insert (the user may have reasons) but makes sure they know.
+- `fam mcp add <name> <command> [args...] --validate` — optional flag that does a one-shot dry-run connect after insert: launches the subprocess, runs the handshake, calls `tools/list`, prints the discovered tool count, then tears down. If the dry-run fails, prints the error and asks `"Save anyway? [y/N]"` (interactive) or returns a non-zero exit (non-interactive / `--json`). Off by default so CI scripts aren't surprised, but prominently documented as recommended.
+- `fam mcp add-json <name> <json>` — same as `add` but takes a JSON blob for complex configs (matches `claude mcp add-json`). JSON shape: `{"command": "...", "args": [...], "env": {...}, "read_only": false, "disabled": false, "read_only_patterns": ["list_*", "get_*"]}`.
+- `fam mcp list [--json]` — prints a table of all known servers (DB + config.toml merged view) with columns: `NAME`, `SOURCE` (db/config), `STATUS` (`connected` / `connecting` / `handshake_failed` / `crashed` / `disabled` / `unreachable`), `TOOLS` (count), `COMMAND` (truncated to 40 chars; full command shown by `get`). `--json` emits the standard `Familiar.CLI.Output` data envelope with non-truncated fields.
+- `fam mcp get <name> [--json] [--show-env]` — prints full details for one server: command, full args, env keys (values redacted unless `--show-env`), source, status + reason, discovered tool names. Errors with `:mcp_server_not_found` if absent.
+- `fam mcp remove <name>` — deletes a DB row and tears down the client child. If the name only exists in `config.toml`, errors with `:mcp_server_config_only` and tells the user to edit the TOML file directly (do NOT offer to edit it for them — that's out of scope and footgun-prone). Any in-flight tool calls to that server return `{:error, :mcp_server_removed}` (per Story 8-2 graceful-degradation note).
+- `fam mcp enable <name>` / `fam mcp disable <name>` — flips the `disabled` flag on a DB row and live-reloads the client (enable triggers a fresh start, disable tears down). Config-sourced servers get the same `:mcp_server_config_only` error.
+
+*Project-dir resolution.* All subcommands support `--project-dir` via the existing `Familiar.Daemon.Paths` plumbing. When the daemon is running, CLI mutations go through the daemon RPC so there's a single DB writer. When the daemon is not running, the CLI opens a short-lived Repo connection, performs the write, and exits — the next daemon boot picks up the change. This matches how other `fam` CLI mutation commands already work.
+
+*Error envelopes.* New error atoms: `:mcp_server_not_found`, `:mcp_server_name_taken`, `:mcp_server_config_only`, `:mcp_server_invalid_name`, `:mcp_server_invalid_json`, `:mcp_server_reserved_prefix`. Each has a friendly message in `Familiar.CLI.Output.error_message/2`. Each command has CLI-level tests covering the happy path and at least two error paths.
+
+*Post-MVP:* `fam mcp import-claude` that reads `~/.claude.json` and bulk-imports existing Claude Code server entries with a `--dry-run` preview. Big adoption win — users hate re-typing — but the epic can ship without it. Flagged here so future stories don't step on the naming.
+
+### Story 8-5: MCP Client Integration Test
+
+As a developer,
+I want an end-to-end test that runs the MCP client against a scripted fake MCP server,
+So that a regression in codec, client connection, tool registration, or management CLI shows up before release.
+
+**Scope:** Spins up a scripted fake MCP server (either an Elixir `GenServer` pretending to be a subprocess via a paired `Port` shim, or a tiny standalone Elixir escript the test launches via `Port.open/2` to exercise the real subprocess path). Test flow:
+
+1. Daemon boot with no MCP servers configured — extension starts clean.
+2. `fam mcp add` a fake server — row lands in DB, `reload_server/1` starts the client, handshake completes, tools appear in `ToolRegistry`.
+3. Agent calls one of the registered tools — request round-trips to the fake server, response lands back in the agent.
+4. `fam mcp list` shows the server with status `:connected` and correct tool count.
+5. `fam mcp disable` the server — client tears down, tools disappear from `ToolRegistry`, subsequent calls return `:tool_not_yet_available`.
+6. `fam mcp enable` the server — client restarts, tools reappear.
+7. `fam mcp remove` the server — row gone, tools gone, in-flight call (simulated) returns `:mcp_server_removed`.
+8. `config.toml`-sourced server with same name as a DB server — warning logged, DB wins, `fam mcp list` shows both source markers via the merged view if the DB row is later removed.
+9. Fake server crashes mid-handshake — status transitions to `:handshake_failed` with reason, subsequent `reload_server/1` retries cleanly.
+10. Literal-secret warning fires when `fam mcp add --env TOKEN=ghp_xxx` is called with a non-`${VAR}` value.
+
+Uses `Familiar.DataCase` for Repo setup. Flake stress test per the zero-tolerance policy (50 runs).
+
+---
+
+**Epic 8 Summary:** 5 stories. Ships the MCP client half: Familiar can consume any MCP server from the growing ecosystem as a drop-in tool provider, with management UX (`fam mcp add/list/get/remove/enable/disable`) that mirrors Claude Code's so muscle memory transfers. Storage is an `mcp_servers` SQLite table; `config.toml` `[[mcp.servers]]` is a second source for checked-in project servers. `--read-only` is a capability filter, not a safety veto (Epic 7.6 removed the safety layer entirely; the honest boundary is the container). The server direction — Familiar exposing its tools to editors over stdio — is deferred to Epic 11 post-MVP on the grounds that pointing editors at the existing `fam` CLI gives you the integration already.
+
+Post-MVP (beyond Epic 11): HTTP/SSE transport for remote MCP servers, MCP resources consumption (read-only data sources from external servers), MCP prompts capability, sampling (MCP-initiated LLM calls), `fam mcp import-claude` bulk import.
+
+---
+
+## Epic 11: MCP Server Support (5 stories — post-MVP, drafted 2026-04-10)
+
+**Post-MVP.** Expose Familiar's tools and knowledge entries to external MCP clients (Claude Code, Cursor, VS Code, Windsurf, Zed, any future MCP-aware editor) over stdio. When this ships, a developer can drop `"familiar": {"command": "fam", "args": ["mcp", "serve"]}` into their editor's MCP config and their editor's agent gets direct access to Familiar's tool set, knowledge store, and workflows without leaving the editor.
+
+**Why deferred:** Epic 8 (MCP client) is much higher-leverage: users augmenting Familiar with the entire npm/PyPI MCP server ecosystem > Familiar augmenting one editor at a time. And users who want Claude Code to drive Familiar already have a path — point it at the documented `fam` CLI commands, which are fully JSON-output-capable via `--output json`. MCP server support is a nice-to-have for deep editor integration; it's not on the critical path to a shippable product.
+
+**Why keep it drafted now:** Epic 8 ships `Familiar.MCP.Protocol` as a pure transport-agnostic codec. Writing Epic 11 now, even as a deferred draft, validates that the codec API will actually work for the server direction and prevents Epic 8 from accidentally coupling the codec to client-specific assumptions.
+
+**Design principles:**
+- **Reuse the codec.** `Familiar.MCP.Protocol` and `Familiar.MCP.Dispatcher` from Epic 8 Story 8-1 are transport-agnostic — Epic 11 adds a stdio *server* transport on top, not a new codec.
+- **stdio only, no HTTP.** Editors spawn MCP servers as subprocesses over stdio. HTTP/SSE transport for LAN-exposed daemons is a separate concern and belongs in a later epic if at all.
+- **Tools and resources, not prompts and sampling.** The post-MVP MVP (so to speak) ships `tools/list`, `tools/call`, `resources/list`, `resources/read`. Prompts (editor-side autocomplete templates) and sampling (MCP-initiated LLM calls back into the client) stay out of scope until someone can point at a concrete user need.
+- **No safety layer.** Per Epic 7.6, Familiar has no runtime safety. When Familiar is an MCP server, the editor's agent can call `write_file` or `run_command` without any prompt or veto — the expectation is that users running this are running Familiar inside a container (per `docs/sandboxing.md` from Story 7.6-2). The `fam mcp serve --read-only` flag is a *capability filter* — write tools simply aren't registered with the dispatcher in read-only mode, so the editor doesn't see them at all. No runtime check, no veto, no confirmation prompt; if a tool is in the response to `tools/list`, it can be called.
+
+### Story 11-1: MCP Server Stdio Transport
+
+As a developer building MCP server support,
+I want a `Familiar.MCP.StdioTransport` GenServer that reads line-delimited JSON-RPC from stdin and writes responses to stdout,
+So that editors can spawn Familiar as a subprocess and talk to it over pipes.
+
+**Scope:** GenServer that owns stdin/stdout. Reads line-delimited JSON (the de-facto MCP framing). Passes decoded requests to an injected dispatcher and writes the result back. Handles partial reads, malformed JSON (returns `-32700` to stderr log + ignores), EOF (graceful shutdown). Injectable `:input_device` and `:output_device` opts so tests can use `StringIO`. Crash-safe: a handler raise returns `-32603` instead of killing the transport. Reuses `Familiar.MCP.Protocol` from Epic 8 Story 8-1 for encoding/decoding.
+
+### Story 11-2: MCP Server — Tools Capability
+
+As an editor user,
+I want Familiar to expose its tool registry via MCP's `tools/list` and `tools/call` methods,
+So that my editor's agent can call Familiar's tools — read files, spawn sub-agents, run workflows — without leaving the editor.
+
+**Scope:** `Familiar.MCP.Server.Tools` — implements the MCP `tools/list` and `tools/call` methods on top of `Familiar.Execution.ToolRegistry`. `tools/list` walks the registry, serializes each tool's name, description, and parameter schema into MCP format (reuse `Familiar.Execution.ToolSchemas.for_tools/1`). `tools/call` dispatches through `ToolRegistry.dispatch/3`. Error mapping: tool timeouts → structured MCP error; unknown tool → `-32601`; runtime errors → `-32603` with the tool's error message. Implements the MCP handshake (`initialize`, `initialized` notification) — capabilities advertise `tools` only for this story. Excludes the MCP-client-registered tools from Story 8-2 by default (they come from external MCP servers; re-exposing them would create a loop if an editor happens to use both Familiar and one of the same external servers). A `--include-mcp-tools` flag on `fam mcp serve` lets users override if they know what they're doing.
+
+### Story 11-3: MCP Server — Resources Capability
+
+As an editor user,
+I want Familiar's knowledge store to be browseable and readable via MCP `resources/list` and `resources/read`,
+So that my editor can surface Familiar's learned conventions and decisions as pinned context without re-embedding my codebase.
+
+**Scope:** Extends `Familiar.MCP.Server` capabilities with `resources`. `resources/list` returns every `Familiar.Knowledge.Entry` as a resource with URI `familiar://knowledge/{id}`, `name` = first 60 chars of text, `mimeType` = `text/plain`, and metadata block (type, source, source_file, inserted_at). `resources/read` fetches an entry by URI and returns the full text. Pagination via MCP `cursor` pattern (100 entries per page default).
+
+### Story 11-4: `fam mcp serve` CLI Subcommand
+
+As a developer configuring my editor,
+I want a `fam mcp serve` command that runs Familiar as an MCP stdio server,
+So that I can drop `"familiar": {"command": "fam", "args": ["mcp", "serve"]}` into my editor's MCP config and be done.
+
+**Scope:** Adds the `serve` subcommand to the `fam mcp` command group (the group itself already exists from Epic 8 Story 8-4). `fam mcp serve` boots the full application (Repo, ToolRegistry, extensions), then starts `Familiar.MCP.StdioTransport` with the server dispatcher. Blocks until stdin closes. Supports `--json-rpc-debug` to log every request/response pair to stderr (useful while editors debug their MCP config). Supports `--read-only` as a capability filter that only registers read-class tools with the dispatcher (same name-pattern allowlist as Story 8-3's per-server `read_only` field — `list_*`, `get_*`, `read_*`, `search_*`, `query_*`, `describe_*`, `show_*`, `fetch_*`). Supports `--include-mcp-tools` to also expose tools that came from external MCP servers (off by default — see Story 11-2 rationale). Updates `fam --help` with an MCP server section and configuration snippets for Claude Code, Cursor, VS Code, and Zed.
+
+**Project-dir resolution.** Delegates to `Familiar.Daemon.Paths.resolve_project_dir/1` (delivered by Story 7.5-8). `fam mcp serve` passes its `--project-dir` value through; env var and walk-up fallbacks are handled by the shared resolver. If resolution fails, this story's one additional responsibility is reframing the `:project_dir_unresolvable` error to include the editor-config snippet alongside the shell syntax:
+
+```json
+"familiar": {
+  "command": "fam",
+  "args": ["mcp", "serve"],
+  "env": {"FAMILIAR_PROJECT_DIR": "/absolute/path/to/project"}
+}
+```
+
+Because walk-up lookup is part of the shared resolver, editors that spawn `fam mcp serve` with their own cwd inside a project tree will "just work" without any env-var plumbing — the resolver finds `.familiar/` by walking up from wherever the editor happened to be.
+
+**Daemon coexistence.** If the Familiar daemon is already running for the same project, two Repo writers to the same SQLite file = lock contention. Decision deferred to implementation: either (a) `fam mcp serve` detects a live daemon via the existing daemon socket and proxies tool calls through it instead of opening its own Repo, or (b) it refuses to start with a clear `"daemon already running for this project — stop it first or use a different project dir"` error. Option (a) is strictly better UX; option (b) is a valid fallback if (a) proves too complex. This story must pick one and document the choice.
+
+### Story 11-5: MCP Server Integration Test
+
+As a developer,
+I want an end-to-end test that runs the MCP server against a scripted fake MCP client,
+So that a regression in transport, dispatcher, tools capability, or resources capability shows up before release.
+
+**Scope:** Spins up `Familiar.MCP.StdioTransport` wired to paired `StringIO` devices. A test-side fake client sends JSON-RPC requests via the input device and reads responses from the output device. Test flow: (1) `initialize` handshake, (2) `tools/list` returns every built-in tool in `ToolRegistry`, (3) `tools/call` on `read_file` inside the project dir succeeds, (4) `tools/call` on a non-existent tool returns `-32601`, (5) `resources/list` returns a paginated knowledge entry list with correct cursor behavior, (6) `resources/read` on a known URI returns the full text, (7) malformed JSON on input returns `-32700` and the transport stays alive, (8) `--read-only` mode only lists read-pattern tools and returns `-32601` for write tools, (9) EOF on stdin gracefully shuts the transport down. Uses `Familiar.DataCase` for Repo setup. Flake stress test per the zero-tolerance policy (50 runs).
+
+---
+
+**Epic 11 Summary:** 5 stories. Post-MVP. Ships the MCP server half — Familiar exposed to editors over stdio. Reuses the codec/dispatcher from Epic 8 Story 8-1. No runtime safety (per Epic 7.6); `--read-only` is a capability filter; sandboxing is the container. Deferred indefinitely — promotable to active if and when editor integration becomes a priority and the `fam` CLI route isn't enough. Post-epic: HTTP/SSE transport, MCP prompts, MCP sampling.

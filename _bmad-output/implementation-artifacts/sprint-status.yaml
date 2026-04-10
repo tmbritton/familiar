@@ -39,6 +39,13 @@
 
 generated: '2026-04-01'
 last_updated: '2026-04-10'
+# Epic 8 drafted 2026-04-10 — 5 stories covering MCP CLIENT support: protocol
+# codec, client connection (Port-based subprocess), mcp_servers storage + client
+# extension, `fam mcp add/list/get/remove` management CLI matching Claude Code's
+# UX, and integration test. MCP server direction (Familiar exposed to editors
+# over stdio) split out to Epic 11 post-MVP on 2026-04-10 — users can already
+# point editors at the documented `fam` CLI for that integration.
+# Details in _bmad-output/planning-artifacts/epics.md.
 project: familiar
 project_key: NOKEY
 tracking_system: file-system
@@ -156,11 +163,39 @@ development_status:
   7.5-5-cwd-audit-project-paths: done
   7.5-6-true-workflow-resume: done
   7.5-7-openai-compatible-embedder: done
+  # 7.5-8 added 2026-04-10 — pulled forward from Epic 11 Story 11-4 after
+  # recognizing the project-dir resolution pain already exists for multiple
+  # running processes. Delivers a single resolve_project_dir/1 precedence chain
+  # (explicit flag → FAMILIAR_PROJECT_DIR → cwd walk-up to .familiar/ → hard
+  # error), validates the resolved dir is a Familiar project, adds a `fam where`
+  # debug command, and standardizes error messages across all entry points.
+  7.5-8-project-dir-resolution-hardening: backlog
 
-  # Epic 8: MCP Support — stories TBD
-  # Familiar as MCP server (expose tools to editors) and MCP client (use external MCP servers).
-  # Enables Claude Code, Cursor, VS Code integration without custom UI.
+  # Epic 7.6: Safety Removal & Sandboxing Posture (3 stories — drafted 2026-04-10)
+  # Removes Familiar.Extensions.Safety (name-pattern matching on dangerous tool
+  # names — false confidence against an adversarial LLM). Replaces with a prominent
+  # sandboxing warning surface, reference Dockerfile, and docs/sandboxing.md.
+  # Container becomes the honest boundary. Runs before Epic 8 so MCP support
+  # builds on the new posture.
+  epic-7.6: backlog
+  7.6-1-remove-safety-extension: backlog
+  7.6-2-sandboxing-warning-and-container: backlog
+  7.6-3-planning-docs-reframing: backlog
+
+  # Epic 8: MCP Client Support (5 stories — drafted 2026-04-10, split 2026-04-10)
+  # Familiar consumes external MCP servers (GitHub, Linear, Postgres, Playwright,
+  # etc.) as drop-in tool providers. CLI management (add/list/get/remove/enable/
+  # disable) mirrors Claude Code's UX, backed by a mcp_servers SQLite table.
+  # config.toml [[mcp.servers]] entries merge in as a second source for
+  # checked-in project servers. Runtime source of truth is the DB; --read-only
+  # is a capability filter (tools not registered), not a safety veto.
+  # Server direction split out to Epic 11 post-MVP.
   epic-8: backlog
+  8-1-mcp-protocol-codec: backlog
+  8-2-mcp-client-connection: backlog
+  8-3-mcp-server-storage-and-extension: backlog
+  8-4-fam-mcp-management-cli: backlog
+  8-5-mcp-client-integration-test: backlog
 
   # Epic 9: Terminal UI (Ratatouille) — stories TBD
   # Split-pane TUI with streaming responses, tool visibility, agent status.
@@ -174,3 +209,18 @@ development_status:
   # Epic 10: Web UI Extension (placeholder)
   # [Reordered] LiveView dashboard, multi-user, agent node graph. Optional — headless is valid.
   epic-10: backlog
+
+  # Epic 11: MCP Server Support (5 stories — post-MVP, drafted 2026-04-10)
+  # Familiar exposes its tools + knowledge entries to editors (Claude Code,
+  # Cursor, VS Code, Zed) over MCP stdio. Split out from Epic 8 on 2026-04-10.
+  # Deferred because the fam CLI already gives editors a usable integration
+  # path (point their agent at the documented fam commands) and the MCP client
+  # direction (Epic 8) is strictly higher leverage. Reuses the codec from
+  # Epic 8 Story 8-1. --read-only is a capability filter, not a safety veto
+  # (per Epic 7.6 — container is the boundary).
+  epic-11: post-mvp
+  11-1-mcp-server-stdio-transport: post-mvp
+  11-2-mcp-server-tools: post-mvp
+  11-3-mcp-server-resources: post-mvp
+  11-4-fam-mcp-serve-cli: post-mvp
+  11-5-mcp-server-integration-test: post-mvp
