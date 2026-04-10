@@ -28,6 +28,7 @@ defmodule Familiar.Execution.AgentProcess do
   alias Familiar.Conversations
   alias Familiar.Execution.PromptAssembly
   alias Familiar.Execution.ToolRegistry
+  alias Familiar.Execution.ToolSchemas
   alias Familiar.Hooks
   alias Familiar.Roles
 
@@ -234,13 +235,15 @@ defmodule Familiar.Execution.AgentProcess do
     else
       remaining_ms = state.task_timeout_ms - elapsed
 
-      {messages, _tools, assembly_meta} =
+      {messages, tool_names, assembly_meta} =
         PromptAssembly.assemble(%{
           role: state.role,
           skills: state.skills,
           task: state.task,
           messages: Enum.reverse(state.messages)
         })
+
+      tool_schemas = ToolSchemas.for_tools(tool_names)
 
       if assembly_meta.truncated do
         Logger.info(
@@ -256,7 +259,9 @@ defmodule Familiar.Execution.AgentProcess do
       task =
         Task.Supervisor.async_nolink(
           Familiar.TaskSupervisor,
-          fn -> Familiar.Providers.chat(messages, model: state.role.model) end
+          fn ->
+            Familiar.Providers.chat(messages, model: state.role.model, tools: tool_schemas)
+          end
         )
 
       timer_id = make_ref()
