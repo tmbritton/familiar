@@ -21,7 +21,7 @@ defmodule Familiar.Execution.FileWatcher do
 
   ## Options
 
-    * `:project_dir` — directory to watch (default: `File.cwd!/0`)
+    * `:project_dir` — directory to watch (default: `Familiar.Daemon.Paths.project_dir/0`)
     * `:debounce_ms` — settle time per file in milliseconds (default: 500)
     * `:ignore_patterns` — list of path prefixes to ignore
       (default: `[".git/", "_build/", "deps/", "node_modules/", ".familiar/"]`)

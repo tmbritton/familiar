@@ -25,6 +25,8 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
 
   require Logger
 
+  alias Familiar.Daemon.Paths
+
   @default_base_url "https://api.deepseek.com/v1"
   @default_chat_model "deepseek-chat"
   @default_receive_timeout 120_000
@@ -213,16 +215,7 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
   end
 
   defp load_project_config do
-    config_path =
-      Path.join([
-        Application.get_env(:familiar, :project_dir) ||
-          System.get_env("FAMILIAR_PROJECT_DIR") ||
-          File.cwd!(),
-        ".familiar",
-        "config.toml"
-      ])
-
-    case Familiar.Config.load(config_path) do
+    case Familiar.Config.load(Paths.config_path()) do
       {:ok, config} -> config.provider
       _ -> %{}
     end

@@ -9,6 +9,7 @@ defmodule Familiar.Execution.Tools do
   """
 
   alias Familiar.Activity
+  alias Familiar.Daemon.Paths
   alias Familiar.Execution.AgentProcess
   alias Familiar.Execution.AgentSupervisor
   alias Familiar.Execution.WorkflowRunner
@@ -163,7 +164,7 @@ defmodule Familiar.Execution.Tools do
   end
 
   defp resolve_workflow_path(path) do
-    project_dir = Application.get_env(:familiar, :project_dir, File.cwd!())
+    project_dir = Paths.project_dir()
     expanded = Path.expand(path, project_dir)
 
     cond do

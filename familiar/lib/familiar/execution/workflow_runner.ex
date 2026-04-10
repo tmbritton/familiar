@@ -28,6 +28,7 @@ defmodule Familiar.Execution.WorkflowRunner do
 
   require Logger
 
+  alias Familiar.Daemon.Paths
   alias Familiar.Execution.AgentSupervisor
   alias Familiar.Execution.ToolRegistry
 
@@ -114,7 +115,7 @@ defmodule Familiar.Execution.WorkflowRunner do
   """
   @spec list_workflows(keyword()) :: {:ok, [Workflow.t()]}
   def list_workflows(opts \\ []) do
-    familiar_dir = Keyword.get(opts, :familiar_dir, Path.join(File.cwd!(), ".familiar"))
+    familiar_dir = Keyword.get_lazy(opts, :familiar_dir, &Paths.familiar_dir/0)
     workflows_dir = Path.join(familiar_dir, "workflows")
 
     case File.ls(workflows_dir) do

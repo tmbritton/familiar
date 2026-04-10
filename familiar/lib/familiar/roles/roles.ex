@@ -11,6 +11,7 @@ defmodule Familiar.Roles do
 
   require Logger
 
+  alias Familiar.Daemon.Paths
   alias Familiar.Roles.{Loader, Role, Skill, Validator}
 
   @doc """
@@ -18,7 +19,7 @@ defmodule Familiar.Roles do
 
   ## Options
 
-    * `:familiar_dir` - path to `.familiar/` directory (default: `File.cwd!()/.familiar`)
+    * `:familiar_dir` - path to `.familiar/` directory (default: `Paths.familiar_dir/0`)
 
   Returns `{:ok, %Role{}}` or `{:error, {atom, map}}`.
   """
@@ -48,7 +49,7 @@ defmodule Familiar.Roles do
 
   ## Options
 
-    * `:familiar_dir` - path to `.familiar/` directory (default: `File.cwd!()/.familiar`)
+    * `:familiar_dir` - path to `.familiar/` directory (default: `Paths.familiar_dir/0`)
 
   Returns `{:ok, %Skill{}}` or `{:error, {atom, map}}`.
   """
@@ -171,7 +172,7 @@ defmodule Familiar.Roles do
   # -- Private --
 
   defp familiar_dir(opts) do
-    Keyword.get_lazy(opts, :familiar_dir, fn -> Path.join(File.cwd!(), ".familiar") end)
+    Keyword.get_lazy(opts, :familiar_dir, fn -> Paths.familiar_dir() end)
   end
 
   defp roles_dir(opts), do: Path.join(familiar_dir(opts), "roles")

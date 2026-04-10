@@ -38,7 +38,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: '2026-04-01'
-last_updated: '2026-04-04'
+last_updated: '2026-04-10'
 project: familiar
 project_key: NOKEY
 tracking_system: file-system
@@ -153,7 +153,7 @@ development_status:
   7.5-2-dockerfile-containerization: done
   7.5-3-native-escript-runner: done
   7.5-4-multi-provider-config: done
-  7.5-5-cwd-audit-project-paths: backlog
+  7.5-5-cwd-audit-project-paths: done
   7.5-6-true-workflow-resume: backlog
   7.5-7-openai-compatible-embedder: backlog
 

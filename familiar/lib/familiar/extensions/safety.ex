@@ -14,12 +14,14 @@ defmodule Familiar.Extensions.Safety do
 
   ## Configuration
 
-    * `:project_dir` — sandbox root directory (default: `File.cwd!/0`)
+    * `:project_dir` — sandbox root directory (default: `Familiar.Daemon.Paths.project_dir/0`)
     * `:allowed_commands` — list of permitted command prefixes
       (default: `["mix test", "mix format", "mix credo", "mix compile", "mix deps.get"]`)
   """
 
   @behaviour Familiar.Extension
+
+  alias Familiar.Daemon.Paths
 
   @default_allowed_commands [
     "mix test",
@@ -60,7 +62,7 @@ defmodule Familiar.Extensions.Safety do
   def init(opts) do
     project_dir =
       opts
-      |> Keyword.get_lazy(:project_dir, &File.cwd!/0)
+      |> Keyword.get_lazy(:project_dir, &Paths.project_dir/0)
       |> Path.expand()
 
     allowed_commands = Keyword.get(opts, :allowed_commands, @default_allowed_commands)
@@ -187,14 +189,16 @@ defmodule Familiar.Extensions.Safety do
   defp load_config do
     case :ets.whereis(@ets_table) do
       :undefined ->
-        %{project_dir: File.cwd!(), allowed_commands: @default_allowed_commands}
+        %{project_dir: default_project_dir(), allowed_commands: @default_allowed_commands}
 
       _ref ->
-        project_dir = ets_get(:project_dir, File.cwd!())
+        project_dir = ets_get(:project_dir, default_project_dir())
         allowed_commands = ets_get(:allowed_commands, @default_allowed_commands)
         %{project_dir: project_dir, allowed_commands: allowed_commands}
     end
   end
+
+  defp default_project_dir, do: Path.expand(Paths.project_dir())
 
   defp ets_get(key, default) do
     case :ets.lookup(@ets_table, key) do
