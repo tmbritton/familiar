@@ -144,6 +144,12 @@ defmodule Familiar.CLI.Output do
   defp error_message(:invalid_config, %{field: field, reason: reason}),
     do: "Invalid configuration: #{field} — #{reason}"
 
+  defp error_message(:workflow_timeout, _),
+    do: "Session timed out. Run the command again to continue."
+
+  defp error_message(:chat_timeout, _),
+    do: "Chat session timed out. Run `fam chat --resume` to continue."
+
   defp error_message(:not_found, %{id: id}), do: "Entry not found: #{id}"
   defp error_message(:not_found, _), do: "Entry not found"
 

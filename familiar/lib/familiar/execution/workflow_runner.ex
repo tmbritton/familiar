@@ -59,7 +59,8 @@ defmodule Familiar.Execution.WorkflowRunner do
 
   # ETS table for agent_id → runner_pid mapping
   @registry_table :familiar_workflow_registry
-  @default_timeout_ms 300_000
+  # 30 minutes — interactive workflows need time for human thinking
+  @default_timeout_ms 1_800_000
 
   # -- Tool Registration --
 

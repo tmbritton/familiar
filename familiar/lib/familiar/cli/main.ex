@@ -972,7 +972,8 @@ defmodule Familiar.CLI.Main do
       {:DOWN, ^ref, :process, ^pid, reason} ->
         {:error, {:chat_crashed, %{reason: reason}}}
     after
-      600_000 ->
+      # 30 minutes — chat sessions need time for human thinking
+      1_800_000 ->
         Process.demonitor(ref, [:flush])
 
         {:error,
