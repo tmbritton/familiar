@@ -151,8 +151,26 @@ development_status:
   epic-7.5: in-progress
   7.5-1-openai-compatible-provider: done
   7.5-2-dockerfile-containerization: done
-  7.5-3-native-escript-runner: ready-for-dev
+  7.5-3-native-escript-runner: done
+  7.5-4-multi-provider-config: done
+  7.5-5-cwd-audit-project-paths: backlog
+  7.5-6-true-workflow-resume: backlog
+  7.5-7-openai-compatible-embedder: backlog
 
-  # Epic 8: Web UI Extension (placeholder)
-  # [Reordered 2026-04-04] Was Epic 7. Web UI is optional and builds on CLI commands.
+  # Epic 8: MCP Support — stories TBD
+  # Familiar as MCP server (expose tools to editors) and MCP client (use external MCP servers).
+  # Enables Claude Code, Cursor, VS Code integration without custom UI.
   epic-8: backlog
+
+  # Epic 9: Terminal UI (Ratatouille) — stories TBD
+  # Split-pane TUI with streaming responses, tool visibility, agent status.
+  epic-9: backlog
+  9-1-ratatouille-scaffold: backlog
+  9-2-streaming-responses: backlog
+  9-3-tool-call-pane: backlog
+  9-4-agent-status-pane: backlog
+  9-5-chat-history-scroll: backlog
+
+  # Epic 10: Web UI Extension (placeholder)
+  # [Reordered] LiveView dashboard, multi-user, agent node graph. Optional — headless is valid.
+  epic-10: backlog
