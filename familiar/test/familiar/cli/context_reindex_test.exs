@@ -131,6 +131,26 @@ defmodule Familiar.CLI.ContextReindexTest do
       assert output =~ "text-embedding-3-small"
     end
 
+    test "preserves the actual error reason in each error line (no aggressive truncation)" do
+      formatter = Main.text_formatter("context")
+
+      result = %{
+        reindex: %{
+          processed: 0,
+          failed: 1,
+          errors: [{42, {:provider_unavailable, %{reason: :rate_limited, retry_after: 30}}}],
+          model: "text-embedding-3-small",
+          dimensions: 1536
+        }
+      }
+
+      output = formatter.(result)
+      assert output =~ "entry #42"
+      assert output =~ "provider_unavailable"
+      assert output =~ "rate_limited"
+      assert output =~ "retry_after"
+    end
+
     test "includes up to 10 error entries" do
       formatter = Main.text_formatter("context")
 
@@ -168,6 +188,51 @@ defmodule Familiar.CLI.ContextReindexTest do
 
       output = formatter.(result)
       assert output =~ "unset"
+    end
+  end
+
+  describe "throttle_progress/5" do
+    # Pure helper — no time manipulation needed. These tests cover the
+    # non-final-case path that the higher-level context_reindex test can't
+    # exercise deterministically without sleeping.
+
+    test "first call before 500ms suppresses" do
+      # start_ms = 1000, now = 1100 (100ms elapsed), no prior fire.
+      assert Main.throttle_progress(1100, 1000, 0, 1, 10) == :suppress
+    end
+
+    test "first call past 500ms fires and records new offset" do
+      # start_ms = 1000, now = 1600 (600ms elapsed), no prior fire.
+      assert Main.throttle_progress(1600, 1000, 0, 1, 10) == {:fire, 600}
+    end
+
+    test "second call within 500ms of first fire suppresses" do
+      # start_ms = 1000, last fire at 1600 (offset 600), now = 1800 (200ms later).
+      assert Main.throttle_progress(1800, 1000, 600, 2, 10) == :suppress
+    end
+
+    test "second call past 500ms of first fire fires and records offset" do
+      # start_ms = 1000, last fire at 1600 (offset 600), now = 2200 (600ms later).
+      assert Main.throttle_progress(2200, 1000, 600, 3, 10) == {:fire, 1200}
+    end
+
+    test "final call (processed == total) always fires regardless of timing" do
+      # Just fired 100ms ago — throttle would normally suppress — but this
+      # is the terminal entry so the user must see it.
+      assert Main.throttle_progress(1100, 1000, 100, 10, 10) == {:fire, 100}
+    end
+
+    test "final call fires even as the very first callback" do
+      # Single-entry reindex: first and last callback are the same.
+      assert Main.throttle_progress(1050, 1000, 0, 1, 1) == {:fire, 50}
+    end
+
+    test "elapsed_since_last exactly 500ms fires (boundary)" do
+      assert Main.throttle_progress(1500, 1000, 0, 1, 10) == {:fire, 500}
+    end
+
+    test "elapsed_since_last 499ms suppresses (just under boundary)" do
+      assert Main.throttle_progress(1499, 1000, 0, 1, 10) == :suppress
     end
   end
 end

@@ -633,8 +633,11 @@ defmodule Familiar.Execution.WorkflowRunner do
   end
 
   # Wraps a persistence call so DB errors or repo-not-running crashes
-  # never propagate out of the runner GenServer.
-  defp safe_call(fun) do
+  # never propagate out of the runner GenServer. Exposed via `@doc false`
+  # so tests can exercise both branches directly without stubbing the
+  # whole WorkflowRuns module.
+  @doc false
+  def safe_call(fun) do
     fun.()
   rescue
     e -> {:error, {:persistence_exception, e}}

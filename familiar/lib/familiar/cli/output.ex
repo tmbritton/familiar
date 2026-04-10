@@ -49,13 +49,23 @@ defmodule Familiar.CLI.Output do
   end
 
   def format({:error, {type, details}}, :text, _formatter) do
-    detail_str =
-      case details do
-        details when details == %{} -> ""
-        details -> " — #{inspect(details)}"
-      end
+    friendly = error_message(type, details)
+    type_str = to_string(type)
 
-    "Error [#{type}]#{detail_str}"
+    if friendly == type_str do
+      # `error_message/2` falls through to `to_string(type)` for unknown
+      # error types — keep the historical "Error [type] — %{...}" shape so
+      # operator-visible context isn't lost on unrecognized errors.
+      detail_str =
+        case details do
+          details when details == %{} -> ""
+          details -> " — #{inspect(details)}"
+        end
+
+      "Error [#{type}]#{detail_str}"
+    else
+      "Error [#{type}] #{friendly}"
+    end
   end
 
   def format({:ok, data}, :quiet, _formatter) do
@@ -163,5 +173,34 @@ defmodule Familiar.CLI.Output do
   defp error_message(:cancelled, _), do: "Restore cancelled"
   defp error_message(:unknown_command, %{command: cmd}), do: "Unknown command: #{cmd}"
   defp error_message(:usage_error, %{message: msg}), do: msg
+
+  # -- Story 7.5-6 resume errors --
+
+  defp error_message(:no_resumable_workflow, _),
+    do:
+      "No resumable workflow runs found. " <>
+        "Use `fam workflows list-runs` to see all runs, or start a new one with `fam plan/do/fix`."
+
+  defp error_message(:workflow_run_not_found, %{id: id}),
+    do:
+      "Workflow run ##{id} does not exist. " <>
+        "Use `fam workflows list-runs` to see available runs."
+
+  defp error_message(:workflow_already_completed, %{id: id}),
+    do:
+      "Workflow run ##{id} has already completed. " <>
+        "Start a new run with `fam plan/do/fix` or `fam workflows run <path>`."
+
+  defp error_message(:workflow_path_missing, %{id: id}),
+    do:
+      "Workflow run ##{id} has no source workflow path on file — it cannot be resumed. " <>
+        "This happens when a run was started via `run_workflow_parsed` rather than " <>
+        "`run_workflow(path, ...)`."
+
+  defp error_message(:workflow_finalize_failed, %{id: id, reason: reason}),
+    do:
+      "Workflow run ##{id} is stuck past its final step but could not be marked completed " <>
+        "(#{inspect(reason, limit: 50)}). Investigate the database or remove the row manually."
+
   defp error_message(type, _), do: to_string(type)
 end

@@ -813,11 +813,15 @@ defmodule Familiar.CLI.Main do
 
     on_progress = fn processed, total ->
       now = System.monotonic_time(:millisecond)
-      last = :counters.get(last_progress, 1) + start_ms
-      # Throttle to ~once per 500ms to avoid overwhelming stderr on big stores.
-      if now - last >= 500 or processed == total do
-        :counters.put(last_progress, 1, now - start_ms)
-        IO.puts(:stderr, "[familiar] Re-embedding #{processed}/#{total}")
+      last_offset = :counters.get(last_progress, 1)
+
+      case throttle_progress(now, start_ms, last_offset, processed, total) do
+        {:fire, new_offset} ->
+          :counters.put(last_progress, 1, new_offset)
+          IO.puts(:stderr, "[familiar] Re-embedding #{processed}/#{total}")
+
+        :suppress ->
+          :ok
       end
     end
 
@@ -830,6 +834,38 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  # Decide whether a reindex progress callback should emit a stderr line.
+  #
+  # Pure helper extracted for testability. Returns `{:fire, new_offset}` when
+  # the callback should emit (and the counter should be updated to the new
+  # offset-from-start), or `:suppress` when the call should be throttled
+  # away. The final callback (where `processed == total`) always fires
+  # regardless of timing so the user sees the terminal state.
+  #
+  # * `now` — current monotonic ms timestamp
+  # * `start_ms` — monotonic ms captured when the reindex started
+  # * `last_offset` — `:counters` value, i.e. (last_fire_time - start_ms),
+  #   or 0 if nothing has fired yet
+  # * `processed` / `total` — progress counts
+  @doc false
+  @spec throttle_progress(integer(), integer(), integer(), non_neg_integer(), non_neg_integer()) ::
+          {:fire, integer()} | :suppress
+  def throttle_progress(now, start_ms, last_offset, processed, total) do
+    last_fire_time = last_offset + start_ms
+    elapsed_since_last = now - last_fire_time
+
+    cond do
+      processed == total ->
+        {:fire, now - start_ms}
+
+      elapsed_since_last >= 500 ->
+        {:fire, now - start_ms}
+
+      true ->
+        :suppress
+    end
+  end
+
   defp run_workflows_resume(flags, deps) do
     latest_fn = Map.get(deps, :latest_resumable_fn, &WorkflowRuns.latest_resumable/1)
     get_fn = Map.get(deps, :get_workflow_run_fn, &WorkflowRuns.get/1)
@@ -837,10 +873,13 @@ defmodule Familiar.CLI.Main do
 
     with :ok <- reject_invalid_id(flags),
          {:ok, run} <- find_resumable_run(Map.get(flags, :id), latest_fn, get_fn) do
+      # Step count is shown as "step N+" without a total to avoid re-parsing
+      # the workflow file here — the runner parses it inside resume_workflow/2
+      # anyway, and any parse error surfaces as a real return value.
       IO.puts(
         :stderr,
         "[familiar] Resuming workflow run ##{run.id}: #{run.name} " <>
-          "(step #{run.current_step_index}/#{length_or_unknown(run)})"
+          "(next step: #{run.current_step_index})"
       )
 
       maybe_warn_running_row(run)
@@ -887,15 +926,6 @@ defmodule Familiar.CLI.Main do
   end
 
   defp reject_invalid_id(_), do: :ok
-
-  defp length_or_unknown(%{workflow_path: nil}), do: "?"
-
-  defp length_or_unknown(%{workflow_path: path}) do
-    case WorkflowRunner.parse(path) do
-      {:ok, wf} -> "#{length(wf.steps)}"
-      {:error, _} -> "?"
-    end
-  end
 
   defp run_workflows_list_runs(flags, deps) do
     list_fn = Map.get(deps, :list_workflow_runs_fn, &WorkflowRuns.list/1)
@@ -1755,7 +1785,11 @@ defmodule Familiar.CLI.Main do
         errors
         |> Enum.take(10)
         |> Enum.map(fn {id, reason} ->
-          "  - entry ##{id}: #{inspect(reason, limit: 3)}"
+          # `limit: 3` previously truncated useful tuples like
+          # `{:provider_unavailable, %{reason: :timeout, details: ...}}` to
+          # `%{...}`. `limit: 50` + a `printable_limit` preserves the full
+          # reason while still capping pathological recursive structures.
+          "  - entry ##{id}: #{inspect(reason, limit: 50, printable_limit: 500)}"
         end)
 
       truncated =

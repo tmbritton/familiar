@@ -39,18 +39,13 @@ defmodule Familiar.Execution.WorkflowRunnerResumeTest do
 
   describe "resume_workflow/2" do
     test "resumes from the step that failed and completes the run", ctx do
-      # -- First pass: step 3 (polish/coder) fails --
-      create_roles(ctx.familiar_dir, ~w(analyst builder))
-      create_fail_role(ctx.familiar_dir, "polisher")
-
-      # Counter lets the LLM mock flip behavior between the first run and the
-      # resumed run without touching role files mid-test.
-      flake_counter = :counters.new(1, [:atomics])
+      # -- First pass: step 3 (polisher) fails via LLM stub --
+      create_roles(ctx.familiar_dir, ~w(analyst builder polisher))
 
       stub(Familiar.Providers.LLMMock, :chat, fn messages, _opts ->
         role_name = extract_role(hd(messages).content)
 
-        if role_name == "polisher" and :counters.get(flake_counter, 1) == 0 do
+        if role_name == "polisher" do
           {:error, {:provider_error, %{message: "first-run-fail"}}}
         else
           {:ok, %{content: "Result from #{role_name}"}}
@@ -71,17 +66,12 @@ defmodule Familiar.Execution.WorkflowRunnerResumeTest do
       step_names = Enum.map(failed_run.step_results, & &1["step"])
       assert step_names == ["analyze", "build"]
 
-      # -- Flip the polisher role to a normal one and resume --
-      create_roles(ctx.familiar_dir, ~w(polisher))
-      :counters.add(flake_counter, 1, 1)
-
+      # -- Swap the LLM stub so polisher now succeeds, then resume --
       # Capture the task description the polisher agent sees on resume so we
-      # can assert it contains the prior steps' outputs (AC7).
-      captured_prompts =
-        start_supervised!(
-          {Agent, fn -> [] end},
-          id: :resume_prompt_capture
-        )
+      # can assert it contains the prior steps' outputs (AC7). No fixed
+      # supervisor id — let ExUnit scope the child automatically so the
+      # helper is safe to use in sibling tests.
+      captured_prompts = start_supervised!({Agent, fn -> [] end})
 
       stub(Familiar.Providers.LLMMock, :chat, fn messages, _opts ->
         role_name = extract_role(hd(messages).content)
@@ -209,21 +199,6 @@ defmodule Familiar.Execution.WorkflowRunnerResumeTest do
       You are a #{name}. Complete your task and return the result.
       """)
     end
-  end
-
-  defp create_fail_role(familiar_dir, name) do
-    roles_dir = Path.join(familiar_dir, "roles")
-    File.mkdir_p!(roles_dir)
-
-    File.write!(Path.join(roles_dir, "#{name}.md"), """
-    ---
-    name: #{name}
-    description: Role that triggers failure
-    skills: []
-    ---
-
-    You are a #{name}.
-    """)
   end
 
   defp write_three_step_workflow(familiar_dir) do

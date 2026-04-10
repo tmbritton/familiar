@@ -87,9 +87,41 @@ defmodule Familiar.Execution.WorkflowRunnerPersistenceTest do
     end
   end
 
+  describe "safe_call/1 — fail-soft persistence wrapper" do
+    test "returns the wrapped function's result on success" do
+      assert {:ok, :done} = WorkflowRunner.safe_call(fn -> {:ok, :done} end)
+      assert {:error, :nope} = WorkflowRunner.safe_call(fn -> {:error, :nope} end)
+    end
+
+    test "catches raised exceptions and wraps them in :persistence_exception" do
+      assert {:error, {:persistence_exception, %RuntimeError{message: "boom"}}} =
+               WorkflowRunner.safe_call(fn -> raise "boom" end)
+    end
+
+    test "catches ArgumentError from nil changeset cast" do
+      # Simulates the shape of an actual failure from `Repo.update(nil)` if
+      # `EmbeddingMetadata.set/2`-style piping ever saw a nil row.
+      assert {:error, {:persistence_exception, %ArgumentError{}}} =
+               WorkflowRunner.safe_call(fn -> raise ArgumentError, "bad cast" end)
+    end
+
+    test "catches :exit exits (e.g. Repo.Sandbox not running)" do
+      assert {:error, {:persistence_exit, :no_repo}} =
+               WorkflowRunner.safe_call(fn -> exit(:no_repo) end)
+    end
+
+    test "catches GenServer.call timeout exit shape" do
+      assert {:error, {:persistence_exit, {:timeout, _}}} =
+               WorkflowRunner.safe_call(fn ->
+                 exit({:timeout, {:gen_server, :call, [:fake, :ping, 5000]}})
+               end)
+    end
+  end
+
   describe "persistence on failure" do
     test "failed workflow is marked failed with last_error", ctx do
-      create_roles(ctx.familiar_dir, ~w(analyst))
+      # analyst is already created by the setup block; only overwrite coder
+      # as the failing role.
       create_fail_role(ctx.familiar_dir, "coder")
 
       assert {:error, {:step_failed, _}} =

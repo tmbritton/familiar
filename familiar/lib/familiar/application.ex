@@ -81,7 +81,10 @@ defmodule Familiar.Application do
     end
   end
 
-  defp do_check_embedding_drift do
+  # Exposed via @doc false so tests can drive the drift-warning branches
+  # without racing the Task.start path in check_embedding_drift/0.
+  @doc false
+  def do_check_embedding_drift do
     alias Familiar.Knowledge
     alias Familiar.Knowledge.EmbeddingMetadata
 
@@ -109,6 +112,21 @@ defmodule Familiar.Application do
             "Run `fam context --reindex` to re-embed knowledge entries and record the active model."
         )
     end
+  end
+
+  @doc """
+  Clear the once-per-VM drift-warning sentinel.
+
+  Used by tests that want to exercise the warning branches of
+  `do_check_embedding_drift/0` multiple times in the same VM. Not called
+  by production code.
+  """
+  @spec reset_drift_sentinel() :: :ok
+  def reset_drift_sentinel do
+    :persistent_term.erase({__MODULE__, :drift_warned})
+    :ok
+  rescue
+    ArgumentError -> :ok
   end
 
   @impl true

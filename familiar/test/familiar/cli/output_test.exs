@@ -145,6 +145,52 @@ defmodule Familiar.CLI.OutputTest do
     end
   end
 
+  describe "Story 7.5-6 resume error messages" do
+    test ":no_resumable_workflow JSON message mentions list-runs" do
+      result = Output.format({:error, {:no_resumable_workflow, %{}}}, :json)
+      data = Jason.decode!(result)
+      assert data["error"]["type"] == "no_resumable_workflow"
+      assert data["error"]["message"] =~ "No resumable workflow runs"
+      assert data["error"]["message"] =~ "fam workflows list-runs"
+    end
+
+    test ":workflow_run_not_found JSON message includes the id" do
+      result = Output.format({:error, {:workflow_run_not_found, %{id: 42}}}, :json)
+      data = Jason.decode!(result)
+      assert data["error"]["message"] =~ "##{42}"
+      assert data["error"]["message"] =~ "fam workflows list-runs"
+    end
+
+    test ":workflow_already_completed JSON message includes the id" do
+      result = Output.format({:error, {:workflow_already_completed, %{id: 7}}}, :json)
+      data = Jason.decode!(result)
+      assert data["error"]["message"] =~ "##{7}"
+      assert data["error"]["message"] =~ "already completed"
+    end
+
+    test ":workflow_path_missing JSON message explains the run_workflow_parsed gotcha" do
+      result = Output.format({:error, {:workflow_path_missing, %{id: 9}}}, :json)
+      data = Jason.decode!(result)
+      assert data["error"]["message"] =~ "##{9}"
+      assert data["error"]["message"] =~ "run_workflow_parsed"
+    end
+
+    test ":workflow_finalize_failed text message includes the reason" do
+      # Use :text mode — the details map may contain non-JSON-serializable
+      # terms like tuples, which the error_message/2 `inspect/2` call handles
+      # fine. JSON mode would fail to encode the raw details tuple.
+      result =
+        Output.format(
+          {:error, {:workflow_finalize_failed, %{id: 5, reason: {:constraint_error, "fk"}}}},
+          :text
+        )
+
+      assert result =~ "##{5}"
+      assert result =~ "stuck past its final step"
+      assert result =~ "constraint_error"
+    end
+  end
+
   describe "exit_code/1" do
     test "returns 0 for success" do
       assert Output.exit_code({:ok, _any = nil}) == 0
