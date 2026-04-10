@@ -22,7 +22,7 @@ defmodule Familiar.Providers.StubEmbedder do
 
   defp log_stub_warning do
     unless Process.get(:stub_embedder_warned) do
-      Logger.warning(
+      Logger.info(
         "[StubEmbedder] Using zero-vector embeddings — semantic search will not work. " <>
           "Configure a real embedding provider for full knowledge store functionality."
       )
