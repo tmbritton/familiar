@@ -84,20 +84,37 @@ defmodule Familiar.Knowledge do
   end
 
   defp trigger_background_maintenance(entries, freshness_map, opts) do
+    if background_maintenance_enabled?() do
+      do_trigger_background_maintenance(entries, freshness_map, opts)
+    end
+
+    :ok
+  end
+
+  defp do_trigger_background_maintenance(entries, freshness_map, opts) do
     stale = Enum.filter(entries, &(Map.get(freshness_map, &1.id) == :stale))
     deleted = Enum.filter(entries, &(Map.get(freshness_map, &1.id) == :deleted))
 
-    if stale != [],
-      do:
-        Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
-          Freshness.refresh_stale(stale, opts)
-        end)
+    if stale != [] do
+      Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
+        Freshness.refresh_stale(stale, opts)
+      end)
+    end
 
-    if deleted != [],
-      do:
-        Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
-          Freshness.remove_deleted(deleted)
-        end)
+    if deleted != [] do
+      Task.Supervisor.start_child(Familiar.TaskSupervisor, fn ->
+        Freshness.remove_deleted(deleted)
+      end)
+    end
+  end
+
+  # Fire-and-forget background tasks are disabled in test env because they
+  # outlive the calling test process, leaking Mox expectations and holding
+  # Ecto.Sandbox connections owned by a dead test PID. The `refresh_stale/2`
+  # and `remove_deleted/1` functions are exercised directly in
+  # `Familiar.Knowledge.FreshnessTest` — no coverage loss.
+  defp background_maintenance_enabled? do
+    Application.get_env(:familiar, :knowledge_background_maintenance, true)
   end
 
   defp run_freshness_check(entries, opts) do

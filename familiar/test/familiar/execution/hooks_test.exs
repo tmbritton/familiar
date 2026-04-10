@@ -1,8 +1,6 @@
 defmodule Familiar.HooksTest do
   use ExUnit.Case, async: true
 
-  import ExUnit.CaptureLog
-
   alias Familiar.Hooks
 
   setup do
@@ -396,23 +394,37 @@ defmodule Familiar.HooksTest do
         "file-ext"
       )
 
-      # Suspend the GenServer so messages queue up
+      # Fresh GenServer — last_mailbox_warning starts as nil until a warning
+      # is emitted. We assert it becomes a monotonic timestamp below.
+      assert :sys.get_state(name).last_mailbox_warning == nil
+
+      # Suspend so every message lands in the mailbox before the first
+      # handle_info runs check_mailbox_depth/1.
       :sys.suspend(name)
 
       for _ <- 1..20 do
         send(name, {:hook_event, :on_file_changed, %{path: "test.ex"}})
       end
 
-      log =
-        capture_log(fn ->
-          :sys.resume(name)
-          # Wait for queued messages to be processed
-          Process.sleep(100)
-          Logger.flush()
-        end)
+      :sys.resume(name)
 
-      assert log =~ "Mailbox depth"
-      assert log =~ "exceeds threshold"
+      # Deterministic sync via a regular GenServer.call: calls and sends go
+      # into the same mailbox in FIFO order, so this register_event runs only
+      # after all 20 hook_event messages have been processed. (`:sys.get_state`
+      # is NOT a reliable sync point — it is delivered as a system message and
+      # the gen_server outer receive checks system messages *before* regular
+      # messages, so it can return before hook_events are drained.) Once this
+      # call returns, the first handle_info has already run check_mailbox_depth
+      # with len=20, which bumps last_mailbox_warning — observing the state is
+      # race-free. `capture_log` is unreliable here because log handlers are
+      # installed per-group-leader and can miss messages under scheduler
+      # contention from other async tests.
+      register_event(name, :on_file_changed, fn _ -> :ok end, "sync-ext")
+
+      after_stamp = :sys.get_state(name).last_mailbox_warning
+
+      assert is_integer(after_stamp),
+             "expected check_mailbox_depth/1 to set last_mailbox_warning after mailbox exceeded threshold"
     end
   end
 end

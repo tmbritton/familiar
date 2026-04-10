@@ -9,3 +9,4 @@
 - [project_distributed_vision.md](project_distributed_vision.md) — Far future: multi-instance Familiar via Erlang distribution. Cross-project agents, federated knowledge, distributed workflows.
 - [project_mcp_support.md](project_mcp_support.md) — MCP support: Familiar as server (expose tools to editors) and client (use external MCP servers). Epic 9, before Web UI.
 - [feedback_time_di.md](feedback_time_di.md) — When tests depend on wall clock time, inject the Clock behaviour. Don't use far-future dates or sleep.
+- [feedback_flaky_tests_zero_tolerance.md](feedback_flaky_tests_zero_tolerance.md) — Zero tolerance for flaky tests: root-cause, stress-test 50x, never retry/skip/sleep. Lists 5 common flake patterns observed in this codebase.

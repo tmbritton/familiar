@@ -22,6 +22,13 @@ config :familiar, start_daemon: false
 config :familiar, start_file_watcher: false
 config :familiar, :extensions, []
 
+# Disable the fire-and-forget background maintenance tasks spawned by
+# Knowledge.search/2. In test env they outlive the calling test process,
+# leaking Mox expectations and holding Ecto.Sandbox connections whose owner
+# has already exited. Freshness.refresh_stale/remove_deleted are covered
+# directly in FreshnessTest — no coverage loss.
+config :familiar, :knowledge_background_maintenance, false
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

@@ -116,7 +116,7 @@ defmodule Familiar.Hooks do
        event_handlers: %{},
        circuit_breaker: %{},
        subscribed_topics: MapSet.new(),
-       last_mailbox_warning: System.monotonic_time(:millisecond) - @mailbox_warning_cooldown_ms,
+       last_mailbox_warning: nil,
        on_handler_error: on_handler_error
      }}
   end
@@ -329,8 +329,13 @@ defmodule Familiar.Hooks do
 
     if len > threshold do
       now = System.monotonic_time(:millisecond)
+      last = state.last_mailbox_warning
 
-      if now - state.last_mailbox_warning > @mailbox_warning_cooldown_ms do
+      # `nil` sentinel means "never warned yet" — always fire. Guards against
+      # a millisecond-resolution race on fresh GenServers where a numeric
+      # init value could make `now - last == cooldown_ms` (not `>`) on the
+      # very first check.
+      if is_nil(last) or now - last > @mailbox_warning_cooldown_ms do
         Logger.warning("[Hooks] Mailbox depth #{len} exceeds threshold #{threshold}")
         %{state | last_mailbox_warning: now}
       else

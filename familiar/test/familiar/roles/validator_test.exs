@@ -112,13 +112,17 @@ defmodule Familiar.Roles.ValidatorTest do
         instructions: "Go."
       }
 
-      # No warning when tool is in the custom list
+      # No warning when tool is in the custom list.
+      # NOTE: assert on *content*, not on `log == ""`. `capture_log` collects
+      # messages from every process in the BEAM, so concurrent async tests
+      # can leak unrelated output into the captured string.
       log =
         capture_log(fn ->
           assert :ok = Validator.validate_skill(skill, known_tools: ["custom_tool"])
         end)
 
-      assert log == ""
+      refute log =~ "custom_tool"
+      refute log =~ "unknown tool"
     end
   end
 

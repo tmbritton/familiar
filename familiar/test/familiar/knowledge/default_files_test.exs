@@ -195,8 +195,11 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
           end
         end)
 
-      # All referenced tools are now in the MVP tools list — no warnings expected
-      assert log == ""
+      # All referenced tools are now in the MVP tools list — no unknown-tool warnings.
+      # NOTE: assert on *content*, not on `log == ""`. `capture_log` collects
+      # messages from every process in the BEAM, so unrelated background
+      # processes can leak output into the captured string.
+      refute log =~ "unknown tool"
     end
 
     test "search-knowledge has constraints", %{tmp_dir: tmp_dir} do
