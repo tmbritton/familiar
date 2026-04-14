@@ -218,6 +218,39 @@ mix format --check-formatted
 
 The pre-commit hook runs all six checks. Zero tolerance for flaky tests — new test files are stress-tested 50x before merge.
 
+## Roadmap
+
+### Done
+
+| Epic | What shipped |
+|------|-------------|
+| **1. Foundation** | Phoenix project, SQLite + sqlite-vec, daemon lifecycle, CLI entry point, project initialization with file scanning, convention discovery, auto-configuration |
+| **2. Knowledge Store** | CRUD + semantic search, context freshness validation, post-task hygiene loop, knowledge management CLI, backup/restore, secret filtering, health monitoring |
+| **3. Planning** | Planning conversation engine, spec generation + verification, streaming reasoning trail, spec review/approval CLI |
+| **4.5. Roles & Skills** | Three-tier file system (roles, skills, workflows as markdown), default role/skill file installation |
+| **5. Agent Harness** | Extension API with lifecycle hooks, tool registry, agent process with tool-call loop, prompt assembly with token budgets, file watcher, safety extension, knowledge store extension, workflow runner, built-in tool implementations, file transactions with rollback |
+| **5.5. Concurrency** | Async tool dispatch (GenServer.reply/2 pattern), file-level claim checking, hooks mailbox back-pressure |
+| **6. Workflows & CLI** | Default role/skill refinement, default workflow definitions (plan/do/fix), CLI workflow dispatch, planning-as-workflow |
+| **6.5. Type Safety** | Ecto schema types, full typespec cleanup, dialyzer clean |
+| **7. CLI Management** | Conversational chat mode, role/skill/workflow/extension CLI commands, session management, validate commands |
+| **7.5. Provider Adapter** | OpenAI-compatible provider, multi-provider config.toml with `${ENV_VAR}` interpolation, native escript runner, OpenAI-compatible embedder with model-change reindex, persistent workflow runs with resume, project-dir resolution with cwd walk-up + `fam where` |
+
+### Up next
+
+| Epic | What it delivers | Status |
+|------|-----------------|--------|
+| **7.6. Safety Removal** | Remove the safety-theater pattern matcher. Restore a reference Dockerfile. Add sandboxing docs and prominent warnings. Container becomes the honest boundary. | Drafted |
+| **8. MCP Client** | Familiar consumes external MCP servers (GitHub, Linear, Postgres, Playwright) as drop-in tool providers. `fam mcp add/list/get/remove` mirrors Claude Code's UX. Storage in SQLite + config.toml merge. | Drafted |
+
+### Future
+
+| Epic | What it delivers | Status |
+|------|-----------------|--------|
+| **9. Terminal UI** | Split-pane TUI (Ratatouille) with streaming responses, tool-call pane, agent status, chat history scroll | Planned |
+| **10. Web UI** | Phoenix LiveView dashboard, multi-user, agent node graph. Optional — headless is valid. | Placeholder |
+| **11. MCP Server** | Expose Familiar's tools + knowledge to editors (Claude Code, Cursor, VS Code) over MCP stdio. Deferred because the `fam` CLI already gives editors a usable integration path. | Post-MVP |
+| **4. Task Management** | Structured Ecto task system (state machine, work hierarchy, priority, file modification tracking). Deferred — agents use markdown task files for MVP. | Post-MVP |
+
 ## License
 
 [AGPL-3.0-only](LICENSE)
