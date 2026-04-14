@@ -1,5 +1,32 @@
 # BMad tooling (installed skills/agents/configs)
 _bmad/
 
-# Runtime artifacts
+# Familiar runtime artifacts
 familiar/.familiar/
+
+# Elixir/Mix build artifacts
+familiar/_build/
+familiar/cover/
+familiar/deps/
+familiar/doc/
+familiar/.fetch
+familiar/tmp/
+
+# BEAM crash dumps
+erl_crash.dump
+
+# Mix archives and hex packages
+*.ez
+familiar-*.tar
+
+# Phoenix assets (built by esbuild)
+familiar/priv/static/assets/
+familiar/priv/static/cache_manifest.json
+
+# Node.js (if assets pipeline uses npm)
+npm-debug.log
+familiar/assets/node_modules/
+
+# SQLite databases and WAL/SHM files
+*.db
+*.db-*
