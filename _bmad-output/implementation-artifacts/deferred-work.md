@@ -17,3 +17,7 @@ Items deferred from code reviews and other workflows. These are real but not blo
 - **`bin/fam` uses logical `$(pwd)` instead of physical `pwd -P`** — Diverges from git's behavior on symlink paths but matches the Elixir-side textual walk-up, so the two sides are at least consistent. Fix if users report symlink-related confusion.
 - **Env var with `..` components expands against wrong cwd post-bootstrap** — `FAMILIAR_PROJECT_DIR=../other fam cmd` resolves against `FAMILIAR_ROOT` (the Familiar source checkout that `bin/fam` cd's into) instead of the user's shell cwd. Fix would require bin/fam to pre-expand or capture the original pwd. Edge case.
 - **No integration test for `Paths.project_dir/0` zero-arg walk-up path** — The resolve-level tests cover the logic via injected opts; the zero-arg production path isn't exercised with walk-up. `Paths.project_dir/0` is a thin wrapper, so the risk is low.
+
+## Deferred from: code review of 7.6-1-remove-safety-extension (2026-04-14)
+
+- **`default_files_test.exs` role prompt assertions only check substring** — `assert role.system_prompt =~ "Sandboxing"` verifies the section header exists but not the substantive guidance text ("container or equivalent sandbox"). Pre-existing test style throughout the file — all role tests use `=~` substring checks. Low risk since the wording is stable.

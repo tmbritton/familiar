@@ -13,7 +13,6 @@ defmodule Familiar.PathResolutionDefaultsTest do
   use ExUnit.Case, async: false
 
   alias Familiar.Execution.WorkflowRunner
-  alias Familiar.Extensions.Safety
   alias Familiar.Roles
   alias Familiar.Roles.Role
 
@@ -86,30 +85,6 @@ defmodule Familiar.PathResolutionDefaultsTest do
     test "lists workflows from Paths.project_dir()/.familiar/workflows" do
       assert {:ok, workflows} = WorkflowRunner.list_workflows()
       assert Enum.any?(workflows, &(&1.name == "demo"))
-    end
-  end
-
-  describe "Familiar.Extensions.Safety default project_dir" do
-    test "init/1 without :project_dir uses Paths.project_dir/0", %{tmp_dir: tmp_dir} do
-      assert :ok = Safety.init([])
-
-      # The sandbox should now accept paths under tmp_dir and reject paths
-      # outside of it. A file inside the project directory should pass the
-      # before_tool_call check; a file outside should be vetoed.
-      inside_path = Path.join(tmp_dir, "inside.txt")
-
-      outside_path =
-        "/tmp/definitely-outside-the-project-#{System.unique_integer([:positive])}.txt"
-
-      [hook] = Safety.hooks()
-      handler = hook.handler
-
-      inside_call = %{tool: :read_file, args: %{path: inside_path}}
-      outside_call = %{tool: :read_file, args: %{path: outside_path}}
-      context = %{}
-
-      assert {:ok, ^inside_call} = handler.(inside_call, context)
-      assert {:halt, "path_outside_project: " <> _} = handler.(outside_call, context)
     end
   end
 

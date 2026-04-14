@@ -4,7 +4,7 @@ defmodule Familiar.Execution.Tools do
 
   Each function follows the tool contract: `fn(args, context) -> {:ok, result} | {:error, reason}`.
   File and shell operations delegate through behaviour ports (hexagonal architecture)
-  so tests can use mocks. Safety enforcement is handled by the hooks pipeline
+  so tests can use mocks. Extension hooks run in the hooks pipeline
   before these functions execute — tools do NOT re-validate paths or commands.
   """
 

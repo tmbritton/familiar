@@ -4,8 +4,8 @@ defmodule Familiar.Execution.HarnessIntegrationTest do
 
   Golden path: load extensions → register tools/hooks → start workflow →
   spawn AgentProcess → tool-call loop with mocked LLM → file writes via
-  transaction module → safety extension vetoes out-of-scope write →
-  knowledge extension captures results → workflow completes.
+  transaction module → knowledge extension captures results → workflow
+  completes.
 
   Uses real SQLite (via Ecto sandbox) with mocked LLM/Shell/FileSystem.
   """
@@ -85,17 +85,15 @@ defmodule Familiar.Execution.HarnessIntegrationTest do
   end
 
   defp load_extensions!(project_dir) do
-    Code.ensure_loaded!(Familiar.Extensions.Safety)
     Code.ensure_loaded!(Familiar.Extensions.KnowledgeStore)
 
     {:ok, result} =
       ExtensionLoader.load_extensions(
-        [Familiar.Extensions.Safety, Familiar.Extensions.KnowledgeStore],
+        [Familiar.Extensions.KnowledgeStore],
         project_dir: project_dir
       )
 
-    # Verify extensions actually loaded
-    assert "safety" in result.loaded
+    # Verify extension actually loaded
     assert "knowledge-store" in result.loaded
 
     # Register extension tools
@@ -202,57 +200,7 @@ defmodule Familiar.Execution.HarnessIntegrationTest do
     end
   end
 
-  # == AC2: Safety Extension Vetoes Out-of-Scope Write ==
-
-  describe "safety veto" do
-    test "blocks write outside project directory", ctx do
-      create_role_files(ctx.familiar_dir, ["rogue"])
-      load_extensions!(ctx.project_dir)
-
-      veto_calls = :counters.new(1, [:atomics])
-
-      stub(Familiar.Providers.LLMMock, :chat, fn _messages, _opts ->
-        count = :counters.get(veto_calls, 1)
-        :counters.add(veto_calls, 1, 1)
-
-        if count == 0 do
-          {:ok,
-           %{
-             content: nil,
-             tool_calls: [
-               %{
-                 "name" => "write_file",
-                 "arguments" => %{
-                   "path" => "/etc/evil.conf",
-                   "content" => "malicious"
-                 }
-               }
-             ]
-           }}
-        else
-          {:ok, %{content: "Understood, write was blocked", tool_calls: []}}
-        end
-      end)
-
-      workflow = build_workflow([{"exploit", "rogue"}])
-
-      assert {:ok, results} =
-               WorkflowRunner.run_workflow_parsed(workflow, %{task: "Try bad write"},
-                 supervisor: ctx.supervisor,
-                 familiar_dir: ctx.familiar_dir,
-                 timeout_ms: 10_000
-               )
-
-      # Agent completed — veto was returned as tool result, not a crash
-      exploit_result = Enum.find(results.steps, &(&1.step == "exploit"))
-      assert exploit_result.output =~ "blocked"
-
-      # No file transaction created for the vetoed write
-      assert Repo.all(Transaction) == []
-    end
-  end
-
-  # == AC3: File Transaction Integration ==
+  # == AC2: File Transaction Integration ==
 
   describe "file transaction integration" do
     test "writes create transaction records when task_id present", ctx do

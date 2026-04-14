@@ -139,7 +139,10 @@ defmodule Familiar.Knowledge.DefaultFiles do
     - Keep changes focused and minimal — do not refactor surrounding code
     - Document significant decisions for the knowledge store
 
-    ## Safety
+    ## Sandboxing
+
+    Familiar has no runtime safety layer — the user is responsible for running
+    Familiar inside a container or equivalent sandbox. Within that boundary:
 
     - Only modify files within the project directory
     - Only create files that are necessary for the task

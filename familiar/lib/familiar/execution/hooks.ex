@@ -15,7 +15,7 @@ defmodule Familiar.Hooks do
 
     * `on_startup` (event) — fired after all extensions loaded
     * `on_agent_start` (event) — agent initialized with a role
-    * `before_tool_call` (alter) — safety enforcement, arg validation
+    * `before_tool_call` (alter) — arg validation, extension interception
     * `after_tool_call` (event) — result logging, knowledge capture
     * `on_agent_complete` (event) — post-task hygiene, cleanup
     * `on_agent_error` (event) — error logging, failure analysis

@@ -9,5 +9,5 @@ defmodule Familiar.Extensions do
 
   use Boundary,
     deps: [Familiar.Execution, Familiar.Knowledge],
-    exports: [Familiar.Extensions.Safety, Familiar.Extensions.KnowledgeStore]
+    exports: [Familiar.Extensions.KnowledgeStore]
 end

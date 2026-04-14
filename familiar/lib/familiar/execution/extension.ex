@@ -3,8 +3,8 @@ defmodule Familiar.Extension do
   Behaviour for harness extensions.
 
   Extensions register tools, lifecycle hooks, and optional supervision children.
-  The Knowledge Store and Safety enforcement are default extensions — they
-  implement this behaviour like any third-party extension.
+  The Knowledge Store is the default extension — it implements this
+  behaviour like any third-party extension.
 
   ## Callbacks
 

@@ -4,8 +4,8 @@ defmodule Familiar.Execution.AgentProcess do
 
   Loads a role from markdown, assembles prompts, and runs a tool-call
   loop against the configured LLM provider. Every tool call flows
-  through `ToolRegistry.dispatch/3`, which enforces safety via the
-  hooks pipeline.
+  through `ToolRegistry.dispatch/3`, which runs the extension hooks
+  pipeline.
 
   ## Lifecycle
 
@@ -14,7 +14,7 @@ defmodule Familiar.Execution.AgentProcess do
   3. Tool-call loop — dispatch tools, append results, call LLM again
   4. Completion — broadcast `:on_agent_complete`, notify parent, stop
 
-  ## Safety Limits
+  ## Limits
 
   * Max tool calls per task (default: 100)
   * Per-task timeout (default: 5 minutes)
@@ -443,7 +443,7 @@ defmodule Familiar.Execution.AgentProcess do
   end
 
   defp format_tool_result({:error, {:vetoed, reason}}) do
-    "Tool call vetoed by safety policy: #{inspect(reason)}"
+    "Tool call vetoed by extension hook: #{inspect(reason)}"
   end
 
   defp format_tool_result({:error, reason}) do

@@ -160,11 +160,11 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
       assert role.system_prompt =~ "acceptance criteria"
     end
 
-    test "coder prompt contains safety rules", %{tmp_dir: tmp_dir} do
+    test "coder prompt contains sandboxing guidance", %{tmp_dir: tmp_dir} do
       familiar_dir = install_defaults(tmp_dir)
       assert {:ok, %Role{} = role} = Roles.load_role("coder", familiar_dir: familiar_dir)
 
-      assert role.system_prompt =~ "Safety"
+      assert role.system_prompt =~ "Sandboxing"
       assert role.system_prompt =~ "project directory"
     end
   end

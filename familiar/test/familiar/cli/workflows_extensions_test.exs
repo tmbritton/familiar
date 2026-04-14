@@ -136,7 +136,6 @@ defmodule Familiar.CLI.WorkflowsExtensionsTest do
             {:ok,
              %{
                extensions: [
-                 %{name: "safety", tools_count: 0, tools: []},
                  %{
                    name: "knowledge-store",
                    tools_count: 2,
@@ -148,7 +147,7 @@ defmodule Familiar.CLI.WorkflowsExtensionsTest do
         )
 
       assert {:ok, %{extensions: exts}} = Main.run({"extensions", [], %{}}, d)
-      assert length(exts) == 2
+      assert length(exts) == 1
 
       ks = Enum.find(exts, &(&1.name == "knowledge-store"))
       assert ks.tools_count == 2

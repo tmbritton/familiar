@@ -5,7 +5,7 @@ defmodule Familiar.Execution.ToolRegistry do
   Every tool call flows through `dispatch/3`, which runs the
   `before_tool_call` alter hook pipeline before execution and
   broadcasts `after_tool_call` on completion. This is the single
-  chokepoint where safety enforcement intercepts tool calls.
+  chokepoint where extension hooks intercept tool calls.
 
   ## Built-in Tools
 
