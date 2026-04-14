@@ -14,8 +14,35 @@
 
 set -e
 
-# Remember the user's working directory as the project root
-export FAMILIAR_PROJECT_DIR="${FAMILIAR_PROJECT_DIR:-$(pwd)}"
+# Walk up from pwd looking for a .familiar/ directory (like `git` does for
+# .git/). This lets `fam` work from any subdirectory of a Familiar project.
+# If no marker is found, fall back to pwd so `fam init` still works in a
+# fresh directory. Story 7.5-8.
+#
+# IMPORTANT: the loop guards against empty and "." values because:
+#   1. On MacOS bash 3.2, `set -e` does not propagate into command
+#      substitution, so if `pwd` returns non-zero (e.g., the cwd was
+#      deleted), `dir=$(pwd)` yields the empty string.
+#   2. `dirname ""` returns "." and `dirname "."` returns ".", which
+#      would otherwise produce an infinite loop.
+# The `-n "$dir"` + `!= "."` guards make the loop terminate safely.
+find_project_root() {
+    local dir
+    dir=$(pwd 2>/dev/null) || return 1
+    [ -n "$dir" ] || return 1
+    while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do
+        if [ -d "$dir/.familiar" ]; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+        dir=$(dirname "$dir")
+    done
+    return 1
+}
+
+# Respect an externally-set FAMILIAR_PROJECT_DIR; otherwise walk up to find
+# the project root, and fall back to pwd if no marker is found.
+export FAMILIAR_PROJECT_DIR="${FAMILIAR_PROJECT_DIR:-$(find_project_root || pwd)}"
 
 # Suppress debug/info noise unless explicitly set
 export LOG_LEVEL="${LOG_LEVEL:-warning}"

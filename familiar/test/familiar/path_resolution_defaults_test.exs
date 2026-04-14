@@ -112,4 +112,16 @@ defmodule Familiar.PathResolutionDefaultsTest do
       assert {:halt, "path_outside_project: " <> _} = handler.(outside_call, context)
     end
   end
+
+  describe "Paths.project_dir/0 with Application.put_env override (legacy contract)" do
+    # These tests verify that the 7.5-5 test-override pattern
+    # (Application.put_env :familiar, :project_dir) still works after
+    # Story 7.5-8 rewrote project_dir/0 to use resolve_project_dir/2.
+    test "returns the Application env value as the resolved project_dir",
+         %{tmp_dir: tmp_dir} do
+      alias Familiar.Daemon.Paths
+      assert Paths.project_dir() == Path.expand(tmp_dir)
+      assert Paths.familiar_dir() == Path.join(Path.expand(tmp_dir), ".familiar")
+    end
+  end
 end

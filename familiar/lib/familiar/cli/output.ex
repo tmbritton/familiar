@@ -202,5 +202,77 @@ defmodule Familiar.CLI.Output do
       "Workflow run ##{id} is stuck past its final step but could not be marked completed " <>
         "(#{inspect(reason, limit: 50)}). Investigate the database or remove the row manually."
 
+  # -- Story 7.5-8 project-dir resolution errors --
+
+  defp error_message(:project_dir_unresolvable, details) do
+    case Map.get(details, :reason) do
+      :not_a_directory -> project_dir_not_a_directory_message(details)
+      _ -> project_dir_unresolvable_message(details)
+    end
+  end
+
+  defp error_message(:not_a_familiar_project, %{path: path}) do
+    """
+    #{path} exists but is not a Familiar project (no .familiar/ subdirectory).
+
+    Fix: run `fam init` from inside that directory, or point Familiar elsewhere:
+      export FAMILIAR_PROJECT_DIR=/path/to/real/project
+      fam --project-dir /path/to/real/project <command>\
+    """
+  end
+
   defp error_message(type, _), do: to_string(type)
+
+  defp project_dir_unresolvable_message(details) do
+    cwd = Map.get(details, :cwd, "(unknown)")
+    env_display = format_env_value(Map.get(details, :env))
+
+    """
+    Could not determine the Familiar project directory.
+
+    Checked:
+      cwd:                   #{cwd}
+      FAMILIAR_PROJECT_DIR:  #{env_display}
+      walk-up:               no .familiar/ found in any ancestor of cwd
+
+    Fix: either run `fam` from inside a Familiar project, set the env var
+      export FAMILIAR_PROJECT_DIR=/path/to/project
+    or pass the flag
+      fam --project-dir /path/to/project <command>
+
+    Run `fam where` from any shell to debug resolution.\
+    """
+  end
+
+  defp project_dir_not_a_directory_message(details) do
+    offending = Map.get(details, :offending_path, "(unknown)")
+    explicit = Map.get(details, :explicit)
+    env = Map.get(details, :env)
+
+    source_line =
+      cond do
+        is_binary(explicit) and explicit != "" ->
+          "--project-dir #{explicit}"
+
+        is_binary(env) and env != "" ->
+          "FAMILIAR_PROJECT_DIR=#{env}"
+
+        true ->
+          "(unknown source)"
+      end
+
+    """
+    The project directory path exists but is not a directory: #{offending}
+    (resolved from: #{source_line})
+
+    Fix: point Familiar at a real directory, e.g.:
+      export FAMILIAR_PROJECT_DIR=/path/to/project
+      fam --project-dir /path/to/project <command>\
+    """
+  end
+
+  defp format_env_value(nil), do: "(unset)"
+  defp format_env_value(""), do: "(empty)"
+  defp format_env_value(value) when is_binary(value), do: value
+  defp format_env_value(_), do: "(unset)"
 end

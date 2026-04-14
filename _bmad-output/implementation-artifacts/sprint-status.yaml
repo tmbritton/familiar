@@ -38,7 +38,8 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: '2026-04-01'
-last_updated: '2026-04-10'
+last_updated: '2026-04-11'
+# Story 7.5-8 completed 2026-04-11 after code review + patch application.
 # Epic 8 drafted 2026-04-10 — 5 stories covering MCP CLIENT support: protocol
 # codec, client connection (Port-based subprocess), mcp_servers storage + client
 # extension, `fam mcp add/list/get/remove` management CLI matching Claude Code's
@@ -169,7 +170,7 @@ development_status:
   # (explicit flag → FAMILIAR_PROJECT_DIR → cwd walk-up to .familiar/ → hard
   # error), validates the resolved dir is a Familiar project, adds a `fam where`
   # debug command, and standardizes error messages across all entry points.
-  7.5-8-project-dir-resolution-hardening: backlog
+  7.5-8-project-dir-resolution-hardening: done
 
   # Epic 7.6: Safety Removal & Sandboxing Posture (3 stories — drafted 2026-04-10)
   # Removes Familiar.Extensions.Safety (name-pattern matching on dangerous tool

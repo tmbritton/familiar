@@ -29,9 +29,16 @@ defmodule Familiar.CLI.Main do
   @doc "Escript entry point."
   @dialyzer {:no_return, main: 1}
   def main(argv) do
-    # Check if this is a bare `fam` in an uninitialized project
-    # Use env var directly since Application config isn't loaded yet
-    project_dir = System.get_env("FAMILIAR_PROJECT_DIR") || File.cwd!()
+    # Check if this is a bare `fam` in an uninitialized project.
+    #
+    # `Paths.resolve_project_dir/2` is a pure function (no Repo, no
+    # Logger setup, no extensions) and is safe to call before
+    # `Application.ensure_all_started/1`. At this call site we haven't
+    # parsed CLI flags yet, so the precedence chain that applies is:
+    # FAMILIAR_PROJECT_DIR → cwd walk-up → cwd fallback. The
+    # `--project-dir` flag (if any) is honored by individual command
+    # handlers after `parse_args/1` runs. (Story 7.5-8)
+    {:ok, project_dir, _source} = Paths.resolve_project_dir(nil, allow_cwd_fallback: true)
     familiar_dir = Path.join(project_dir, ".familiar")
 
     initialized = File.dir?(Path.join(familiar_dir, "roles"))
@@ -84,6 +91,11 @@ defmodule Familiar.CLI.Main do
       end
 
       IO.puts(:stderr, "[familiar] Edit .familiar/config.toml to configure your LLM provider")
+
+      IO.puts(
+        :stderr,
+        "[familiar] Run `fam where` anytime to debug project-dir resolution."
+      )
     end
   end
 
@@ -111,7 +123,8 @@ defmodule Familiar.CLI.Main do
           id: :integer,
           status: :string,
           limit: :integer,
-          reindex: :boolean
+          reindex: :boolean,
+          project_dir: :string
         ],
         aliases: [j: :json, q: :quiet, h: :help, r: :role]
       )
@@ -119,10 +132,17 @@ defmodule Familiar.CLI.Main do
     # Stash any rejected switches so command handlers can fail loudly instead
     # of silently ignoring bad input (e.g., `--id abc` previously fell through
     # to the no-arg path of `fam workflows resume`).
+    #
+    # Post-process `:project_dir` to reject empty/whitespace-only values
+    # rather than silently passing them to `resolve_project_dir/2` (which
+    # would fall through to walk-up and leave the user wondering why their
+    # flag was ignored).
+    {normalized_flags, extra_invalid} = normalize_project_dir_flag(flags)
+
     flag_map =
-      flags
+      normalized_flags
       |> Enum.into(%{})
-      |> Map.put(:_invalid, invalid)
+      |> Map.put(:_invalid, invalid ++ extra_invalid)
 
     format_flags = Map.take(flag_map, [:json, :quiet])
 
@@ -144,6 +164,7 @@ defmodule Familiar.CLI.Main do
         :status,
         :limit,
         :reindex,
+        :project_dir,
         :_invalid
       ])
 
@@ -167,6 +188,23 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  # Drop `:project_dir` from flags if its value is empty or whitespace-only
+  # and add it to the invalid list so command handlers can surface a clear
+  # usage error. Story 7.5-8.
+  defp normalize_project_dir_flag(flags) do
+    case Keyword.fetch(flags, :project_dir) do
+      {:ok, value} when is_binary(value) ->
+        if String.trim(value) == "" do
+          {Keyword.delete(flags, :project_dir), [{"--project-dir", ""}]}
+        else
+          {flags, []}
+        end
+
+      _ ->
+        {flags, []}
+    end
+  end
+
   @doc false
   @spec format_mode(map()) :: :json | :text | :quiet
   def format_mode(%{json: true}), do: :json
@@ -185,6 +223,22 @@ defmodule Familiar.CLI.Main do
 
   def run({"help", _, _}, _deps) do
     {:ok, %{help: help_text()}}
+  end
+
+  # `fam where` — debug project-dir resolution. Works even when nothing is
+  # initialized; never raises, never requires the daemon. Exits non-zero
+  # when resolution fails so scripts can detect the broken-shell case.
+  def run({"where", _, flags}, deps) do
+    diag = build_where_diagnostic(flags, deps)
+
+    if diag.resolved do
+      {:ok, diag}
+    else
+      # Surface as an error so Output.exit_code/1 returns 1, per AC6.
+      # The diagnostic map carries all the usual fields and
+      # `error_message/2` renders the copy-pasteable fix instructions.
+      {:error, {:project_dir_unresolvable, diag}}
+    end
   end
 
   # Init command — runs without daemon
@@ -1359,6 +1413,149 @@ defmodule Familiar.CLI.Main do
     IO.puts(:stderr, msg)
   end
 
+  # -- `fam where` diagnostic (Story 7.5-8) --
+
+  @doc false
+  def build_where_diagnostic(flags, deps) do
+    env_getter = Map.get(deps, :env_getter, fn -> System.get_env("FAMILIAR_PROJECT_DIR") end)
+    cwd_getter = Map.get(deps, :cwd_getter, fn -> File.cwd() end)
+
+    daemon_status_fn = Map.get(deps, :daemon_status_fn, &DaemonManager.daemon_status/1)
+
+    explicit = Map.get(flags, :project_dir)
+    env = normalize_env_value(safe_call(env_getter, nil))
+    cwd = normalize_cwd_value(safe_call(cwd_getter, "(unknown)"))
+
+    # Two-phase resolve: try strict first so we can detect the error
+    # state (and exit non-zero), then fall back with `allow_cwd_fallback`
+    # so the diagnostic still renders useful fields even when resolution
+    # failed. Per AC6, `fam where` must work on a broken shell.
+    {resolved, strict_error} =
+      case Paths.resolve_project_dir(explicit, env: env, cwd: cwd) do
+        {:ok, _dir, _src} -> {true, nil}
+        {:error, {:project_dir_unresolvable, details}} -> {false, details}
+      end
+
+    {project_dir, raw_source} =
+      case Paths.resolve_project_dir(explicit,
+             env: env,
+             cwd: cwd,
+             allow_cwd_fallback: true
+           ) do
+        {:ok, dir, src} -> {dir, src}
+      end
+
+    source = normalize_source(raw_source)
+
+    familiar_dir = Path.join(project_dir, ".familiar")
+    familiar_dir_exists = File.dir?(familiar_dir)
+    config_path = Path.join(familiar_dir, "config.toml")
+    config_exists = File.regular?(config_path)
+
+    {daemon_state, daemon_info} =
+      case safe_call(fn -> daemon_status_fn.([]) end, {:stopped, %{}}) do
+        {state, info} when is_atom(state) and is_map(info) -> {state, info}
+        state when is_atom(state) -> {state, %{}}
+        _ -> {:stopped, %{}}
+      end
+
+    %{
+      project_dir: project_dir,
+      source: source,
+      cwd: cwd,
+      env: env,
+      explicit: explicit,
+      familiar_dir: familiar_dir,
+      familiar_dir_exists: familiar_dir_exists,
+      config_path: config_path,
+      config_exists: config_exists,
+      initialized: familiar_dir_exists,
+      daemon: daemon_state,
+      daemon_info: daemon_info,
+      resolved: resolved,
+      resolution_error: strict_error
+    }
+  end
+
+  defp safe_call(fun, fallback) when is_function(fun, 0) do
+    case fun.() do
+      {:ok, value} -> value
+      {:error, _} -> fallback
+      value -> value
+    end
+  rescue
+    _ -> fallback
+  catch
+    _, _ -> fallback
+  end
+
+  defp safe_call(_, fallback), do: fallback
+
+  # Coerce injected-dep return values into a binary-or-nil shape for the
+  # rest of `build_where_diagnostic`. Non-binary / non-nil values are
+  # surfaced via `inspect/1` so diagnostic display remains informative
+  # instead of silently hiding wiring bugs.
+  defp normalize_env_value(nil), do: nil
+  defp normalize_env_value(value) when is_binary(value), do: value
+  defp normalize_env_value(other), do: inspect(other)
+
+  defp normalize_cwd_value(value) when is_binary(value), do: value
+  defp normalize_cwd_value(_), do: "(unknown)"
+
+  # Note: no catch-all clause — `Familiar.Daemon.Paths.source()` is an
+  # exhaustive type, and dialyzer will flag any new variant at compile
+  # time. A runtime catch-all would be dead code.
+  defp normalize_source(:explicit), do: %{type: :explicit}
+  defp normalize_source(:env), do: %{type: :env}
+  defp normalize_source(:cwd_fallback), do: %{type: :cwd_fallback}
+  defp normalize_source({:walk_up, found_at}), do: %{type: :walk_up, found_at: found_at}
+
+  defp format_where_diagnostic(diag) do
+    familiar_dir_status = if diag.familiar_dir_exists, do: "[exists]", else: "[missing]"
+    config_status = if diag.config_exists, do: "[exists]", else: "[missing]"
+
+    """
+    project_dir:  #{diag.project_dir}
+    source:       #{format_where_source(diag.source)}
+    cwd:          #{diag.cwd}
+    env:          FAMILIAR_PROJECT_DIR = #{format_where_env(diag.env)}
+    explicit:     #{format_where_explicit(diag.explicit)}
+    familiar_dir: #{diag.familiar_dir}  #{familiar_dir_status}
+    config:       #{diag.config_path}  #{config_status}
+    daemon:       #{format_where_daemon(diag.daemon, diag.daemon_info)}
+    """
+  end
+
+  defp format_where_source(%{type: :explicit}), do: "explicit (--project-dir)"
+  defp format_where_source(%{type: :env}), do: "env (FAMILIAR_PROJECT_DIR)"
+
+  defp format_where_source(%{type: :walk_up, found_at: found}),
+    do: "walk-up (found .familiar/ at #{found})"
+
+  defp format_where_source(%{type: :cwd_fallback}),
+    do: "cwd-fallback (no .familiar/ found in walk-up)"
+
+  defp format_where_source(other), do: inspect(other)
+
+  defp format_where_env(nil), do: "(unset)"
+  defp format_where_env(""), do: "(empty)"
+  defp format_where_env(value) when is_binary(value), do: value
+  defp format_where_env(other), do: inspect(other)
+
+  defp format_where_explicit(nil), do: "--project-dir (unset)"
+  defp format_where_explicit(value) when is_binary(value), do: "--project-dir #{value}"
+  defp format_where_explicit(other), do: "--project-dir #{inspect(other)}"
+
+  defp format_where_daemon(:running, info) do
+    pid = Map.get(info, :pid, "?")
+    port = Map.get(info, :port, "?")
+    "running (pid #{pid}, port #{port})"
+  end
+
+  defp format_where_daemon(:stale, _info), do: "stale"
+  defp format_where_daemon(:stopped, _info), do: "stopped"
+  defp format_where_daemon(other, _info), do: to_string(other)
+
   defp default_conventions(port) do
     _ = port
 
@@ -1620,6 +1817,10 @@ defmodule Familiar.CLI.Main do
 
   def text_formatter("help") do
     fn %{help: text} -> text end
+  end
+
+  def text_formatter("where") do
+    fn diag -> format_where_diagnostic(diag) end
   end
 
   def text_formatter("daemon") do
@@ -2142,6 +2343,7 @@ defmodule Familiar.CLI.Main do
       conventions review Review and approve conventions
       health             Check daemon health and version
       version            Show CLI version
+      where              Show resolved project directory and diagnostic info
       daemon start       Start the daemon
       daemon stop        Stop the daemon
       daemon status      Show daemon status

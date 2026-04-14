@@ -145,6 +145,68 @@ defmodule Familiar.CLI.OutputTest do
     end
   end
 
+  describe "Story 7.5-8 project-dir resolution errors" do
+    test ":project_dir_unresolvable JSON envelope includes diagnostic fields" do
+      details = %{
+        cwd: "/home/user/somewhere",
+        checked_env: true,
+        explicit: nil
+      }
+
+      result = Output.format({:error, {:project_dir_unresolvable, details}}, :json)
+      data = Jason.decode!(result)
+
+      assert data["error"]["type"] == "project_dir_unresolvable"
+      assert data["error"]["message"] =~ "Could not determine the Familiar project directory"
+      assert data["error"]["message"] =~ "/home/user/somewhere"
+      assert data["error"]["message"] =~ "FAMILIAR_PROJECT_DIR"
+      assert data["error"]["message"] =~ "fam --project-dir"
+      assert data["error"]["message"] =~ "fam where"
+      assert data["error"]["details"]["cwd"] == "/home/user/somewhere"
+      assert data["error"]["details"]["checked_env"] == true
+    end
+
+    test ":project_dir_unresolvable text mode renders the diagnostic dump" do
+      details = %{cwd: "/tmp/nowhere", checked_env: true, explicit: nil}
+      result = Output.format({:error, {:project_dir_unresolvable, details}}, :text)
+
+      assert result =~ "project_dir_unresolvable"
+      assert result =~ "/tmp/nowhere"
+      assert result =~ "FAMILIAR_PROJECT_DIR"
+    end
+
+    test ":project_dir_unresolvable quiet mode returns error type" do
+      result =
+        Output.format(
+          {:error, {:project_dir_unresolvable, %{cwd: "/x", checked_env: true, explicit: nil}}},
+          :quiet
+        )
+
+      assert result == "error: project_dir_unresolvable"
+    end
+
+    test ":not_a_familiar_project JSON envelope includes the path" do
+      details = %{path: "/home/user/not_a_project"}
+      result = Output.format({:error, {:not_a_familiar_project, details}}, :json)
+      data = Jason.decode!(result)
+
+      assert data["error"]["type"] == "not_a_familiar_project"
+      assert data["error"]["message"] =~ "/home/user/not_a_project"
+      assert data["error"]["message"] =~ "not a Familiar project"
+      assert data["error"]["message"] =~ "fam init"
+      assert data["error"]["details"]["path"] == "/home/user/not_a_project"
+    end
+
+    test ":not_a_familiar_project text mode shows the path and fix" do
+      details = %{path: "/tmp/bare"}
+      result = Output.format({:error, {:not_a_familiar_project, details}}, :text)
+
+      assert result =~ "not_a_familiar_project"
+      assert result =~ "/tmp/bare"
+      assert result =~ "fam init"
+    end
+  end
+
   describe "Story 7.5-6 resume error messages" do
     test ":no_resumable_workflow JSON message mentions list-runs" do
       result = Output.format({:error, {:no_resumable_workflow, %{}}}, :json)
