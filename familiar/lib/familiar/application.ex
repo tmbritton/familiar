@@ -28,6 +28,8 @@ defmodule Familiar.Application do
         ),
         # Agent supervisor — DynamicSupervisor for all agent processes
         Familiar.Execution.AgentSupervisor,
+        # MCP client supervisor — DynamicSupervisor for MCP server connections
+        Familiar.MCP.ClientSupervisor,
         # Daemon lifecycle — disabled in test env and CLI mode
         if(Application.get_env(:familiar, :start_daemon, true) and not cli_mode?(),
           do: Familiar.Daemon.Server

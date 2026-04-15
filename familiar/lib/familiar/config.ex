@@ -261,14 +261,31 @@ defmodule Familiar.Config do
      {:invalid_config, %{field: field, reason: "expected boolean, got #{inspect(value)}"}}}
   end
 
-  # Expand ${ENV_VAR} references in string values
-  defp expand_env(nil), do: nil
+  @doc """
+  Expand `${ENV_VAR}` references in string values.
 
-  defp expand_env(value) when is_binary(value) do
+  Returns the input unchanged for non-string values and `nil`.
+  Used for provider config and MCP server env expansion.
+
+  ## Examples
+
+      iex> Familiar.Config.expand_env("hello")
+      "hello"
+
+      iex> Familiar.Config.expand_env(nil)
+      nil
+
+      iex> Familiar.Config.expand_env(42)
+      42
+  """
+  @spec expand_env(String.t() | nil | term()) :: String.t() | nil | term()
+  def expand_env(nil), do: nil
+
+  def expand_env(value) when is_binary(value) do
     Regex.replace(~r/\$\{([^}]+)\}/, value, fn _, var_name ->
       System.get_env(var_name) || ""
     end)
   end
 
-  defp expand_env(value), do: value
+  def expand_env(value), do: value
 end

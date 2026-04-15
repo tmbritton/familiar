@@ -9,6 +9,7 @@
     "Config.HTTPS",
     "Config.CSP",
     "Traversal.FileModule",
-    "CI.System"
+    "CI.System",
+    "DOS.StringToAtom"
   ]
 ]

@@ -54,6 +54,12 @@ defmodule Familiar.Execution.ToolRegistry do
     GenServer.call(__MODULE__, {:dispatch, name, args, context})
   end
 
+  @doc "Remove a tool from the registry. No-op if the tool doesn't exist."
+  @spec unregister(atom()) :: :ok
+  def unregister(name) when is_atom(name) do
+    GenServer.call(__MODULE__, {:unregister, name})
+  end
+
   @doc "List all registered tools."
   @spec list_tools() :: [%{name: atom(), description: String.t(), extension: String.t()}]
   def list_tools do
@@ -108,6 +114,10 @@ defmodule Familiar.Execution.ToolRegistry do
 
     entry = %{function: function, description: description, extension: extension_name}
     {:reply, :ok, %{state | tools: Map.put(state.tools, name, entry)}}
+  end
+
+  def handle_call({:unregister, name}, _from, state) do
+    {:reply, :ok, %{state | tools: Map.delete(state.tools, name)}}
   end
 
   def handle_call({:dispatch, name, args, context}, from, state) do
