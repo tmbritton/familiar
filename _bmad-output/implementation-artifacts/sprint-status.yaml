@@ -193,7 +193,7 @@ development_status:
   # checked-in project servers. Runtime source of truth is the DB; --read-only
   # is a capability filter (tools not registered), not a safety veto.
   # Server direction split out to Epic 11 post-MVP.
-  epic-8: in-progress
+  epic-8: done
   8-1-mcp-protocol-codec: done
   8-2-mcp-client-connection: done
   8-3-mcp-server-storage-and-extension: done
