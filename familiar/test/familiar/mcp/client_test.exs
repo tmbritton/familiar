@@ -1,5 +1,7 @@
 defmodule Familiar.MCP.ClientTest do
-  use ExUnit.Case, async: true
+  # async: false — Client registers tools in the global ToolRegistry
+  # during handshake, which races with other test modules.
+  use ExUnit.Case, async: false
 
   alias Familiar.MCP.Client
   alias Familiar.MCP.Protocol
