@@ -178,7 +178,7 @@ development_status:
   # sandboxing warning surface, reference Dockerfile, and docs/sandboxing.md.
   # Container becomes the honest boundary. Runs before Epic 8 so MCP support
   # builds on the new posture.
-  epic-7.6: in-progress
+  epic-7.6: done
   7.6-1-remove-safety-extension: done
   7.6-2-sandboxing-warning-and-container: done
   7.6-3-planning-docs-reframing: done
@@ -191,8 +191,8 @@ development_status:
   # checked-in project servers. Runtime source of truth is the DB; --read-only
   # is a capability filter (tools not registered), not a safety veto.
   # Server direction split out to Epic 11 post-MVP.
-  epic-8: backlog
-  8-1-mcp-protocol-codec: backlog
+  epic-8: in-progress
+  8-1-mcp-protocol-codec: done
   8-2-mcp-client-connection: backlog
   8-3-mcp-server-storage-and-extension: backlog
   8-4-fam-mcp-management-cli: backlog
