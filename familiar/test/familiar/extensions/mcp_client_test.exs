@@ -5,71 +5,18 @@ defmodule Familiar.Extensions.MCPClientTest do
   alias Familiar.MCP.Client
   alias Familiar.MCP.Protocol
   alias Familiar.MCP.Servers
+  alias Familiar.Test.FakeMCPServer
+  alias Familiar.Test.FakeMCPServer.FakePort
+
+  defdelegate send_line(client, fake_port, json), to: FakeMCPServer
+  defdelegate complete_handshake(client, fake_port), to: FakeMCPServer
+  defdelegate make_port_opener(), to: FakeMCPServer
 
   # Stub registry that returns no built-in tools (for changeset validation)
   defmodule FakeRegistry do
     def list_tools, do: []
     def register(_name, _fn, _desc, _ext), do: :ok
     def unregister(_name), do: :ok
-  end
-
-  # Fake port reference that captures sent data
-  defmodule FakePort do
-    @moduledoc false
-    use GenServer
-
-    def start_link, do: GenServer.start_link(__MODULE__, [])
-    def get_sent(port), do: GenServer.call(port, :get_sent)
-
-    @impl true
-    def init(_), do: {:ok, %{sent: []}}
-
-    @impl true
-    def handle_call(:get_sent, _from, state) do
-      {:reply, Enum.reverse(state.sent), state}
-    end
-
-    @impl true
-    def handle_info({:port_data, data}, state) do
-      {:noreply, %{state | sent: [data | state.sent]}}
-    end
-
-    def handle_info(_msg, state), do: {:noreply, state}
-  end
-
-  defp send_line(client, fake_port, json) do
-    send(client, {fake_port, {:data, {:eol, json}}})
-    Process.sleep(50)
-  end
-
-  defp make_port_opener do
-    fn _cmd, _args, _env ->
-      {:ok, fake_port} = FakePort.start_link()
-      send_fn = fn data -> send(fake_port, {:port_data, data}) end
-      close_fn = fn -> :ok end
-      {fake_port, send_fn, close_fn}
-    end
-  end
-
-  defp complete_handshake(client, fake_port) do
-    init_response =
-      Protocol.encode_response(1, %{
-        "protocolVersion" => "2025-11-05",
-        "capabilities" => %{"tools" => %{}},
-        "serverInfo" => %{"name" => "test-server", "version" => "1.0"}
-      })
-
-    send_line(client, fake_port, init_response)
-
-    tools_response =
-      Protocol.encode_response(2, %{
-        "tools" => [
-          %{"name" => "read_data", "description" => "Read data", "inputSchema" => %{}},
-          %{"name" => "write_data", "description" => "Write data", "inputSchema" => %{}}
-        ]
-      })
-
-    send_line(client, fake_port, tools_response)
   end
 
   defp create_test_server(name, overrides \\ %{}) do
@@ -189,6 +136,27 @@ defmodule Familiar.Extensions.MCPClientTest do
       assert length(entries) == 1
       assert [{_, :db, _}] = entries
     end
+
+    test "deduplicates config servers with same name", %{supervisor: sup} do
+      port_opener = make_port_opener()
+
+      config = %{
+        mcp_servers: [
+          %{name: "dupe-srv", command: "echo-first", args: [], env: %{}},
+          %{name: "dupe-srv", command: "echo-second", args: [], env: %{}}
+        ]
+      }
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          MCPClient.init(config: config, port_opener: port_opener, supervisor: sup)
+        end)
+
+      assert log =~ "Duplicate config.toml server 'dupe-srv'"
+
+      entries = :ets.lookup(:familiar_mcp_servers, "dupe-srv")
+      assert length(entries) == 1
+    end
   end
 
   describe "server_status/0" do
@@ -257,7 +225,7 @@ defmodule Familiar.Extensions.MCPClientTest do
   end
 
   describe "read-only filtering" do
-    test "read_only server only registers matching tools", %{supervisor: sup} do
+    test "read_only server only registers matching tools", %{supervisor: _sup} do
       {:ok, fake_port} = FakePort.start_link()
 
       port_opener = fn _cmd, _args, _env ->

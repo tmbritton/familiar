@@ -19,34 +19,14 @@ defmodule Familiar.MCP.MCPIntegrationTest do
   alias Familiar.MCP.Client
   alias Familiar.MCP.Protocol
   alias Familiar.MCP.Servers
+  alias Familiar.Test.FakeMCPServer
+  alias Familiar.Test.FakeMCPServer.FakePort
+
+  defdelegate send_line(client, fake_port, json), to: FakeMCPServer
+  defdelegate receive_fake_port(), to: FakeMCPServer
 
   @moduletag :tmp_dir
   @moduletag :integration
-
-  # -- FakePort: captures data sent to the "MCP server" --
-
-  defmodule FakePort do
-    @moduledoc false
-    use GenServer
-
-    def start_link, do: GenServer.start_link(__MODULE__, [])
-    def get_sent(port), do: GenServer.call(port, :get_sent)
-
-    @impl true
-    def init(_), do: {:ok, %{sent: []}}
-
-    @impl true
-    def handle_call(:get_sent, _from, state) do
-      {:reply, Enum.reverse(state.sent), state}
-    end
-
-    @impl true
-    def handle_info({:port_data, data}, state) do
-      {:noreply, %{state | sent: [data | state.sent]}}
-    end
-
-    def handle_info(_msg, state), do: {:noreply, state}
-  end
 
   # -- Setup --
 
@@ -96,53 +76,15 @@ defmodule Familiar.MCP.MCPIntegrationTest do
   # -- Helpers --
 
   defp make_port_opener do
-    test_pid = self()
-
-    fn _cmd, _args, _env ->
-      {:ok, fake_port} = FakePort.start_link()
-      send(test_pid, {:fake_port_opened, fake_port})
-      send_fn = fn data -> send(fake_port, {:port_data, data}) end
-      close_fn = fn -> :ok end
-      {fake_port, send_fn, close_fn}
-    end
-  end
-
-  defp receive_fake_port do
-    receive do
-      {:fake_port_opened, fake_port} -> fake_port
-    after
-      5_000 -> flunk("Timed out waiting for FakePort to be opened")
-    end
-  end
-
-  defp send_line(client, fake_port, json) do
-    send(client, {fake_port, {:data, {:eol, json}}})
-    Process.sleep(50)
+    FakeMCPServer.make_port_opener_notify(self())
   end
 
   defp complete_handshake(client, fake_port) do
-    complete_handshake_with_tools(client, fake_port, default_tools())
+    FakeMCPServer.complete_handshake(client, fake_port)
   end
 
   defp complete_handshake_with_tools(client, fake_port, tools) do
-    init_response =
-      Protocol.encode_response(1, %{
-        "protocolVersion" => "2025-11-05",
-        "capabilities" => %{"tools" => %{}},
-        "serverInfo" => %{"name" => "test-server", "version" => "1.0"}
-      })
-
-    send_line(client, fake_port, init_response)
-
-    tools_response = Protocol.encode_response(2, %{"tools" => tools})
-    send_line(client, fake_port, tools_response)
-  end
-
-  defp default_tools do
-    [
-      %{"name" => "read_data", "description" => "Read data", "inputSchema" => %{}},
-      %{"name" => "write_data", "description" => "Write data", "inputSchema" => %{}}
-    ]
+    FakeMCPServer.complete_handshake(client, fake_port, tools: tools)
   end
 
   defp mixed_tools do

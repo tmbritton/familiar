@@ -135,9 +135,29 @@ defmodule Familiar.Extensions.MCPClient do
     config = Keyword.get(opts, :config)
     mcp_servers = if config, do: config.mcp_servers, else: []
 
-    Enum.map(mcp_servers || [], fn entry ->
+    mcp_servers
+    |> Kernel.||([])
+    |> dedup_config_entries()
+    |> Enum.map(fn entry ->
       {entry.name, config_entry_to_client_opts(entry, opts)}
     end)
+  end
+
+  defp dedup_config_entries(entries) do
+    {deduped, _seen} =
+      Enum.reduce(entries, {[], MapSet.new()}, fn entry, {acc, seen} ->
+        if MapSet.member?(seen, entry.name) do
+          Logger.warning(
+            "[MCPClient] Duplicate config.toml server '#{entry.name}' — keeping first entry"
+          )
+
+          {acc, seen}
+        else
+          {[entry | acc], MapSet.put(seen, entry.name)}
+        end
+      end)
+
+    Enum.reverse(deduped)
   end
 
   defp server_to_client_opts(server, source, extra_opts) do

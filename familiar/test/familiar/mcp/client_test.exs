@@ -5,47 +5,12 @@ defmodule Familiar.MCP.ClientTest do
 
   alias Familiar.MCP.Client
   alias Familiar.MCP.Protocol
+  alias Familiar.Test.FakeMCPServer
+  alias Familiar.Test.FakeMCPServer.FakePort
 
-  # A fake port reference (just a pid) that captures sent data.
-  # The test sends port-shaped messages directly to the client pid.
-  defmodule FakePort do
-    @moduledoc false
-    use GenServer
-
-    def start_link do
-      GenServer.start_link(__MODULE__, [])
-    end
-
-    def get_sent(port), do: GenServer.call(port, :get_sent)
-
-    @impl true
-    def init(_) do
-      {:ok, %{sent: []}}
-    end
-
-    @impl true
-    def handle_call(:get_sent, _from, state) do
-      {:reply, Enum.reverse(state.sent), state}
-    end
-
-    @impl true
-    def handle_info({:port_data, data}, state) do
-      {:noreply, %{state | sent: [data | state.sent]}}
-    end
-
-    def handle_info(_msg, state), do: {:noreply, state}
-  end
-
-  # Send a JSON-RPC response line to the client as if from a port
-  defp send_line(client, fake_port, json) do
-    send(client, {fake_port, {:data, {:eol, json}}})
-    Process.sleep(50)
-  end
-
-  defp send_exit(client, fake_port, code) do
-    send(client, {fake_port, {:exit_status, code}})
-    Process.sleep(50)
-  end
+  defdelegate send_line(client, fake_port, json), to: FakeMCPServer
+  defdelegate send_exit(client, fake_port, code), to: FakeMCPServer
+  defdelegate complete_handshake(client, fake_port), to: FakeMCPServer
 
   defp start_client(opts \\ []) do
     {:ok, fake_port} = FakePort.start_link()
@@ -71,37 +36,6 @@ defmodule Familiar.MCP.ClientTest do
     Process.sleep(50)
 
     {client, fake_port}
-  end
-
-  defp complete_handshake(client, fake_port) do
-    # Respond to initialize (id=1)
-    init_response =
-      Protocol.encode_response(1, %{
-        "protocolVersion" => "2025-11-05",
-        "capabilities" => %{"tools" => %{}},
-        "serverInfo" => %{"name" => "test-server", "version" => "1.0"}
-      })
-
-    send_line(client, fake_port, init_response)
-
-    # Respond to tools/list (id=2)
-    tools_response =
-      Protocol.encode_response(2, %{
-        "tools" => [
-          %{
-            "name" => "read_data",
-            "description" => "Read data from source",
-            "inputSchema" => %{"type" => "object"}
-          },
-          %{
-            "name" => "write_data",
-            "description" => "Write data to sink",
-            "inputSchema" => %{"type" => "object"}
-          }
-        ]
-      })
-
-    send_line(client, fake_port, tools_response)
   end
 
   describe "init/1" do

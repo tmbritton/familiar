@@ -9,7 +9,7 @@
 # See docs/sandboxing.md for hardened flags (--read-only, --cap-drop, etc.)
 
 # === Builder stage ===
-FROM hexpm/elixir:1.19.5-erlang-28.3.2-debian-bookworm-20250317-slim AS builder
+FROM hexpm/elixir:1.19.5-erlang-28.2-debian-bookworm-20260202-slim AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
