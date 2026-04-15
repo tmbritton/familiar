@@ -44,3 +44,10 @@ Items deferred from code reviews and other workflows. These are real but not blo
 - **`build_json_attrs` doesn't type-check `args`/`env`** — accepts non-list/non-map values. Story 8-3 schema changeset validates at insert time.
 - **MCP CLI test coverage gaps** — no tests for `--show-env`, `--read-only`/`--disabled` flags via real parse path, config-only error via default code path. Story 8-5 integration test scope.
 - **No `quiet_summary` for MCP result shapes** — all fall through to "ok". Consistent with existing behavior.
+
+## Deferred from: code review of 8-5-mcp-client-integration-test (2026-04-15)
+
+- **FakePort module duplicated across 3 test files** — `client_test.exs`, `mcp_client_test.exs`, and `mcp_integration_test.exs` all define identical `FakePort` GenServer. Extract to `test/support/fake_port.ex` when pattern stabilizes.
+- **Handshake helpers duplicated across test files** — `complete_handshake/2`, `send_line/3` duplicated in same 3 files. Extract alongside FakePort.
+- **No integration test for malformed JSON during handshake** — AC5 tests error response path but not syntactically invalid JSON. The `client_test.exs` unit test covers malformed line handling; adding to integration test is lower priority.
+- **`tools/list` error response (id=2 error) not tested at integration level** — Client transitions to `:connected` with zero tools silently. Covered by unit test in `client_test.exs`. Add if silent-failure detection becomes a pattern.
