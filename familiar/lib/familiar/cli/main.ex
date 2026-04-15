@@ -96,6 +96,11 @@ defmodule Familiar.CLI.Main do
         :stderr,
         "[familiar] Run `fam where` anytime to debug project-dir resolution."
       )
+
+      IO.puts(
+        :stderr,
+        "[familiar] Warning: Familiar executes LLM-generated tool calls (file writes, shell commands). Run inside a container. See docs/sandboxing.md."
+      )
     end
   end
 
@@ -1856,6 +1861,15 @@ defmodule Familiar.CLI.Main do
           lines ++ ["", "Try: fam plan \"describe a feature\" — your spec will appear for review"]
         end
 
+      lines =
+        lines ++
+          [
+            "",
+            "Security: Familiar executes LLM-generated tool calls (file writes,",
+            "shell commands). The LLM is an untrusted actor. Run Familiar inside",
+            "a container. See docs/sandboxing.md for details."
+          ]
+
       Enum.join(lines, "\n")
     end
   end
@@ -2347,6 +2361,9 @@ defmodule Familiar.CLI.Main do
       daemon start       Start the daemon
       daemon stop        Stop the daemon
       daemon status      Show daemon status
+
+    Security: Familiar executes LLM-generated tool calls (file writes, shell
+    commands). Run inside a container. See docs/sandboxing.md for details.
 
     Options:
       --json, -j       Output as JSON

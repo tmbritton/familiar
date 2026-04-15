@@ -1,0 +1,22 @@
+# Familiar — Docker Compose configuration
+#
+# Quick start:
+#   docker compose run --rm familiar fam init
+#   docker compose run --rm familiar fam chat
+#
+# Set environment variables in your shell or a .env file:
+#   FAMILIAR_API_KEY=sk-...
+#   FAMILIAR_BASE_URL=https://openrouter.ai/api/v1
+#   FAMILIAR_CHAT_MODEL=deepseek/deepseek-chat-v3-0324
+
+services:
+  familiar:
+    build: .
+    volumes:
+      - ../:/workspace
+    environment:
+      - FAMILIAR_PROJECT_DIR=/workspace
+      - FAMILIAR_API_KEY=${FAMILIAR_API_KEY}
+      - FAMILIAR_BASE_URL=${FAMILIAR_BASE_URL:-https://openrouter.ai/api/v1}
+      - FAMILIAR_CHAT_MODEL=${FAMILIAR_CHAT_MODEL}
+      - FAMILIAR_PROVIDER=${FAMILIAR_PROVIDER:-openai_compatible}

@@ -178,19 +178,25 @@ Familiar is an Elixir/Phoenix application that runs as a per-project daemon.
 
 Familiar has no runtime safety layer. The LLM generates tool calls — including `write_file`, `delete_file`, and `run_command` — and Familiar executes them. A name-pattern-matching "safety" module was removed because it provided false confidence: an adversarial LLM can trivially bypass name-based filters (e.g., calling `sh` instead of `run_command`).
 
-The honest security boundary is the OS. **Run Familiar inside a container:**
+The honest security boundary is the OS. **Run Familiar inside a container.** A reference `Dockerfile` and `docker-compose.yml` are included:
 
 ```bash
+# Quick start with Docker Compose
+cd familiar
+docker compose run --rm familiar fam init
+
+# Or build and run directly
+docker build -t familiar familiar/
 docker run --rm -it \
   -v "$(pwd):/workspace" \
-  -e FAMILIAR_PROJECT_DIR=/workspace \
   -e FAMILIAR_API_KEY="$FAMILIAR_API_KEY" \
   -e FAMILIAR_BASE_URL="$FAMILIAR_BASE_URL" \
   -e FAMILIAR_CHAT_MODEL="$FAMILIAR_CHAT_MODEL" \
   -e FAMILIAR_PROVIDER=openai_compatible \
-  --network=host \
   familiar fam init
 ```
+
+See [`docs/sandboxing.md`](familiar/docs/sandboxing.md) for hardened Docker flags, Podman, and ephemeral VM options.
 
 ### What a sandbox protects you from
 
@@ -209,7 +215,7 @@ docker run --rm -it \
 ```bash
 cd familiar
 mix deps.get
-mix test                    # 1244 tests + 8 properties
+mix test                    # 1200 tests + 8 properties
 mix credo --strict          # Static analysis
 mix dialyzer                # Type checking
 mix sobelow                 # Security scanning

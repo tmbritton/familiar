@@ -23,6 +23,7 @@ defmodule Familiar.MixProject do
       ],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       escript: escript(),
+      releases: releases(),
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -31,6 +32,15 @@ defmodule Familiar.MixProject do
     [
       main_module: Familiar.CLI.Main,
       name: "fam"
+    ]
+  end
+
+  defp releases do
+    [
+      familiar: [
+        include_executables_for: [:unix],
+        overlays: ["rel/overlays"]
+      ]
     ]
   end
 

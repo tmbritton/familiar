@@ -21,3 +21,8 @@ Items deferred from code reviews and other workflows. These are real but not blo
 ## Deferred from: code review of 7.6-1-remove-safety-extension (2026-04-14)
 
 - **`default_files_test.exs` role prompt assertions only check substring** — `assert role.system_prompt =~ "Sandboxing"` verifies the section header exists but not the substantive guidance text ("container or equivalent sandbox"). Pre-existing test style throughout the file — all role tests use `=~` substring checks. Low risk since the wording is stable.
+
+## Deferred from: code review of 7.6-2-sandboxing-warning-and-container (2026-04-14)
+
+- **Docker image tag validity unverified** — `hexpm/elixir:1.19.5-erlang-28.3.2-debian-bookworm-20250317-slim` is a plausible tag but wasn't verified against Docker Hub. CI should confirm the tag exists before merge. If it doesn't, update to the closest available tag.
+- **docker-compose volume mount assumes `cd familiar`** — `../:/workspace` mounts the repo root as workspace. Works correctly when running `docker compose` from the `familiar/` subdirectory as documented, but confusing if run from elsewhere. Not blocking — documented in compose comments.

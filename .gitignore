@@ -12,6 +12,9 @@ familiar/doc/
 familiar/.fetch
 familiar/tmp/
 
+# Escript build artifact
+familiar/fam
+
 # BEAM crash dumps
 erl_crash.dump
 

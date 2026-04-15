@@ -72,6 +72,12 @@ defmodule Familiar.CLI.MainTest do
       assert {:ok, %{help: help}} = result
       assert help =~ "fam"
     end
+
+    test "help text includes security notice" do
+      {:ok, %{help: help}} = Main.run({"help", [], %{}}, deps())
+      assert help =~ "sandboxing.md"
+      assert help =~ "container"
+    end
   end
 
   describe "run/2 with auto-init" do

@@ -1,0 +1,32 @@
+#!/bin/sh
+# CLI wrapper for the Familiar release.
+#
+# Converts shell arguments into an Elixir list and calls
+# Familiar.CLI.Main.main/1 via the release's eval command.
+#
+# Usage: fam <command> [options]
+# Examples:
+#   fam init
+#   fam chat --role coder
+#   fam plan "add user auth"
+
+set -e
+
+SELF_DIR=$(cd "$(dirname "$0")" && pwd)
+RELEASE_ROOT=$(cd "$SELF_DIR/.." && pwd)
+
+# Build Elixir list from shell args: ["arg1", "arg2", ...]
+ARGS="["
+FIRST=true
+for arg in "$@"; do
+  escaped=$(printf '%s' "$arg" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  if [ "$FIRST" = true ]; then
+    ARGS="${ARGS}\"${escaped}\""
+    FIRST=false
+  else
+    ARGS="${ARGS}, \"${escaped}\""
+  fi
+done
+ARGS="${ARGS}]"
+
+exec "$RELEASE_ROOT/bin/familiar" eval "Familiar.CLI.Main.main(${ARGS})"
