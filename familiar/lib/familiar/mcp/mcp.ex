@@ -12,6 +12,8 @@ defmodule Familiar.MCP do
       Familiar.MCP.Protocol,
       Familiar.MCP.Dispatcher,
       Familiar.MCP.Client,
-      Familiar.MCP.ClientSupervisor
+      Familiar.MCP.ClientSupervisor,
+      Familiar.MCP.Server,
+      Familiar.MCP.Servers
     ]
 end

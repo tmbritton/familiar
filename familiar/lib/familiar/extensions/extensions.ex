@@ -8,6 +8,6 @@ defmodule Familiar.Extensions do
   """
 
   use Boundary,
-    deps: [Familiar.Execution, Familiar.Knowledge],
-    exports: [Familiar.Extensions.KnowledgeStore]
+    deps: [Familiar.Execution, Familiar.Knowledge, Familiar.MCP],
+    exports: [Familiar.Extensions.KnowledgeStore, Familiar.Extensions.MCPClient]
 end

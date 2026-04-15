@@ -26,3 +26,12 @@ Items deferred from code reviews and other workflows. These are real but not blo
 
 - **Docker image tag validity unverified** — `hexpm/elixir:1.19.5-erlang-28.3.2-debian-bookworm-20250317-slim` is a plausible tag but wasn't verified against Docker Hub. CI should confirm the tag exists before merge. If it doesn't, update to the closest available tag.
 - **docker-compose volume mount assumes `cd familiar`** — `../:/workspace` mounts the repo root as workspace. Works correctly when running `docker compose` from the `familiar/` subdirectory as documented, but confusing if run from elsewhere. Not blocking — documented in compose comments.
+
+## Deferred from: code review of 8-3-mcp-server-storage-and-extension (2026-04-15)
+
+- **ETS table ownership** — table owned by extension loader process, not a long-lived process; orphan client processes possible on crash. Production init is single-threaded via ExtensionLoader so not immediate risk.
+- **`reload_server/1` only works for DB-sourced servers** — config-sourced servers return `:not_found`. Story 8-4 scope.
+- **Config servers always `read_only: false`** — `config.toml` has no `read_only` field parsed. Story 8-4 `add-json` scope.
+- **Read-only filtering test has no assertion on which tools were registered** — need to verify filtered tools are actually excluded. Story 8-5 integration test scope.
+- **Hardcoded init response IDs 1/2 in Client** — pre-existing from Story 8-2, fragile but correct.
+- **Duplicate config.toml server names not deduplicated within config source** — second entry silently overwrites first ETS row, leaking first client process. Story 8-4 validation scope.

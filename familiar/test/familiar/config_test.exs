@@ -177,4 +177,88 @@ defmodule Familiar.ConfigTest do
       assert config == Config.defaults()
     end
   end
+
+  describe "MCP server config parsing" do
+    test "parses [[mcp.servers]] entries", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+
+      File.write!(path, """
+      [[mcp.servers]]
+      name = "github"
+      command = "npx"
+      args = ["-y", "@modelcontextprotocol/server-github"]
+
+      [mcp.servers.env]
+      GITHUB_TOKEN = "${GITHUB_TOKEN}"
+
+      [[mcp.servers]]
+      name = "postgres"
+      command = "pg-server"
+      """)
+
+      assert {:ok, config} = Config.load(path)
+      assert length(config.mcp_servers) == 2
+
+      [github, postgres] = config.mcp_servers
+      assert github.name == "github"
+      assert github.command == "npx"
+      assert github.args == ["-y", "@modelcontextprotocol/server-github"]
+      assert github.env["GITHUB_TOKEN"] == "${GITHUB_TOKEN}"
+
+      assert postgres.name == "postgres"
+      assert postgres.command == "pg-server"
+      assert postgres.args == []
+      assert postgres.env == %{}
+    end
+
+    test "defaults mcp_servers to empty list when no mcp section", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+      File.write!(path, "[provider]\nbase_url = \"http://localhost:11434\"\n")
+
+      assert {:ok, config} = Config.load(path)
+      assert config.mcp_servers == []
+    end
+
+    test "skips mcp server entry without name and keeps valid entries", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+
+      File.write!(path, """
+      [[mcp.servers]]
+      command = "npx"
+
+      [[mcp.servers]]
+      name = "valid"
+      command = "echo"
+      """)
+
+      assert {:ok, config} = Config.load(path)
+      assert length(config.mcp_servers) == 1
+      assert hd(config.mcp_servers).name == "valid"
+    end
+
+    test "skips mcp server entry without command and keeps valid entries", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+
+      File.write!(path, """
+      [[mcp.servers]]
+      name = "bad"
+
+      [[mcp.servers]]
+      name = "good"
+      command = "echo"
+      """)
+
+      assert {:ok, config} = Config.load(path)
+      assert length(config.mcp_servers) == 1
+      assert hd(config.mcp_servers).name == "good"
+    end
+
+    test "handles mcp section with no servers key", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+      File.write!(path, "[mcp]\nsome_key = \"value\"\n")
+
+      assert {:ok, config} = Config.load(path)
+      assert config.mcp_servers == []
+    end
+  end
 end

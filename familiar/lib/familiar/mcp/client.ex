@@ -33,6 +33,17 @@ defmodule Familiar.MCP.Client do
           | :crashed
           | :disabled
 
+  @default_read_only_patterns [
+    "list_",
+    "get_",
+    "read_",
+    "search_",
+    "query_",
+    "describe_",
+    "show_",
+    "fetch_"
+  ]
+
   defstruct [
     :server_name,
     :command,
@@ -45,6 +56,8 @@ defmodule Familiar.MCP.Client do
     :connect_timeout,
     :call_timeout,
     :connect_timer,
+    read_only: false,
+    read_only_patterns: @default_read_only_patterns,
     status: :connecting,
     status_reason: "initializing",
     next_id: 1,
@@ -88,7 +101,9 @@ defmodule Familiar.MCP.Client do
       env: Keyword.get(opts, :env, %{}),
       port_opener: Keyword.get(opts, :port_opener),
       connect_timeout: Keyword.get(opts, :connect_timeout, @default_connect_timeout),
-      call_timeout: Keyword.get(opts, :call_timeout, @default_call_timeout)
+      call_timeout: Keyword.get(opts, :call_timeout, @default_call_timeout),
+      read_only: Keyword.get(opts, :read_only, false),
+      read_only_patterns: Keyword.get(opts, :read_only_patterns, @default_read_only_patterns)
     }
 
     {:ok, state, {:continue, :connect}}
@@ -325,6 +340,7 @@ defmodule Familiar.MCP.Client do
     registry = Application.get_env(:familiar, :tool_registry, Familiar.Execution.ToolRegistry)
     client_pid = self()
     call_timeout = state.call_timeout
+    tools = filter_read_only_tools(tools, state)
 
     Enum.map(tools, fn tool ->
       mcp_tool_name = tool["name"]
@@ -348,6 +364,15 @@ defmodule Familiar.MCP.Client do
       registry.unregister(tool_atom)
     end)
   end
+
+  defp filter_read_only_tools(tools, %{read_only: true, read_only_patterns: patterns}) do
+    Enum.filter(tools, fn tool ->
+      name = tool["name"] || ""
+      Enum.any?(patterns, &String.starts_with?(name, &1))
+    end)
+  end
+
+  defp filter_read_only_tools(tools, _state), do: tools
 
   # -- Private: Port Management --
 

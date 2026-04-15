@@ -17,7 +17,8 @@ defmodule Familiar.Config do
             providers: %{},
             language: %{},
             scan: %{max_files: 200, large_project_threshold: 500},
-            notifications: %{provider: "auto", enabled: true}
+            notifications: %{provider: "auto", enabled: true},
+            mcp_servers: []
 
   @language_defaults %{
     "elixir" => %{
@@ -50,7 +51,8 @@ defmodule Familiar.Config do
           },
           language: %{},
           scan: %{max_files: pos_integer(), large_project_threshold: pos_integer()},
-          notifications: %{provider: String.t(), enabled: boolean()}
+          notifications: %{provider: String.t(), enabled: boolean()},
+          mcp_servers: [map()]
         }
   def defaults, do: %__MODULE__{}
 
@@ -98,14 +100,16 @@ defmodule Familiar.Config do
     with {:ok, provider} <- resolve_provider(default_provider, parsed["provider"]),
          {:ok, language} <- validate_language(parsed["language"]),
          {:ok, scan} <- validate_scan(parsed["scan"]),
-         {:ok, notifications} <- validate_notifications(parsed["notifications"]) do
+         {:ok, notifications} <- validate_notifications(parsed["notifications"]),
+         {:ok, mcp_servers} <- parse_mcp_servers(parsed["mcp"]) do
       {:ok,
        %__MODULE__{
          provider: provider,
          providers: providers,
          language: language,
          scan: scan,
-         notifications: notifications
+         notifications: notifications,
+         mcp_servers: mcp_servers
        }}
     end
   end
@@ -259,6 +263,62 @@ defmodule Familiar.Config do
   defp validate_boolean(field, value) do
     {:error,
      {:invalid_config, %{field: field, reason: "expected boolean, got #{inspect(value)}"}}}
+  end
+
+  defp parse_mcp_servers(nil), do: {:ok, []}
+
+  defp parse_mcp_servers(%{"servers" => servers}) when is_list(servers) do
+    valid =
+      Enum.reduce(servers, [], fn entry, acc ->
+        case validate_mcp_server_entry(entry) do
+          {:ok, server} ->
+            [server | acc]
+
+          {:error, {:invalid_config, details}} ->
+            Logger.warning(
+              "[Config] Skipping invalid MCP server entry: #{details.field} — #{details.reason}"
+            )
+
+            acc
+        end
+      end)
+
+    {:ok, Enum.reverse(valid)}
+  end
+
+  defp parse_mcp_servers(%{}), do: {:ok, []}
+
+  defp parse_mcp_servers(_) do
+    {:error, {:invalid_config, %{field: "mcp", reason: "expected a TOML table"}}}
+  end
+
+  defp validate_mcp_server_entry(entry) when is_map(entry) do
+    name = entry["name"]
+    command = entry["command"]
+
+    cond do
+      not is_binary(name) or name == "" ->
+        {:error,
+         {:invalid_config, %{field: "mcp.servers.name", reason: "required, must be a string"}}}
+
+      not is_binary(command) or command == "" ->
+        {:error,
+         {:invalid_config, %{field: "mcp.servers.command", reason: "required, must be a string"}}}
+
+      true ->
+        {:ok,
+         %{
+           name: name,
+           command: command,
+           args: entry["args"] || [],
+           env: entry["env"] || %{}
+         }}
+    end
+  end
+
+  defp validate_mcp_server_entry(_) do
+    {:error,
+     {:invalid_config, %{field: "mcp.servers", reason: "each entry must be a TOML table"}}}
   end
 
   @doc """

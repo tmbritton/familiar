@@ -23,7 +23,7 @@ config :familiar, FamiliarWeb.Endpoint,
   live_view: [signing_salt: "tYbtlqSM"]
 
 # Extensions (loaded at startup)
-config :familiar, :extensions, [Familiar.Extensions.KnowledgeStore]
+config :familiar, :extensions, [Familiar.Extensions.KnowledgeStore, Familiar.Extensions.MCPClient]
 
 # Provider adapter configuration (overridden by test.exs for mocks)
 config :familiar, Familiar.Providers.LLM, Familiar.Providers.OllamaAdapter
