@@ -196,7 +196,7 @@ development_status:
   8-1-mcp-protocol-codec: done
   8-2-mcp-client-connection: done
   8-3-mcp-server-storage-and-extension: done
-  8-4-fam-mcp-management-cli: backlog
+  8-4-fam-mcp-management-cli: done
   8-5-mcp-client-integration-test: backlog
 
   # Epic 9: Terminal UI (Ratatouille) — stories TBD

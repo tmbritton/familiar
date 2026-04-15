@@ -15,6 +15,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.Execution.ToolRegistry
   alias Familiar.Execution.WorkflowRunner
   alias Familiar.Execution.WorkflowRuns
+  alias Familiar.Extensions.MCPClient
   alias Familiar.Knowledge
   alias Familiar.Knowledge.Backup
   alias Familiar.Knowledge.ConventionReviewer
@@ -22,6 +23,7 @@ defmodule Familiar.CLI.Main do
   alias Familiar.Knowledge.InitScanner
   alias Familiar.Knowledge.Management
   alias Familiar.Knowledge.Prerequisites
+  alias Familiar.MCP.Servers, as: MCPServers
   alias Familiar.Roles
 
   @version Mix.Project.config()[:version]
@@ -129,7 +131,11 @@ defmodule Familiar.CLI.Main do
           status: :string,
           limit: :integer,
           reindex: :boolean,
-          project_dir: :string
+          project_dir: :string,
+          env: :keep,
+          show_env: :boolean,
+          read_only: :boolean,
+          disabled: :boolean
         ],
         aliases: [j: :json, q: :quiet, h: :help, r: :role]
       )
@@ -170,6 +176,10 @@ defmodule Familiar.CLI.Main do
         :limit,
         :reindex,
         :project_dir,
+        :env,
+        :show_env,
+        :read_only,
+        :disabled,
         :_invalid
       ])
 
@@ -707,6 +717,75 @@ defmodule Familiar.CLI.Main do
     list_fn.()
   end
 
+  # -- MCP commands --
+
+  defp run_with_daemon({"mcp", args, _flags}, deps) when args == [] or args == ["list"] do
+    list_fn = Map.get(deps, :list_mcp_servers_fn, &default_list_mcp_servers/0)
+    list_fn.()
+  end
+
+  defp run_with_daemon({"mcp", ["get", name], flags}, deps) do
+    get_fn = Map.get(deps, :get_mcp_server_fn, &default_get_mcp_server/2)
+    show_env = Map.get(flags, :show_env, false)
+    get_fn.(name, show_env: show_env)
+  end
+
+  defp run_with_daemon({"mcp", ["add", name, command | extra_args], flags}, deps) do
+    add_fn = Map.get(deps, :add_mcp_server_fn, &default_add_mcp_server/2)
+    attrs = build_mcp_add_attrs(name, command, extra_args, flags)
+    add_fn.(attrs, flags)
+  end
+
+  defp run_with_daemon({"mcp", ["add-json", name, json], _flags}, deps) do
+    add_json_fn = Map.get(deps, :add_mcp_json_fn, &default_add_mcp_json/2)
+    add_json_fn.(name, json)
+  end
+
+  defp run_with_daemon({"mcp", ["remove", name], _}, deps) do
+    remove_fn = Map.get(deps, :remove_mcp_server_fn, &default_remove_mcp_server/1)
+    remove_fn.(name)
+  end
+
+  defp run_with_daemon({"mcp", ["enable", name], _}, deps) do
+    toggle_fn = Map.get(deps, :toggle_mcp_server_fn, &default_toggle_mcp_server/2)
+    toggle_fn.(name, :enable)
+  end
+
+  defp run_with_daemon({"mcp", ["disable", name], _}, deps) do
+    toggle_fn = Map.get(deps, :toggle_mcp_server_fn, &default_toggle_mcp_server/2)
+    toggle_fn.(name, :disable)
+  end
+
+  defp run_with_daemon({"mcp", ["add", _name], _}, _deps) do
+    {:error,
+     {:usage_error,
+      %{
+        message:
+          "Usage: fam mcp add <name> <command> [args...] [--env KEY=VALUE]... [--read-only] [--disabled]"
+      }}}
+  end
+
+  defp run_with_daemon({"mcp", ["add-json", _name], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam mcp add-json <name> <json>"}}}
+  end
+
+  defp run_with_daemon({"mcp", [sub], _}, _deps)
+       when sub in ~w(get remove enable disable) do
+    {:error, {:usage_error, %{message: "Usage: fam mcp #{sub} <name>"}}}
+  end
+
+  defp run_with_daemon({"mcp", [sub | _], _}, _deps)
+       when sub not in ~w(list get add add-json remove enable disable) do
+    {:error,
+     {:usage_error, %{message: "Unknown mcp subcommand: #{sub}. Run `fam mcp --help` for usage."}}}
+  end
+
+  defp run_with_daemon({"mcp", _, _}, _deps) do
+    {:error,
+     {:usage_error,
+      %{message: "Usage: fam mcp <list|get|add|add-json|remove|enable|disable> [args]"}}}
+  end
+
   # -- Validate commands --
 
   defp run_with_daemon({"validate", args, _}, deps) do
@@ -831,6 +910,328 @@ defmodule Familiar.CLI.Main do
       end)
 
     {:ok, %{extensions: extensions}}
+  end
+
+  # -- MCP command helpers --
+
+  defp default_list_mcp_servers do
+    statuses = mcp_server_statuses()
+    db_servers = safe_list_db_servers()
+
+    servers =
+      Enum.map(statuses, fn status ->
+        db = Enum.find(db_servers, fn s -> s.name == status.name end)
+        command = if db, do: db.command, else: "(config.toml)"
+        Map.put(status, :command, command)
+      end)
+
+    {:ok, %{servers: servers}}
+  end
+
+  defp safe_list_db_servers do
+    MCPServers.list()
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
+
+  defp default_get_mcp_server(name, opts) do
+    show_env = Keyword.get(opts, :show_env, false)
+
+    case find_mcp_server(name) do
+      {:ok, server_detail} ->
+        detail = redact_env(server_detail, show_env)
+        {:ok, %{server: detail}}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp default_add_mcp_server(attrs, _flags) do
+    create_mcp_server(attrs)
+  end
+
+  defp default_add_mcp_json(name, json_str) do
+    with {:ok, parsed} <- decode_mcp_json(json_str),
+         {:ok, attrs} <- build_json_attrs(name, parsed) do
+      create_mcp_server(attrs)
+    end
+  end
+
+  defp decode_mcp_json(json_str) do
+    case Jason.decode(json_str) do
+      {:ok, parsed} when is_map(parsed) ->
+        {:ok, parsed}
+
+      {:ok, _} ->
+        {:error, {:mcp_server_invalid_json, %{reason: "expected a JSON object"}}}
+
+      {:error, %Jason.DecodeError{} = err} ->
+        {:error, {:mcp_server_invalid_json, %{reason: Exception.message(err)}}}
+    end
+  end
+
+  defp build_json_attrs(name, parsed) do
+    command = parsed["command"]
+
+    if is_binary(command) and command != "" do
+      {:ok,
+       %{
+         name: name,
+         command: command,
+         args_json: Jason.encode!(parsed["args"] || []),
+         env_json: Jason.encode!(parsed["env"] || %{}),
+         read_only: parsed["read_only"] || false,
+         disabled: parsed["disabled"] || false
+       }}
+    else
+      {:error, {:mcp_server_invalid_json, %{reason: "missing required field: command"}}}
+    end
+  end
+
+  defp create_mcp_server(attrs) do
+    warn_literal_secrets(attrs)
+
+    case MCPServers.create(attrs) do
+      {:ok, server} ->
+        best_effort_reload(server.name)
+        {:ok, %{server: server_to_detail(server, :db)}}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        changeset_to_mcp_error(cs)
+    end
+  end
+
+  defp default_remove_mcp_server(name) do
+    case MCPServers.get(name) do
+      {:ok, _server} ->
+        case MCPServers.delete(name) do
+          {:ok, _} ->
+            best_effort_reload(name)
+            {:ok, %{removed: name}}
+
+          {:error, reason} ->
+            {:error, {:mcp_server_not_found, %{name: name, reason: reason}}}
+        end
+
+      {:error, :not_found} ->
+        if config_only_server?(name) do
+          {:error, {:mcp_server_config_only, %{name: name}}}
+        else
+          {:error, {:mcp_server_not_found, %{name: name}}}
+        end
+    end
+  end
+
+  defp default_toggle_mcp_server(name, action) do
+    case MCPServers.get(name) do
+      {:ok, _server} ->
+        result =
+          case action do
+            :enable -> MCPServers.enable(name)
+            :disable -> MCPServers.disable(name)
+          end
+
+        case result do
+          {:ok, _} ->
+            best_effort_reload(name)
+            {:ok, %{action_key(action) => name}}
+
+          {:error, _} = err ->
+            err
+        end
+
+      {:error, :not_found} ->
+        if config_only_server?(name) do
+          {:error, {:mcp_server_config_only, %{name: name}}}
+        else
+          {:error, {:mcp_server_not_found, %{name: name}}}
+        end
+    end
+  end
+
+  defp action_key(:enable), do: :enabled
+  defp action_key(:disable), do: :disabled
+
+  defp build_mcp_add_attrs(name, command, extra_args, flags) do
+    env_flags = List.wrap(Map.get(flags, :env, []))
+    env_map = parse_env_flags(env_flags)
+
+    %{
+      name: name,
+      command: command,
+      args_json: Jason.encode!(extra_args),
+      env_json: Jason.encode!(env_map),
+      read_only: Map.get(flags, :read_only, false),
+      disabled: Map.get(flags, :disabled, false)
+    }
+  end
+
+  defp parse_env_flags(env_flags) do
+    Map.new(env_flags, fn entry ->
+      case String.split(entry, "=", parts: 2) do
+        [key, value] -> {key, value}
+        [key] -> {key, ""}
+      end
+    end)
+  end
+
+  defp warn_literal_secrets(%{env_json: env_json}) when is_binary(env_json) do
+    case Jason.decode(env_json) do
+      {:ok, env} when is_map(env) ->
+        Enum.each(env, &maybe_warn_literal_env/1)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp warn_literal_secrets(_), do: :ok
+
+  defp maybe_warn_literal_env({key, value}) when is_binary(value) and value != "" do
+    is_literal =
+      not String.contains?(value, "${") and not String.contains?(value, "$")
+
+    if is_literal do
+      IO.puts(
+        :stderr,
+        "Note: #{key} was stored as a literal value. " <>
+          "To reference an environment variable instead, use " <>
+          "--env #{key}='${#{key}}'. The literal value is now in " <>
+          "the .familiar database and your shell history."
+      )
+    end
+  end
+
+  defp maybe_warn_literal_env(_), do: :ok
+
+  defp mcp_server_statuses do
+    MCPClient.server_status()
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
+
+  defp find_mcp_server(name) do
+    statuses = mcp_server_statuses()
+
+    case MCPServers.get(name) do
+      {:ok, server} ->
+        status_entry = Enum.find(statuses, fn s -> s.name == name end)
+        {:ok, server_to_detail(server, :db, status_entry)}
+
+      {:error, :not_found} ->
+        find_config_server(name, statuses)
+    end
+  end
+
+  defp find_config_server(name, statuses) do
+    case Enum.find(statuses, fn s -> s.name == name end) do
+      %{source: :config} = status_entry ->
+        {:ok, config_status_to_detail(status_entry)}
+
+      _ ->
+        {:error, {:mcp_server_not_found, %{name: name}}}
+    end
+  end
+
+  defp server_to_detail(server, source, status_entry \\ nil) do
+    tools = mcp_tool_names(server.name)
+
+    %{
+      name: server.name,
+      command: server.command,
+      args: safe_json_decode(server.args_json, []),
+      env: safe_json_decode(server.env_json, %{}),
+      source: source,
+      status: if(status_entry, do: status_entry.status, else: :unknown),
+      tool_count: if(status_entry, do: status_entry.tool_count, else: 0),
+      tools: tools,
+      read_only: server.read_only,
+      disabled: server.disabled
+    }
+  end
+
+  defp config_status_to_detail(status_entry) do
+    tools = mcp_tool_names(status_entry.name)
+
+    %{
+      name: status_entry.name,
+      command: "(config.toml)",
+      args: [],
+      env: %{},
+      source: :config,
+      status: status_entry.status,
+      tool_count: status_entry.tool_count,
+      tools: tools,
+      read_only: false,
+      disabled: false
+    }
+  end
+
+  defp mcp_tool_names(server_name) do
+    ToolRegistry.list_tools()
+    |> Enum.filter(&(&1.extension == "mcp:#{server_name}"))
+    |> Enum.map(& &1.name)
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
+
+  defp redact_env(detail, true), do: detail
+
+  defp redact_env(detail, false) do
+    redacted = Map.new(detail.env, fn {k, _v} -> {k, "***"} end)
+    %{detail | env: redacted}
+  end
+
+  defp config_only_server?(name) do
+    statuses = mcp_server_statuses()
+    Enum.any?(statuses, fn s -> s.name == name and s.source == :config end)
+  end
+
+  defp best_effort_reload(name) do
+    MCPClient.reload_server(name)
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_json_decode(json, default) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, val} -> val
+      _ -> default
+    end
+  end
+
+  defp safe_json_decode(_, default), do: default
+
+  defp changeset_to_mcp_error(%Ecto.Changeset{} = cs) do
+    errors = Ecto.Changeset.traverse_errors(cs, fn {msg, _opts} -> msg end)
+
+    cond do
+      errors[:name] && Enum.any?(errors[:name], &String.contains?(&1, "already been taken")) ->
+        {:error, {:mcp_server_name_taken, %{name: Ecto.Changeset.get_change(cs, :name)}}}
+
+      errors[:name] && Enum.any?(errors[:name], &String.contains?(&1, "fam_")) ->
+        {:error, {:mcp_server_reserved_prefix, %{name: Ecto.Changeset.get_change(cs, :name)}}}
+
+      errors[:name] ->
+        {:error, {:mcp_server_invalid_name, %{reason: Enum.join(errors[:name], "; ")}}}
+
+      true ->
+        all_errors =
+          Enum.map_join(errors, "; ", fn {field, msgs} ->
+            "#{field}: #{Enum.join(msgs, ", ")}"
+          end)
+
+        {:error, {:mcp_server_invalid_name, %{reason: all_errors}}}
+    end
   end
 
   defp format_session_message(msg) do
@@ -1767,6 +2168,40 @@ defmodule Familiar.CLI.Main do
     end
   end
 
+  def text_formatter("mcp") do
+    fn
+      %{servers: []} ->
+        "No MCP servers configured."
+
+      %{servers: servers} ->
+        header = "MCP Servers (#{length(servers)}):\n\n"
+
+        header <>
+          "  #{String.pad_trailing("NAME", 20)} #{String.pad_trailing("SOURCE", 8)} #{String.pad_trailing("STATUS", 18)} #{String.pad_trailing("TOOLS", 6)} COMMAND\n" <>
+          Enum.map_join(servers, "\n", fn s ->
+            cmd = truncate(to_string(Map.get(s, :command, "")), 40)
+            status = to_string(s.status)
+
+            "  #{String.pad_trailing(s.name, 20)} #{String.pad_trailing(to_string(s.source), 8)} #{String.pad_trailing(status, 18)} #{String.pad_trailing(to_string(s.tool_count), 6)} #{cmd}"
+          end)
+
+      %{server: server} ->
+        format_mcp_server_detail(server)
+
+      %{removed: name} ->
+        "Removed MCP server '#{name}'"
+
+      %{enabled: name} ->
+        "Enabled MCP server '#{name}'"
+
+      %{disabled: name} ->
+        "Disabled MCP server '#{name}'"
+
+      other ->
+        inspect(other, pretty: true)
+    end
+  end
+
   def text_formatter("extensions") do
     fn
       %{extensions: extensions} ->
@@ -2075,6 +2510,28 @@ defmodule Familiar.CLI.Main do
   defp format_dt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   defp format_dt(_), do: ""
 
+  defp format_mcp_server_detail(server) do
+    lines = [
+      "MCP Server: #{server.name}",
+      "  Command:   #{server.command}",
+      "  Args:      #{inspect(server.args)}",
+      "  Env:       #{format_env_map(server.env)}",
+      "  Source:    #{server.source}",
+      "  Status:    #{server.status}",
+      "  Read-only: #{server.read_only}",
+      "  Disabled:  #{server.disabled}",
+      "  Tools (#{server.tool_count}): #{Enum.map_join(server.tools, ", ", &to_string/1)}"
+    ]
+
+    Enum.join(lines, "\n")
+  end
+
+  defp format_env_map(env) when map_size(env) == 0, do: "(none)"
+
+  defp format_env_map(env) do
+    Enum.map_join(env, ", ", fn {k, v} -> "#{k}=#{v}" end)
+  end
+
   defp format_extensions_list([]), do: "No extensions loaded."
 
   defp format_extensions_list(extensions) do
@@ -2330,6 +2787,13 @@ defmodule Familiar.CLI.Main do
       workflows <name>   Show details for a specific workflow
       workflows resume [--id <n>]       Resume an interrupted workflow run
       workflows list-runs [--status s] [--scope s] [--limit n]  List workflow runs
+      mcp                List MCP servers and their status
+      mcp get <name>     Show details for an MCP server
+      mcp add <name> <cmd> [args] Add an MCP server [--env K=V] [--read-only]
+      mcp add-json <name> <json>  Add an MCP server from a JSON blob
+      mcp remove <name>  Remove an MCP server (DB only)
+      mcp enable <name>  Enable a disabled MCP server
+      mcp disable <name> Disable an MCP server
       extensions         List loaded extensions and their tools
       sessions           List conversation sessions
       sessions <id>      Show session details and recent messages

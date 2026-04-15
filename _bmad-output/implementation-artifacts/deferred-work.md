@@ -35,3 +35,12 @@ Items deferred from code reviews and other workflows. These are real but not blo
 - **Read-only filtering test has no assertion on which tools were registered** — need to verify filtered tools are actually excluded. Story 8-5 integration test scope.
 - **Hardcoded init response IDs 1/2 in Client** — pre-existing from Story 8-2, fragile but correct.
 - **Duplicate config.toml server names not deduplicated within config source** — second entry silently overwrites first ETS row, leaking first client process. Story 8-4 validation scope.
+
+## Deferred from: code review of 8-4-fam-mcp-management-cli (2026-04-15)
+
+- **`changeset_to_mcp_error` uses substring matching** — dispatches on human-readable validation messages ("already been taken", "fam_"). Fragile but correct. Refactor when schema errors gain machine-readable tags.
+- **`fam mcp --help` not implemented** — no dedicated subcommand help page. Global help covers all subcommands adequately.
+- **`config_only_server?` double status fetch** — makes redundant second call to `MCPClient.server_status()`. Performance only, not correctness.
+- **`build_json_attrs` doesn't type-check `args`/`env`** — accepts non-list/non-map values. Story 8-3 schema changeset validates at insert time.
+- **MCP CLI test coverage gaps** — no tests for `--show-env`, `--read-only`/`--disabled` flags via real parse path, config-only error via default code path. Story 8-5 integration test scope.
+- **No `quiet_summary` for MCP result shapes** — all fall through to "ok". Consistent with existing behavior.

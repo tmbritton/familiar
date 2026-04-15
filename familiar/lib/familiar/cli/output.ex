@@ -202,6 +202,30 @@ defmodule Familiar.CLI.Output do
       "Workflow run ##{id} is stuck past its final step but could not be marked completed " <>
         "(#{inspect(reason, limit: 50)}). Investigate the database or remove the row manually."
 
+  # -- Story 8-4 MCP server errors --
+
+  defp error_message(:mcp_server_not_found, %{name: name}),
+    do: "MCP server '#{name}' not found"
+
+  defp error_message(:mcp_server_not_found, _), do: "MCP server not found"
+
+  defp error_message(:mcp_server_name_taken, %{name: name}),
+    do: "MCP server '#{name}' already exists"
+
+  defp error_message(:mcp_server_config_only, %{name: name}),
+    do:
+      "Server '#{name}' is defined in config.toml, not the database. " <>
+        "Edit .familiar/config.toml directly to modify it."
+
+  defp error_message(:mcp_server_invalid_name, %{reason: reason}),
+    do: "Invalid server name: #{reason}"
+
+  defp error_message(:mcp_server_invalid_json, %{reason: reason}),
+    do: "Invalid JSON: #{reason}"
+
+  defp error_message(:mcp_server_reserved_prefix, %{name: name}),
+    do: "Server name '#{name}' uses the reserved 'fam_' prefix"
+
   # -- Story 7.5-8 project-dir resolution errors --
 
   defp error_message(:project_dir_unresolvable, details) do
