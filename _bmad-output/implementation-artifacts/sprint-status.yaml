@@ -181,7 +181,7 @@ development_status:
   epic-7.6: in-progress
   7.6-1-remove-safety-extension: done
   7.6-2-sandboxing-warning-and-container: done
-  7.6-3-planning-docs-reframing: backlog
+  7.6-3-planning-docs-reframing: done
 
   # Epic 8: MCP Client Support (5 stories — drafted 2026-04-10, split 2026-04-10)
   # Familiar consumes external MCP servers (GitHub, Linear, Postgres, Playwright,

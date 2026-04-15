@@ -1304,7 +1304,11 @@ You are a software developer implementing features and fixes.
 - Keep changes focused and minimal — do not refactor surrounding code
 - Document significant decisions for the knowledge store
 
-## Safety
+## Sandboxing
+
+Familiar has no runtime safety layer — the user is responsible for running
+Familiar inside a container or equivalent sandbox. Within that boundary:
+
 - Only modify files within the project directory
 - Only create files that are necessary for the task
 - Run tests after making changes to verify correctness
@@ -1496,9 +1500,9 @@ Users can:
 - A custom role is immediately usable: `fam do #N --role my-custom-role`
 - Reference custom roles in workflow step definitions
 
-**Critical boundary — skills define intent, safety enforces permission:**
+**Critical boundary — skills define intent, the OS sandbox enforces permission:**
 
-Skills define what an agent is *instructed* to do. Safety enforcement (Story 5.3) defines what an agent is *permitted* to do. A skill file lists tools the agent may request — the tool implementation validates each invocation against safety constraints. A malicious or misconfigured skill file cannot bypass project directory sandboxing, git protection, or deletion restrictions. Skill files are prompt content, not permission grants.
+Skills define what an agent is *instructed* to do. The OS sandbox (container, VM) defines what an agent is *permitted* to do. Familiar has no runtime safety layer — the Safety extension was removed in Epic 7.6-1. A skill file lists tools the agent may request; the tools execute without restriction. Skill files are prompt content, not permission grants. See `docs/sandboxing.md`.
 
 **Validation on load:**
 
@@ -1704,7 +1708,7 @@ These stories (task decomposition, conflict detection, integration test) move to
 **Epic 5 (Agent Execution):**
 - **Story 5.1:** Builds `Execution.AgentProcess` — the single generic GenServer for all agents. Tool-call loop via `handle_continue`/`handle_info`. Role loaded from `.familiar/roles/` on init. `ToolRegistry` maps tool names to Elixir implementations.
 - **Story 5.2:** File transaction module + file claim registration for parallel conflict prevention.
-- **Story 5.3:** Safety enforcement at the tool layer.
+- **Story 5.3:** Extension hooks at the tool layer. **[Note: Safety extension was removed in Epic 7.6-1.]**
 - **Story 5.4:** Task dispatch. PM is an AgentProcess with `role: "project-manager"`. Parallel execution with configurable concurrency.
 - **Story 5.5:** Workflow runner. Sequences agents through workflow step definitions. Handles interactive/autonomous modes, context passing between steps, phase transition signals. **The `feature-planning.md` workflow is the first test case** — it validates the runner against a real pipeline with existing test infrastructure.
 
@@ -1764,9 +1768,8 @@ case Hooks.alter(:before_tool_call, %{tool: name, args: args}, %{agent: pid}) do
 end
 
 # Pipeline runs handlers in priority order (lower first):
-# Priority 1:  SafetyExtension.before_tool_call → validates paths, rejects dangerous ops
-# Priority 50: AuditExtension.before_tool_call → logs the call
-# Priority 100: CustomExtension.before_tool_call → custom checks
+# Priority 50: AuditExtension.before_tool_call → logs the call (example)
+# Priority 100: CustomExtension.before_tool_call → custom checks (example)
 ```
 
 **Error isolation for alter hooks:**
@@ -1785,7 +1788,7 @@ end
 
 | Hook | Type | Purpose |
 |---|---|---|
-| `before_tool_call` | alter | Safety enforcement, arg validation, audit logging |
+| `before_tool_call` | alter | Extension interception, arg validation, audit logging |
 | `after_tool_call` | event | Result logging, knowledge capture from tool outputs |
 | `on_agent_complete` | event | Post-task knowledge hygiene, cleanup, notifications |
 | `on_agent_error` | event | Error logging, failure analysis |
@@ -1798,23 +1801,16 @@ end
 | Extension | Tools | Hooks | Supervision |
 |---|---|---|---|
 | Knowledge Store | `search_context`, `store_context` | `after_tool_call`, `on_agent_complete`, `on_file_changed` | Embedding pool, file watcher |
-| Safety | (none — operates via hooks only) | `before_tool_call` (priority 1) | None |
 
-**Safety as an extension:**
-Safety enforcement moves from being hard-coded in tool implementations to being a default extension with priority 1 on `before_tool_call`. The alter pipeline runs safety checks before any tool executes:
-- Path validation (no traversal, project directory only)
-- Git protection (no commits without approval)
-- Delete constraints (own-task files only)
-- Shell command restriction (configured allow-list)
-- Secret detection (before knowledge storage)
+**Sandboxing posture:**
+Familiar has no runtime safety layer. The LLM generates tool calls — including file writes, deletions, and shell commands — and Familiar executes them without restriction. A name-pattern-matching safety extension was shipped in Epic 5 and removed in Epic 7.6-1 because it provided false confidence against an adversarial LLM (e.g., calling `sh` instead of `run_command`). The honest security boundary is the OS sandbox (container, VM) the user runs Familiar inside. See `docs/sandboxing.md` for Docker, Podman, and ephemeral VM recipes.
 
-Because safety is an extension: (1) users can add stricter rules, (2) users can customize for different domains, (3) the safety policy is inspectable and testable independently of tool implementations. Tools become thin — they just execute. Safety is a cross-cutting concern handled by the hook pipeline.
+The `before_tool_call` alter hook and `{:halt, reason}` return contract remain fully functional — third-party extensions can still register hooks to intercept tool calls. No built-in extension uses this capability.
 
 **Extension configuration (MVP):**
 ```elixir
 # config/config.exs
 config :familiar, :extensions, [
-  Familiar.Extensions.Safety,
   Familiar.Extensions.KnowledgeStore
 ]
 ```

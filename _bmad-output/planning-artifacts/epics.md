@@ -311,7 +311,7 @@ User-editable markdown files define all agent behavior. `Familiar.Roles` context
 **FRs covered:** FR65 (partial), FR66 (partial), FR67
 
 ### Epic 5: Agent Harness (rewritten 2026-04-03)
-10 stories. Extension API with lifecycle hooks (alter + event). Tool registry. Single AgentProcess GenServer. Prompt assembly. File watcher (core). Safety extension. Knowledge Store extension. Workflow runner. File transactions. Integration test. See full breakdown below.
+10 stories. Extension API with lifecycle hooks (alter + event). Tool registry. Single AgentProcess GenServer. Prompt assembly. File watcher (core). ~~Safety extension~~ (removed in Epic 7.6-1). Knowledge Store extension. Workflow runner. File transactions. Integration test. See full breakdown below.
 
 ### Phase 3 Placeholders (deferred — vision clarifies as work commences)
 - **Epic 6:** Default workflows & CLI integration — ship `feature-planning.md`, `feature-implementation.md`, `task-fix.md`, wire CLI commands
@@ -1295,13 +1295,15 @@ So that extensions can react to file modifications in real time.
 
 **Scope:** GenServer using `file_system` hex package (inotify/fsevents). Debounces rapid changes (500ms settle per file). Broadcasts `on_file_changed`, `on_file_created`, `on_file_deleted` via `Familiar.Activity`. Configurable ignore list from `.familiar/config.toml` `[watcher]` section (defaults: `.git/`, `_build/`, `deps/`, `node_modules/`, `.familiar/` internals). Core process in supervision tree — not an extension.
 
-### Story 5.6: Safety Extension
+### Story 5.6: Safety Extension **[Superseded by Epic 7.6-1, removed 2026-04-14]**
 
 As a developer building the harness,
 I want a default extension that vetoes dangerous tool calls via the alter hook pipeline,
 So that agents cannot escape the project directory, commit without approval, or execute arbitrary commands.
 
 **Scope:** Implements `Familiar.Extension`. Registers `before_tool_call` alter hook at priority 1. Validates: path within project directory (canonical after symlink resolution), no `.git/` writes, shell commands restricted to allow-list, delete only own-task files, secret detection. Configurable via `.familiar/config.toml` `[safety]` section. Returns `{:halt, reason}` to veto. Tested with both allowed and rejected cases for every constraint.
+
+> **Note:** This extension was removed in Story 7.6-1. Name-pattern matching provided false confidence against an adversarial LLM. The honest security boundary is the OS sandbox. See `docs/sandboxing.md`. The Extension behaviour and hook infrastructure remain intact.
 
 ### Story 5.7: Knowledge Store Extension
 
@@ -1333,11 +1335,11 @@ As a developer,
 I want an end-to-end test validating the complete harness,
 So that extensions, agents, tools, hooks, and workflows work as a coherent system.
 
-**Scope:** Golden path: load extensions → register tools/hooks → start workflow → spawn AgentProcess → tool-call loop with mocked LLM → file writes via transaction module → safety extension vetoes out-of-scope write → knowledge extension captures results → workflow completes. Failure paths: agent crash, tool timeout, file conflict. Real SQLite via Ecto sandbox; LLM/Shell/FileSystem mocked via Mox.
+**Scope:** Golden path: load extensions → register tools/hooks → start workflow → spawn AgentProcess → tool-call loop with mocked LLM → file writes via transaction module → knowledge extension captures results → workflow completes. Failure paths: agent crash, tool timeout, file conflict. Real SQLite via Ecto sandbox; LLM/Shell/FileSystem mocked via Mox. **[Note: safety veto path was removed in Story 7.6-1.]**
 
 ---
 
-**Epic 5 Summary:** 10 stories. Builds the complete agent harness: extension API, tool registry, generic agent executor, prompt assembly, file watcher, safety extension, knowledge store extension, workflow runner, file transactions, and integration test.
+**Epic 5 Summary:** 10 stories. Builds the complete agent harness: extension API, tool registry, generic agent executor, prompt assembly, file watcher, ~~safety extension~~ (removed in Epic 7.6-1), knowledge store extension, workflow runner, file transactions, and integration test.
 
 ## Epic 6: Default Workflows & CLI Integration (Phase 3 — placeholder)
 
