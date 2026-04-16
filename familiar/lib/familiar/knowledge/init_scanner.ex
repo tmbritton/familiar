@@ -11,7 +11,6 @@ defmodule Familiar.Knowledge.InitScanner do
 
   alias Familiar.Config.Generator, as: ConfigGenerator
   alias Familiar.Knowledge
-  alias Familiar.Knowledge.CommandValidator
   alias Familiar.Knowledge.ConventionDiscoverer
   alias Familiar.Knowledge.DefaultFiles
   alias Familiar.Knowledge.Extractor
@@ -80,10 +79,7 @@ defmodule Familiar.Knowledge.InitScanner do
           required(:entries_created) => non_neg_integer(),
           required(:conventions_discovered) => non_neg_integer(),
           required(:deferred) => non_neg_integer(),
-          optional(:language) => String.t(),
-          optional(:validated_commands) => [atom()],
           optional(:extraction_warnings) => String.t(),
-          optional(:command_warnings) => String.t(),
           optional(:warning) => String.t()
         }
 
@@ -113,7 +109,7 @@ defmodule Familiar.Knowledge.InitScanner do
 
       with {:ok, summary} <- result do
         DefaultFiles.install(familiar_dir)
-        ConfigGenerator.generate_default(familiar_dir, summary[:language])
+        ConfigGenerator.generate_default(familiar_dir)
         {:ok, summary}
       end
     end
@@ -183,7 +179,7 @@ defmodule Familiar.Knowledge.InitScanner do
     end
   end
 
-  defp run_extraction_pipeline(files, deferred, progress_fn, concurrency, opts) do
+  defp run_extraction_pipeline(files, deferred, progress_fn, concurrency, _opts) do
     progress_fn.("Extracting knowledge from #{length(files)} files...")
 
     {entries, extraction_failures} = Extractor.extract_from_files_with_stats(files)
@@ -198,12 +194,6 @@ defmodule Familiar.Knowledge.InitScanner do
     progress_fn.("Discovering conventions...")
     conventions = ConventionDiscoverer.discover(files)
 
-    # Command validation
-    progress_fn.("Validating project commands...")
-    {:ok, cmd_result} = CommandValidator.validate(files, opts)
-
-    log_command_validation(cmd_result)
-
     # Embed all entries (knowledge + conventions)
     all_entries = entries ++ conventions
 
@@ -217,9 +207,7 @@ defmodule Familiar.Knowledge.InitScanner do
       files_scanned: length(files),
       entries_created: created,
       conventions_discovered: length(conventions),
-      deferred: deferred,
-      language: cmd_result.language,
-      validated_commands: cmd_result.commands
+      deferred: deferred
     }
 
     summary =
@@ -233,28 +221,7 @@ defmodule Familiar.Knowledge.InitScanner do
         summary
       end
 
-    summary =
-      if cmd_result.failures != [] do
-        Map.put(summary, :command_warnings, format_command_failures(cmd_result.failures))
-      else
-        summary
-      end
-
     {:ok, summary}
-  end
-
-  defp log_command_validation(%{failures: []}) do
-    :ok
-  end
-
-  defp log_command_validation(%{failures: failures}) do
-    Logger.warning(
-      "[InitScanner] #{length(failures)} command(s) failed validation: #{format_command_failures(failures)}"
-    )
-  end
-
-  defp format_command_failures(failures) do
-    Enum.map_join(failures, ", ", &to_string(&1.command))
   end
 
   defp embed_entries(entries, progress_fn, concurrency) do

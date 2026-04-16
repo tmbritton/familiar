@@ -85,12 +85,7 @@ defmodule Familiar.CLI.Main do
       File.mkdir_p!(Path.join(familiar_dir, "workflows"))
 
       Knowledge.DefaultFiles.install(familiar_dir)
-      detected_lang = ConfigGenerator.detect_project_language(Paths.project_dir())
-      ConfigGenerator.generate_default(familiar_dir, detected_lang)
-
-      if detected_lang do
-        IO.puts(:stderr, "[familiar] Detected language: #{detected_lang}")
-      end
+      ConfigGenerator.generate_default(familiar_dir)
 
       IO.puts(:stderr, "[familiar] Edit .familiar/config.toml to configure your LLM provider")
 
@@ -1993,7 +1988,6 @@ defmodule Familiar.CLI.Main do
   defp config_to_map(%Familiar.Config{} = config) do
     %{
       provider: config.provider,
-      language: config.language,
       scan: config.scan,
       notifications: config.notifications
     }
@@ -2651,18 +2645,6 @@ defmodule Familiar.CLI.Main do
           "    embedding_model = #{config.provider.embedding_model}",
           "    timeout = #{config.provider.timeout}"
         ]
-
-    lines =
-      if config.language != %{} do
-        lang_lines =
-          config.language
-          |> Enum.sort()
-          |> Enum.map(fn {k, v} -> "    #{k} = #{inspect(v)}" end)
-
-        lines ++ ["  [language]"] ++ lang_lines
-      else
-        lines ++ ["  [language] (not configured)"]
-      end
 
     lines =
       lines ++

@@ -133,7 +133,6 @@ defmodule Familiar.Knowledge.InitScannerTest do
         {:ok, List.duplicate(0.1, Knowledge.embedding_dimensions())}
       end)
 
-      # Shell called for command validation (no mix.exs so unknown language → skip)
       result = InitScanner.run(tmp_dir, progress_fn: fn _msg -> :ok end, file_system: @fs)
 
       assert {:ok, summary} = result

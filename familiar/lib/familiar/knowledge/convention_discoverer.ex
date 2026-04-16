@@ -7,8 +7,6 @@ defmodule Familiar.Knowledge.ConventionDiscoverer do
   2. LLM-assisted cross-cutting analysis — error handling, architecture patterns
   """
 
-  @language_indicators Familiar.Knowledge.LanguageIndicators.display_map()
-
   @doc """
   Discover conventions from scanned file infos (structural + LLM).
 
@@ -34,7 +32,6 @@ defmodule Familiar.Knowledge.ConventionDiscoverer do
     [
       detect_naming_patterns(paths),
       detect_directory_structure(paths),
-      detect_language(paths),
       detect_extension_distribution(paths)
     ]
     |> List.flatten()
@@ -136,21 +133,6 @@ defmodule Familiar.Knowledge.ConventionDiscoverer do
       end
 
     conventions
-  end
-
-  defp detect_language(paths) do
-    basenames = Enum.map(paths, &Path.basename/1)
-
-    detected =
-      Enum.find_value(@language_indicators, fn {file, lang} ->
-        if file in basenames, do: lang
-      end)
-
-    if detected do
-      [build_convention("Project uses #{detected} as primary language/framework", 1, 1)]
-    else
-      []
-    end
   end
 
   defp detect_extension_distribution(paths) do

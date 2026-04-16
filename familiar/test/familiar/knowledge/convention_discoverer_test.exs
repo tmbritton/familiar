@@ -38,18 +38,6 @@ defmodule Familiar.Knowledge.ConventionDiscovererTest do
       assert test_mirror
     end
 
-    test "detects language/framework from config files" do
-      files = [
-        %{relative_path: "mix.exs", content: "defmodule App.MixProject do end"},
-        %{relative_path: "lib/app.ex", content: ""}
-      ]
-
-      conventions = ConventionDiscoverer.discover_structural(files)
-
-      lang = Enum.find(conventions, &(&1.type == "convention" and &1.text =~ "Elixir"))
-      assert lang
-    end
-
     test "detects file extension distribution" do
       files =
         Enum.map(1..10, &%{relative_path: "lib/mod#{&1}.ex", content: ""}) ++

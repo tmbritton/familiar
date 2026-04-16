@@ -10,7 +10,7 @@ defmodule Familiar.Config.GeneratorTest do
       familiar_dir = Path.join(tmp_dir, ".familiar")
       File.mkdir_p!(familiar_dir)
 
-      :ok = Generator.generate_default(familiar_dir, nil)
+      :ok = Generator.generate_default(familiar_dir)
 
       config_path = Path.join(familiar_dir, "config.toml")
       assert File.exists?(config_path)
@@ -25,43 +25,8 @@ defmodule Familiar.Config.GeneratorTest do
       # Other providers commented out
       assert content =~ "# [providers.deepseek]"
       assert content =~ "# [providers.ollama]"
-    end
-
-    test "populates language section when elixir detected", %{tmp_dir: tmp_dir} do
-      familiar_dir = Path.join(tmp_dir, ".familiar")
-      File.mkdir_p!(familiar_dir)
-
-      :ok = Generator.generate_default(familiar_dir, "elixir")
-
-      content = File.read!(Path.join(familiar_dir, "config.toml"))
-      assert content =~ "[language]"
-      assert content =~ ~s(name = "elixir")
-      assert content =~ ~s(test_command = "mix test")
-      assert content =~ ~s(build_command = "mix compile")
-      assert content =~ ~s(dep_file = "mix.exs")
-    end
-
-    test "populates language section when go detected", %{tmp_dir: tmp_dir} do
-      familiar_dir = Path.join(tmp_dir, ".familiar")
-      File.mkdir_p!(familiar_dir)
-
-      :ok = Generator.generate_default(familiar_dir, "go")
-
-      content = File.read!(Path.join(familiar_dir, "config.toml"))
-      assert content =~ ~s(name = "go")
-      assert content =~ ~s(test_command = "go test ./...")
-      assert content =~ ~s(dep_file = "go.mod")
-    end
-
-    test "comments out language section when no language detected", %{tmp_dir: tmp_dir} do
-      familiar_dir = Path.join(tmp_dir, ".familiar")
-      File.mkdir_p!(familiar_dir)
-
-      :ok = Generator.generate_default(familiar_dir, nil)
-
-      content = File.read!(Path.join(familiar_dir, "config.toml"))
-      assert content =~ "[language]"
-      assert content =~ "# name ="
+      # No language section
+      refute content =~ "[language]"
     end
 
     test "does not overwrite existing config.toml", %{tmp_dir: tmp_dir} do
@@ -71,7 +36,7 @@ defmodule Familiar.Config.GeneratorTest do
       config_path = Path.join(familiar_dir, "config.toml")
       File.write!(config_path, "# custom config\n")
 
-      :ok = Generator.generate_default(familiar_dir, "elixir")
+      :ok = Generator.generate_default(familiar_dir)
 
       assert File.read!(config_path) == "# custom config\n"
     end
@@ -80,7 +45,7 @@ defmodule Familiar.Config.GeneratorTest do
       familiar_dir = Path.join(tmp_dir, ".familiar")
       File.mkdir_p!(familiar_dir)
 
-      :ok = Generator.generate_default(familiar_dir, "elixir")
+      :ok = Generator.generate_default(familiar_dir)
 
       config_path = Path.join(familiar_dir, "config.toml")
       assert {:ok, _parsed} = Toml.decode_file(config_path)
@@ -90,7 +55,7 @@ defmodule Familiar.Config.GeneratorTest do
       familiar_dir = Path.join(tmp_dir, ".familiar")
       File.mkdir_p!(familiar_dir)
 
-      :ok = Generator.generate_default(familiar_dir, nil)
+      :ok = Generator.generate_default(familiar_dir)
 
       content = File.read!(Path.join(familiar_dir, "config.toml"))
       assert content =~ "[scan]"

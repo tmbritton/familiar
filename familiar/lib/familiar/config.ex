@@ -15,31 +15,9 @@ defmodule Familiar.Config do
               timeout: 120
             },
             providers: %{},
-            language: %{},
             scan: %{max_files: 200, large_project_threshold: 500},
             notifications: %{provider: "auto", enabled: true},
             mcp_servers: []
-
-  @language_defaults %{
-    "elixir" => %{
-      name: "elixir",
-      test_command: "mix test",
-      build_command: "mix compile",
-      lint_command: "mix credo --strict",
-      dep_file: "mix.exs",
-      skip_patterns: ["_build/", "deps/", "cover/"],
-      source_extensions: [".ex", ".exs"]
-    },
-    "go" => %{
-      name: "go",
-      test_command: "go test ./...",
-      build_command: "go build ./...",
-      lint_command: "golangci-lint run",
-      dep_file: "go.mod",
-      skip_patterns: ["vendor/"],
-      source_extensions: [".go"]
-    }
-  }
 
   @doc "Returns the default configuration."
   @spec defaults() :: %__MODULE__{
@@ -49,18 +27,11 @@ defmodule Familiar.Config do
             embedding_model: String.t(),
             timeout: pos_integer()
           },
-          language: %{},
           scan: %{max_files: pos_integer(), large_project_threshold: pos_integer()},
           notifications: %{provider: String.t(), enabled: boolean()},
           mcp_servers: [map()]
         }
   def defaults, do: %__MODULE__{}
-
-  @doc "Returns default language config for the given language name, or empty map."
-  @spec language_defaults(String.t()) :: map()
-  def language_defaults(name) do
-    Map.get(@language_defaults, name, %{})
-  end
 
   @doc """
   Load configuration from a TOML file path.
@@ -98,7 +69,6 @@ defmodule Familiar.Config do
     {providers, default_provider} = parse_providers(parsed["providers"])
 
     with {:ok, provider} <- resolve_provider(default_provider, parsed["provider"]),
-         {:ok, language} <- validate_language(parsed["language"]),
          {:ok, scan} <- validate_scan(parsed["scan"]),
          {:ok, notifications} <- validate_notifications(parsed["notifications"]),
          {:ok, mcp_servers} <- parse_mcp_servers(parsed["mcp"]) do
@@ -106,7 +76,6 @@ defmodule Familiar.Config do
        %__MODULE__{
          provider: provider,
          providers: providers,
-         language: language,
          scan: scan,
          notifications: notifications,
          mcp_servers: mcp_servers
@@ -182,28 +151,6 @@ defmodule Familiar.Config do
          timeout: section["timeout"] || defaults.timeout
        }}
     end
-  end
-
-  defp validate_language(nil), do: {:ok, %{}}
-
-  defp validate_language(section) when is_map(section) do
-    invalid =
-      Enum.filter(section, fn {_key, value} ->
-        not (is_binary(value) or is_list(value))
-      end)
-
-    case invalid do
-      [] ->
-        {:ok, section}
-
-      [{key, _} | _] ->
-        {:error,
-         {:invalid_config, %{field: "language.#{key}", reason: "expected a string or list value"}}}
-    end
-  end
-
-  defp validate_language(_section) do
-    {:error, {:invalid_config, %{field: "language", reason: "expected a TOML table"}}}
   end
 
   defp validate_scan(nil), do: {:ok, defaults().scan}

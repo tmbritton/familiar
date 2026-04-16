@@ -19,32 +19,6 @@ defmodule Familiar.ConfigTest do
 
       assert config.notifications.provider == "auto"
       assert config.notifications.enabled == true
-
-      assert config.language == %{}
-    end
-  end
-
-  describe "language_defaults/1" do
-    test "returns elixir defaults" do
-      lang = Config.language_defaults("elixir")
-      assert lang.test_command == "mix test"
-      assert lang.build_command == "mix compile"
-      assert lang.lint_command == "mix credo --strict"
-      assert lang.dep_file == "mix.exs"
-      assert "_build/" in lang.skip_patterns
-      assert ".ex" in lang.source_extensions
-    end
-
-    test "returns go defaults" do
-      lang = Config.language_defaults("go")
-      assert lang.test_command == "go test ./..."
-      assert lang.build_command == "go build ./..."
-      assert lang.dep_file == "go.mod"
-      assert ".go" in lang.source_extensions
-    end
-
-    test "returns empty map for unknown language" do
-      assert Config.language_defaults("unknown") == %{}
     end
   end
 
@@ -65,15 +39,6 @@ defmodule Familiar.ConfigTest do
       embedding_model = "custom-embed"
       timeout = 60
 
-      [language]
-      name = "elixir"
-      test_command = "mix test --cover"
-      build_command = "mix compile"
-      lint_command = "mix credo"
-      dep_file = "mix.exs"
-      skip_patterns = ["_build/", "deps/"]
-      source_extensions = [".ex", ".exs"]
-
       [scan]
       max_files = 100
       large_project_threshold = 300
@@ -87,8 +52,6 @@ defmodule Familiar.ConfigTest do
       assert config.provider.base_url == "http://custom:8080"
       assert config.provider.chat_model == "mistral"
       assert config.provider.timeout == 60
-      assert config.language["name"] == "elixir"
-      assert config.language["test_command"] == "mix test --cover"
       assert config.scan.max_files == 100
       assert config.notifications.provider == "notify-send"
       assert config.notifications.enabled == false
