@@ -318,11 +318,16 @@ User-editable markdown files define all agent behavior. `Familiar.Roles` context
 - **Epic 7:** Web UI extension — LiveView for activity observation, knowledge browsing, workflow interaction. Optional — headless Familiar is valid.
 - **Epic 8:** CLI management & session handling — `fam roles/skills/workflows/extensions`, session timeout/resume
 
+### Epic 9: Domain Decoupling — Configuration Over Code
+Move domain-specific behavior out of Elixir code into configurable files. CLI shortcuts (plan/do/fix) removed, default files moved to `priv/defaults/`, file classification configurable via config.toml, entry types opened up, extraction prompt loadable from markdown.
+**FRs covered:** FR65, FR66, FR69 (partial), PRD line 641 ("Configuration is data, not code")
+
 ### Execution Order
 ```
 Phase 1 (done): Epic 1, Epic 2, Epic 3 (stories 3-1 through 3-4)
 Phase 2 — Agent Harness: Epic 4.5 (2 stories) → Epic 5 (10 stories)
 Phase 3 — Workflows & UI: Epic 6, Epic 7, Epic 8 (stories TBD)
+Phase 4 — Domain Decoupling: Epic 9 (5 stories)
 Post-MVP: Epic 4 (structured task management)
 ```
 
@@ -1641,3 +1646,123 @@ So that a regression in transport, dispatcher, tools capability, or resources ca
 ---
 
 **Epic 11 Summary:** 5 stories. Post-MVP. Ships the MCP server half — Familiar exposed to editors over stdio. Reuses the codec/dispatcher from Epic 8 Story 8-1. No runtime safety (per Epic 7.6); `--read-only` is a capability filter; sandboxing is the container. Deferred indefinitely — promotable to active if and when editor integration becomes a priority and the `fam` CLI route isn't enough. Post-epic: HTTP/SSE transport, MCP prompts, MCP sampling.
+
+---
+
+## Epic 9: Domain Decoupling — Configuration Over Code (5 stories — drafted 2026-04-16)
+
+Move domain-specific behavior out of Elixir code and into configurable files (markdown templates, TOML sections, disk-loaded prompts). The Elixir layer becomes a generic execution harness; switching Familiar from a coding assistant to a research assistant, writing coach, or DevOps operator requires only changing files in `.familiar/` — no code changes, no recompilation.
+
+**Why now:** Epics 1–8 shipped the infrastructure (knowledge store, agent harness, workflows, MCP). During the Epic 8 retrospective, a codebase audit identified 12+ places where Elixir code hardcodes software-engineering assumptions: role prompts as string constants, language-specific file classification lists, fixed knowledge entry types, hardcoded CLI workflow shortcuts, and an extraction prompt that says "source file." These aren't bugs — they worked for the MVP — but they violate the PRD's core promise (line 641: "Configuration is data (TOML, markdown), not code — adding languages, roles, and workflows requires no Elixir knowledge") and block the deferred feature at line 239/256: "Domain-agnostic configurations beyond developer tooling." This session already removed LanguageIndicators, ContentValidator, and CommandValidator (3 commits, ~1100 lines deleted). This epic continues that trajectory.
+
+**Design principles:**
+- **Subtraction first.** Where possible, delete Elixir code rather than adding configurable replacements. The CLI `plan`/`do`/`fix` shortcuts don't need a config-based replacement — `fam workflows run <name>` already exists.
+- **Good defaults, no lock-in.** `fam init` still writes sensible starter files (roles, skills, workflows, classification rules). But those files live on disk in `.familiar/` and users can edit or replace them freely.
+- **`priv/defaults/` for templates.** Default markdown content moves from Elixir string constants to files in `priv/defaults/` that ship with the escript. The Elixir code reads from disk, never from hardcoded strings. This also makes defaults diffable and editable without recompilation during development.
+- **No schema migrations for flexibility.** Where the current schema uses enum validation in Elixir (e.g., `@valid_types`), relax the validation rather than adding a migration. The SQLite column is already a plain string.
+- **Prompt templates are markdown.** The extraction prompt moves to `.familiar/prompts/extractor.md`, loadable and editable. The Elixir code provides a fallback from `priv/defaults/` if the user hasn't customized it.
+
+### Story 9-1: Remove Hardcoded CLI Shortcuts (plan/do/fix)
+
+As a Familiar user,
+I want the CLI to not assume I'm doing software engineering,
+So that the command surface is domain-neutral and workflows are invoked by their actual names.
+
+**Scope:** Delete the `plan`, `do`, and `fix` command handlers from `familiar/lib/familiar/cli/main.ex` (lines 357–388). Delete `run_workflow_command/4` (lines 1425–1434). Delete `resume_planning/2`, `find_planning_conversation/1`, `find_planning_conversation/1`, `resume_with_context/3`, and `format_conversation_context/1` (lines 1456–1507) — planning resume functionality moves to the generic `workflows resume` command which already exists (Story 7.5-6 shipped it). Delete the `text_formatter(cmd) when cmd in ~w(plan do fix)` clause (lines 2222–2240). Remove `plan`, `do`, `fix` from `help_text` (lines 2761–2763). Remove `plan`/`do`/`fix` parsing from `parse_args/1`.
+
+Delete `familiar/test/familiar/cli/workflow_commands_test.exs` entirely — all its tests cover the `plan`/`do`/`fix` shortcuts and their `--resume`/`--session` flags. The underlying `fam workflows run <name>` path is tested separately in the workflows test suite.
+
+Update `familiar/test/familiar/cli/main_test.exs` — remove the `plan` parse_args tests (lines ~803–813) and the `plan` run tests (lines ~832–839). Keep all other main_test content intact.
+
+Remove the `plan <description>`, `do <description>`, `fix <description>` lines from help text. Add a note under the `workflows` section: `workflows run <name> <desc>  Run a workflow by name`.
+
+**What stays:** `run_workflow/4` stays — it's the generic workflow runner used by `fam workflows run`. The `text_formatter("workflows")` clause stays. The `quiet_summary(%{workflow: _, steps: _})` clause stays.
+
+**Verification:** `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix credo --strict`, `mix test`, `mix dialyzer`. Stress-test modified test files 50×.
+
+### Story 9-2: Move Default Files from Elixir Strings to `priv/defaults/`
+
+As a Familiar developer,
+I want default roles, skills, and workflows stored as actual markdown files rather than Elixir string constants,
+So that defaults are editable without recompilation, diffable in PRs, and the Elixir code is domain-agnostic.
+
+**Scope:** Create the directory tree `familiar/priv/defaults/workflows/`, `familiar/priv/defaults/roles/`, `familiar/priv/defaults/skills/`. Move every string constant from `@workflows`, `@roles`, and `@skills` in `familiar/lib/familiar/knowledge/default_files.ex` into corresponding `.md` files under `priv/defaults/`. Strip the leading whitespace indentation that was an artifact of Elixir heredoc formatting.
+
+Rewrite `DefaultFiles.install/1` to:
+1. Resolve the `priv/defaults/` path via `Application.app_dir(:familiar, "priv/defaults")` (works for both Mix dev and escript release).
+2. For each subdirectory (`workflows`, `roles`, `skills`, `system`), list all `.md` files in the priv source.
+3. Copy each file to the corresponding `.familiar/` subdirectory, skipping files that already exist (preserving user customizations — same behavior as today).
+
+Delete all `@workflows`, `@roles`, `@skills` module attributes. The module shrinks from ~600 lines to ~30 lines.
+
+Update `familiar/test/familiar/knowledge/default_files_test.exs` — tests should verify files are copied from priv to a temp `.familiar/` dir, existing files are not overwritten, and the installed files match the priv sources byte-for-byte. Remove any tests that assert on specific string content of roles/skills (those assertions now belong in the markdown files themselves, not Elixir tests).
+
+**Verification:** `mix compile --warnings-as-errors`, `mix test`. Manually verify `fam init` in a temp dir produces the same `.familiar/` structure as before. Stress-test default_files_test 50×.
+
+### Story 9-3: Configurable File Classification
+
+As a Familiar user working on a non-code project,
+I want file classification rules to come from my config rather than hardcoded Elixir lists,
+So that I can index PDFs, manuscripts, research notes, or any file type relevant to my domain.
+
+**Scope:** Add `[indexing]` section to `config.toml` with keys: `skip_dirs`, `skip_extensions`, `skip_files`, `source_extensions`, `config_files`, `config_extensions`, `doc_extensions`, `test_patterns`. Each is an array of strings. Move the current hardcoded values from `@skip_dirs`, `@skip_extensions`, etc. in `familiar/lib/familiar/knowledge/file_classifier.ex` into the default `config.toml` template generated by `familiar/lib/familiar/config/generator.ex`.
+
+Update `Familiar.Config` to parse the `[indexing]` section into a struct field. Update `FileClassifier.classify/2` to accept an `indexing` config (passed from callers) instead of reading module attributes. The module attributes become fallback defaults used only when no config is provided (defensive — callers should always pass config).
+
+Update `familiar/lib/familiar/knowledge/init_scanner.ex` to pass the loaded config's indexing rules to `FileClassifier`. Update any other callers of `FileClassifier` (grep for `FileClassifier.classify` and `FileClassifier.score`).
+
+Update `familiar/test/familiar/knowledge/file_classifier_test.exs` to test both default behavior (no config = current behavior preserved) and custom config (user adds `.pdf` to source_extensions, adds `manuscripts/` to skip_dirs, etc.).
+
+**Verification:** `mix compile --warnings-as-errors`, `mix test`. Verify a `config.toml` with `source_extensions = [".pdf", ".docx"]` causes those files to classify as `:index`. Stress-test 50×.
+
+### Story 9-4: Open Entry Type and Source Validation
+
+As a Familiar user in a non-coding domain,
+I want to store knowledge entries with custom types like "experiment", "runbook", or "finding",
+So that the knowledge store adapts to my domain rather than forcing software engineering categories.
+
+**Scope:** In `familiar/lib/familiar/knowledge/entry.ex`, change type validation from an allowlist (`@valid_types`) to a format validation: type must be a non-empty string of 1–50 characters matching `~r/^[a-z][a-z0-9_]*$/` (lowercase snake_case). Same for source validation: replace `@valid_sources` with the same format rule. This preserves data hygiene (no empty strings, no SQL injection via weird characters) while allowing any domain-appropriate category.
+
+Keep the `@valid_types` and `@valid_sources` module attributes as `@default_types` and `@default_sources` — they're still useful as documentation and for the `fam init` extraction prompt. Expose them via `Entry.default_types/0` and `Entry.default_sources/0` so the extractor prompt (Story 9-5) can reference them.
+
+Update `familiar/lib/familiar/knowledge/hygiene.ex` — remove or relax `@valid_hygiene_types` to use the same format validation.
+
+Update `familiar/lib/familiar/knowledge/extractor.ex` — the `build_prompt/2` function currently hardcodes `Valid types: "file_summary", ...`. Change it to read from `Entry.default_types/0` so the extraction prompt stays in sync with whatever defaults are configured.
+
+Update tests in `entry_test.exs` (if it exists) or `knowledge_test.exs` — add tests for custom types (`"experiment"`, `"runbook"`) succeeding, and invalid formats (`""`, `"Has Spaces"`, `"123start"`) failing.
+
+**Verification:** `mix compile --warnings-as-errors`, `mix test`. Verify `Knowledge.store(%{text: "...", type: "experiment", source: "manual"})` succeeds. Stress-test 50×.
+
+### Story 9-5: Loadable System Templates (`.familiar/system/`)
+
+As a Familiar user,
+I want system-level prompts and configuration templates stored as editable files in `.familiar/system/`,
+So that I can tailor extraction, system behavior, and other miscellaneous concerns to my domain without touching Elixir code.
+
+**Scope:** Create `familiar/priv/defaults/system/` with the following initial files:
+
+- `extractor.md` — the knowledge extraction prompt, currently hardcoded in `Extractor.build_prompt/2` (lines 71–92 of `extractor.ex`). Uses template variables `{{file_path}}`, `{{content}}`, and `{{valid_types}}`.
+
+`fam init` (via `DefaultFiles.install/1` from Story 9-2) copies `priv/defaults/system/` to `.familiar/system/`, same skip-if-exists semantics as roles/skills/workflows.
+
+Update `Extractor.build_prompt/2` to:
+1. Check for `.familiar/system/extractor.md` in the project dir. If it exists, read it and interpolate the template variables.
+2. If not found, fall back to `priv/defaults/system/extractor.md`.
+3. `{{valid_types}}` resolves to `Entry.default_types/0 |> Enum.map_join(", ", &inspect/1)`.
+
+The `.familiar/system/` directory is the catch-all for editable system-level files that don't fit into roles, skills, or workflows. Future candidates: system prompt preamble, convention review instructions, consolidation prompt, etc.
+
+Update tests — verify custom prompt template is loaded when present, fallback works when absent, and template variables are interpolated correctly.
+
+**Verification:** `mix compile --warnings-as-errors`, `mix test`. Manually verify: edit `.familiar/prompts/extractor.md` to say "Analyze this research document" instead of "Analyze this source file", run `fam context --refresh`, confirm the LLM receives the customized prompt. Stress-test 50×.
+
+---
+
+**Epic 9 Summary:** 5 stories. Decouples Familiar's Elixir code from software-engineering assumptions. Story 9-1 removes the hardcoded `plan`/`do`/`fix` CLI shortcuts (pure deletion — `fam workflows run` already covers this). Story 9-2 moves 579 lines of role/skill/workflow markdown from Elixir string constants to `priv/defaults/` files copied on init. Story 9-3 makes file classification rules configurable via `config.toml`. Story 9-4 opens up knowledge entry types from a fixed enum to any snake_case string. Story 9-5 adds `.familiar/system/` for editable system-level templates (starting with the extraction prompt). After this epic, switching Familiar's domain requires editing markdown and TOML files — no Elixir changes needed.
+
+**Deferred to future epics:**
+- Secret filter patterns configurable via config (currently protective, low urgency)
+- Convention discoverer heuristics → LLM-driven or configurable (medium value)
+- Tool schemas loadable from `.familiar/tools/` directory (blocked on tool registry redesign)
+- Prerequisites checker provider-aware messaging (low impact)
+- Config defaults from template file (low impact — already overridden by config.toml)

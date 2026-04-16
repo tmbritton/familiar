@@ -798,28 +798,14 @@ defmodule Familiar.CLI.MainTest do
     end
   end
 
-  describe "parse_args/1 for plan command" do
-    test "parses plan with description" do
-      assert {"plan", ["add", "user", "accounts"], %{}} =
-               Main.parse_args(["plan", "add", "user", "accounts"])
-    end
-
-    test "parses plan --resume" do
-      assert {"plan", [], %{resume: true}} = Main.parse_args(["plan", "--resume"])
-    end
-
-    test "parses plan --resume --session 42" do
-      assert {"plan", [], %{resume: true, session: 42}} =
-               Main.parse_args(["plan", "--resume", "--session", "42"])
-    end
-
+  describe "parse_args/1 for search command" do
     test "parses search --raw" do
       assert {"search", ["query"], %{raw: true}} = Main.parse_args(["search", "--raw", "query"])
     end
   end
 
-  describe "run/2 with plan command" do
-    test "dispatches to workflow runner with description" do
+  describe "run/2 with workflows run command" do
+    test "dispatches to workflow runner with name and description" do
       Paths.ensure_familiar_dir!()
 
       workflow_deps =
@@ -829,16 +815,58 @@ defmodule Familiar.CLI.MainTest do
           end
         )
 
-      result = Main.run({"plan", ["add", "user", "accounts"], %{}}, workflow_deps)
+      result =
+        Main.run(
+          {"workflows", ["run", "feature-planning", "add", "user", "auth"], %{}},
+          workflow_deps
+        )
+
       assert {:ok, %{workflow: "feature-planning", steps: [_]}} = result
     end
 
-    test "returns usage error for plan with no args" do
+    test "returns usage error for workflows run with no description" do
       Paths.ensure_familiar_dir!()
 
-      result = Main.run({"plan", [], %{}}, deps())
+      result = Main.run({"workflows", ["run", "feature-planning"], %{}}, deps())
       assert {:error, {:usage_error, %{message: msg}}} = result
-      assert msg =~ "Usage: fam plan"
+      assert msg =~ "Usage: fam workflows run"
+    end
+
+    test "returns usage error for workflows run with no name" do
+      Paths.ensure_familiar_dir!()
+
+      result = Main.run({"workflows", ["run"], %{}}, deps())
+      assert {:error, {:usage_error, %{message: msg}}} = result
+      assert msg =~ "Usage: fam workflows run"
+    end
+
+    test "returns usage error for whitespace-only description" do
+      Paths.ensure_familiar_dir!()
+
+      result =
+        Main.run({"workflows", ["run", "feature-planning", "   ", "  "], %{}}, deps())
+
+      assert {:error, {:usage_error, %{message: msg}}} = result
+      assert msg =~ "Usage: fam workflows run"
+    end
+
+    test "propagates workflow runner errors" do
+      Paths.ensure_familiar_dir!()
+
+      workflow_deps =
+        deps(
+          workflow_fn: fn _path, _ctx, _opts ->
+            {:error, {:step_failed, %{step: "research", reason: "LLM error"}}}
+          end
+        )
+
+      result =
+        Main.run(
+          {"workflows", ["run", "feature-planning", "test", "feature"], %{}},
+          workflow_deps
+        )
+
+      assert {:error, {:step_failed, _}} = result
     end
   end
 

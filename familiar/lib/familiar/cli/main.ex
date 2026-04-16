@@ -352,40 +352,7 @@ defmodule Familiar.CLI.Main do
     run_chat(role, deps)
   end
 
-  # -- Workflow commands --
-
-  defp run_with_daemon({"plan", _, %{resume: true} = flags}, deps) do
-    session_id = Map.get(flags, :session)
-    resume_planning(session_id, deps)
-  end
-
-  defp run_with_daemon({"plan", _, %{session: session_id}}, deps) when is_integer(session_id) do
-    resume_planning(session_id, deps)
-  end
-
-  defp run_with_daemon({"plan", [], _}, _deps) do
-    {:error, {:usage_error, %{message: "Usage: fam plan <description>"}}}
-  end
-
-  defp run_with_daemon({"plan", args, _flags}, deps) do
-    run_workflow_command("plan", "feature-planning", args, deps)
-  end
-
-  defp run_with_daemon({"do", [], _}, _deps) do
-    {:error, {:usage_error, %{message: "Usage: fam do <description>"}}}
-  end
-
-  defp run_with_daemon({"do", args, _flags}, deps) do
-    run_workflow_command("do", "feature-implementation", args, deps)
-  end
-
-  defp run_with_daemon({"fix", [], _}, _deps) do
-    {:error, {:usage_error, %{message: "Usage: fam fix <description>"}}}
-  end
-
-  defp run_with_daemon({"fix", args, _flags}, deps) do
-    run_workflow_command("fix", "task-fix", args, deps)
-  end
+  # -- Search, entry, and other commands --
 
   defp run_with_daemon({"search", [], _}, _deps) do
     {:error, {:usage_error, %{message: "Usage: fam search <query>"}}}
@@ -673,6 +640,20 @@ defmodule Familiar.CLI.Main do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp run_with_daemon({"workflows", ["run"], _}, _deps) do
+    {:error, {:usage_error, %{message: "Usage: fam workflows run <name> <description>"}}}
+  end
+
+  defp run_with_daemon({"workflows", ["run", name | rest], _flags}, deps) do
+    description = rest |> Enum.join(" ") |> String.trim()
+
+    if description == "" do
+      {:error, {:usage_error, %{message: "Usage: fam workflows run <name> <description>"}}}
+    else
+      run_workflow(name, description, deps, "agent")
     end
   end
 
@@ -1422,17 +1403,6 @@ defmodule Familiar.CLI.Main do
     if String.length(msg) > 60, do: String.slice(msg, 0, 57) <> "...", else: msg
   end
 
-  defp run_workflow_command(command, workflow_name, args, deps) do
-    description = args |> Enum.join(" ") |> String.trim()
-
-    if description == "" do
-      {:error, {:usage_error, %{message: "Usage: fam #{command} <description>"}}}
-    else
-      scope = if command == "plan", do: "planning", else: "agent"
-      run_workflow(workflow_name, description, deps, scope)
-    end
-  end
-
   defp run_workflow(workflow_name, description, deps, scope) do
     path = Path.join([Paths.familiar_dir(), "workflows", "#{workflow_name}.md"])
     workflow_fn = Map.get(deps, :workflow_fn, &WorkflowRunner.run_workflow/3)
@@ -1447,50 +1417,6 @@ defmodule Familiar.CLI.Main do
 
       {:error, {kind, msg}} when is_binary(msg) ->
         {:error, {kind, %{message: msg}}}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp resume_planning(session_id, deps) do
-    find_fn = Map.get(deps, :find_conversation_fn, &find_planning_conversation/1)
-
-    case find_fn.(session_id) do
-      {:ok, conversation} ->
-        if conversation.status == "completed" do
-          {:error,
-           {:conversation_completed,
-            %{message: "Planning session ##{conversation.id} is already completed."}}}
-        else
-          resume_with_context(conversation, deps)
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp find_planning_conversation(nil) do
-    case Familiar.Conversations.latest_active(scope: "planning") do
-      {:ok, id} -> Familiar.Conversations.get(id)
-      {:error, _} = error -> error
-    end
-  end
-
-  defp find_planning_conversation(id) when is_integer(id) do
-    Familiar.Conversations.get(id)
-  end
-
-  defp resume_with_context(conversation, deps) do
-    messages_fn = Map.get(deps, :messages_fn, &Familiar.Conversations.messages/1)
-
-    case messages_fn.(conversation.id) do
-      {:ok, messages} ->
-        # Build context from conversation history for the agent
-        context_summary = format_conversation_context(messages)
-        description = "Resume planning session ##{conversation.id}\n\n#{context_summary}"
-        run_workflow("feature-planning", description, deps, "planning")
 
       {:error, _} = error ->
         error
@@ -2151,6 +2077,19 @@ defmodule Familiar.CLI.Main do
 
         header <> Enum.join(lines, "\n")
 
+      %{workflow: workflow, steps: steps} when is_list(steps) ->
+        header = "Workflow: #{workflow} (#{length(steps)} steps)\n"
+
+        lines =
+          steps
+          |> Enum.with_index(1)
+          |> Enum.map(fn {step, idx} ->
+            output = truncate(step.output || "", 200)
+            "  #{idx}. #{step.step} — #{output}"
+          end)
+
+        header <> Enum.join(lines, "\n")
+
       %{workflow: wf} ->
         format_workflow_detail(wf)
 
@@ -2219,26 +2158,6 @@ defmodule Familiar.CLI.Main do
     end
   end
 
-  def text_formatter(cmd) when cmd in ~w(plan do fix) do
-    fn
-      %{workflow: workflow, steps: steps} ->
-        header = "Workflow: #{workflow} (#{length(steps)} steps)\n"
-
-        lines =
-          steps
-          |> Enum.with_index(1)
-          |> Enum.map(fn {step, idx} ->
-            output = truncate(step.output || "", 200)
-            "  #{idx}. #{step.step} — #{output}"
-          end)
-
-        header <> Enum.join(lines, "\n")
-
-      other ->
-        inspect(other, pretty: true)
-    end
-  end
-
   def text_formatter("health") do
     fn %{status: status, version: version} ->
       "Daemon is #{status} (version #{version})"
@@ -2287,7 +2206,7 @@ defmodule Familiar.CLI.Main do
         if summary[:warning] do
           lines ++ ["  Warning: #{summary.warning}"]
         else
-          lines ++ ["", "Try: fam plan \"describe a feature\" — your spec will appear for review"]
+          lines ++ ["", "Try: fam chat — start a conversation with your familiar"]
         end
 
       lines =
@@ -2758,15 +2677,13 @@ defmodule Familiar.CLI.Main do
       chat               Interactive conversation with full tool access (default)
       chat --role <name> Chat with a specific agent role
       init               Initialize Familiar on this project
-      plan <description> Plan a feature (research → draft-spec → review)
-      do <description>   Implement a feature (implement → test → review)
-      fix <description>  Fix a bug (diagnose → fix → verify)
       roles              List all available agent roles
       roles <name>       Show details for a specific role
       skills             List all available skills
       skills <name>      Show details for a specific skill
       workflows          List all available workflows
       workflows <name>   Show details for a specific workflow
+      workflows run <name> <desc>       Run a workflow by name
       workflows resume [--id <n>]       Resume an interrupted workflow run
       workflows list-runs [--status s] [--scope s] [--limit n]  List workflow runs
       mcp                List MCP servers and their status
@@ -2779,7 +2696,7 @@ defmodule Familiar.CLI.Main do
       extensions         List loaded extensions and their tools
       sessions           List conversation sessions
       sessions <id>      Show session details and recent messages
-      sessions --scope <s> Filter sessions by scope (chat, planning)
+      sessions --scope <s> Filter sessions by scope (chat, agent)
       sessions --cleanup Close stale active sessions
       validate           Validate all roles, skills, and workflows
       validate roles     Validate only roles (skill cross-references)

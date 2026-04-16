@@ -119,11 +119,15 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
   # == AC1: Full Pipeline — CLI → WorkflowRunner → AgentProcess ==
 
   describe "full pipeline integration" do
-    test "fam plan dispatches through real WorkflowRunner and completes", ctx do
+    test "workflows run dispatches through real WorkflowRunner and completes", ctx do
       Paths.ensure_familiar_dir!()
       deps = cli_deps(ctx)
 
-      assert {:ok, result} = Main.run({"plan", ["Plan", "user", "auth"], %{}}, deps)
+      assert {:ok, result} =
+               Main.run(
+                 {"workflows", ["run", "feature-planning", "Plan", "user", "auth"], %{}},
+                 deps
+               )
 
       assert result.workflow == "feature-planning"
       assert length(result.steps) == 3
@@ -144,7 +148,11 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
       Paths.ensure_familiar_dir!()
       deps = cli_deps(ctx)
 
-      assert {:ok, result} = Main.run({"do", ["Implement", "login"], %{}}, deps)
+      assert {:ok, result} =
+               Main.run(
+                 {"workflows", ["run", "feature-implementation", "Implement", "login"], %{}},
+                 deps
+               )
 
       assert result.workflow == "feature-implementation"
       step_names = Enum.map(result.steps, & &1.step)
@@ -155,7 +163,11 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
       Paths.ensure_familiar_dir!()
       deps = cli_deps(ctx)
 
-      assert {:ok, result} = Main.run({"fix", ["broken", "redirect"], %{}}, deps)
+      assert {:ok, result} =
+               Main.run(
+                 {"workflows", ["run", "task-fix", "broken", "redirect"], %{}},
+                 deps
+               )
 
       assert result.workflow == "task-fix"
       step_names = Enum.map(result.steps, & &1.step)
@@ -192,7 +204,11 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
       Paths.ensure_familiar_dir!()
       deps = cli_deps(ctx)
 
-      assert {:ok, _result} = Main.run({"do", ["Implement", "feature"], %{}}, deps)
+      assert {:ok, _result} =
+               Main.run(
+                 {"workflows", ["run", "feature-implementation", "Implement", "feature"], %{}},
+                 deps
+               )
 
       # review step should see both implement and test output (it inputs from both)
       assert_receive {:review_context, context}, 5_000
@@ -214,7 +230,11 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
       Paths.ensure_familiar_dir!()
       deps = cli_deps(ctx)
 
-      assert {:ok, _result} = Main.run({"fix", ["broken", "test"], %{}}, deps)
+      assert {:ok, _result} =
+               Main.run(
+                 {"workflows", ["run", "task-fix", "broken", "test"], %{}},
+                 deps
+               )
 
       # Each step should have created a conversation
       conversations =
@@ -240,17 +260,21 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
       end
     end
 
-    test "planning workflow creates conversations with planning scope", ctx do
+    test "workflow run creates conversations with agent scope", ctx do
       Paths.ensure_familiar_dir!()
       deps = cli_deps(ctx)
 
-      assert {:ok, _result} = Main.run({"plan", ["Plan", "feature"], %{}}, deps)
+      assert {:ok, _result} =
+               Main.run(
+                 {"workflows", ["run", "feature-planning", "Plan", "feature"], %{}},
+                 deps
+               )
 
-      planning_convs =
-        from(c in Conversation, where: c.scope == "planning")
+      agent_convs =
+        from(c in Conversation, where: c.scope == "agent")
         |> Repo.all()
 
-      assert length(planning_convs) == 3
+      assert length(agent_convs) == 3
     end
   end
 
@@ -277,7 +301,10 @@ defmodule Familiar.Execution.WorkflowIntegrationTest do
 
       # feature-implementation uses the coder role for "implement" step
       assert {:error, {:step_failed, %{step: "implement"}}} =
-               Main.run({"do", ["Implement", "something"], %{}}, deps)
+               Main.run(
+                 {"workflows", ["run", "feature-implementation", "Implement", "something"], %{}},
+                 deps
+               )
     end
 
     test "workflow with missing role file returns start_failed error", ctx do
