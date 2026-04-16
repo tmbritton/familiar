@@ -76,31 +76,13 @@ defmodule Familiar.Knowledge.KnowledgeTest do
       assert entry.text =~ "JWT tokens"
     end
 
-    test "rejects raw code content" do
-      code = """
-      defmodule MyApp.Auth do
-        def verify(token) do
-          JWT.decode(token)
-        end
-      end
-      """
-
-      assert {:error, {:knowledge_not_code, %{reason: _}}} =
-               Knowledge.store(%{
-                 text: code,
-                 type: "convention",
-                 source: "manual"
-               })
-    end
-
     test "returns changeset validation error for missing type/source" do
       # No embed mock needed — changeset validation fails before embedding
       assert {:error, {:validation_failed, %{changeset: _}}} =
                Knowledge.store(%{text: "Some knowledge about the project"})
     end
 
-    test "returns changeset validation error for missing text (not knowledge_not_code)" do
-      # Missing text should produce :validation_failed, not :knowledge_not_code
+    test "returns changeset validation error for missing text" do
       assert {:error, {:validation_failed, %{changeset: changeset}}} =
                Knowledge.store(%{type: "convention", source: "manual"})
 

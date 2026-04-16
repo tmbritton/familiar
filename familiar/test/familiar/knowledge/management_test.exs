@@ -77,28 +77,6 @@ defmodule Familiar.Knowledge.ManagementTest do
       assert updated.source == "user"
     end
 
-    test "rejects code content via FR19 validation" do
-      entry = create_entry(%{text: "Knowledge entry", vector_id: 3})
-
-      code_text = """
-      defmodule Foo do
-        def bar do
-          if true do
-            {:ok, result}
-          else
-            {:error, reason}
-          end
-        end
-        def baz, do: :ok
-        def qux(x), do: x + 1
-        defp helper(y), do: y * 2
-      end
-      """
-
-      assert {:error, {:knowledge_not_code, _}} =
-               Knowledge.update_entry(entry, %{text: code_text})
-    end
-
     test "returns error when embed fails" do
       entry = create_entry(%{text: "Original", vector_id: 4})
 

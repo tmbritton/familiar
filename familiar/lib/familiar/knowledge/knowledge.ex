@@ -15,7 +15,6 @@ defmodule Familiar.Knowledge do
 
   alias Familiar.Daemon.Paths
   alias Familiar.Knowledge.Backup
-  alias Familiar.Knowledge.ContentValidator
   alias Familiar.Knowledge.EmbeddingMetadata
   alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.Freshness
@@ -163,17 +162,13 @@ defmodule Familiar.Knowledge do
       store_with_embedding(attrs)
     else
       filtered_text = SecretFilter.filter(text)
-
-      with {:ok, _} <- ContentValidator.validate_not_code(filtered_text) do
-        store_with_embedding(attrs |> Map.delete("text") |> Map.put(:text, filtered_text))
-      end
+      store_with_embedding(attrs |> Map.delete("text") |> Map.put(:text, filtered_text))
     end
   end
 
   @doc """
   Update a knowledge entry's text and re-embed.
 
-  Validates FR19 knowledge-not-code rule on the new text.
   Embed-before-persist: embed new text first, then update entry + replace embedding.
   """
   @spec update_entry(Entry.t(), map()) :: {:ok, Entry.t()} | {:error, {atom(), map()}}
@@ -182,8 +177,7 @@ defmodule Familiar.Knowledge do
     new_text = SecretFilter.filter(raw_text)
     filtered_attrs = attrs |> Map.delete("text") |> Map.put(:text, new_text)
 
-    with {:ok, _} <- ContentValidator.validate_not_code(new_text),
-         {:ok, vector} <- Familiar.Providers.embed(new_text),
+    with {:ok, vector} <- Familiar.Providers.embed(new_text),
          changeset = Entry.changeset(entry, filtered_attrs),
          {:ok, updated} <- Repo.update(changeset) do
       case replace_embedding(updated.id, vector) do

@@ -249,25 +249,6 @@ defmodule Familiar.Knowledge.KnowledgeIntegrationTest do
     end
   end
 
-  describe "failure: knowledge-not-code rejects raw code" do
-    test "defmodule code block rejected with knowledge_not_code error" do
-      code = """
-      defmodule MyApp.Worker do
-        use GenServer
-        def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
-        def init(state), do: {:ok, state}
-      end
-      """
-
-      assert {:error, {:knowledge_not_code, %{reason: _}}} =
-               Knowledge.store(%{
-                 text: code,
-                 type: "convention",
-                 source: "manual"
-               })
-    end
-  end
-
   describe "failure: freshness excludes entries referencing deleted files" do
     test "entries for deleted files are excluded from search results" do
       v = deterministic_vector(1.0, 0.0)
