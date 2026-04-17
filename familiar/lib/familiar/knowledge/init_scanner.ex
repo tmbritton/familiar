@@ -31,15 +31,18 @@ defmodule Familiar.Knowledge.InitScanner do
     max_files = Keyword.get(opts, :max_files, @default_max_files)
     fs = file_system(opts)
 
+    indexing = Keyword.get(opts, :indexing) |> compile_test_patterns()
+    classify_opts = if indexing, do: [indexing: indexing], else: []
+
     all_files =
       project_dir
-      |> walk_tree(fs)
+      |> walk_tree(fs, classify_opts)
       |> Enum.map(&Path.relative_to(&1, project_dir))
-      |> Enum.filter(&(FileClassifier.classify(&1) == :index))
+      |> Enum.filter(&(FileClassifier.classify(&1, classify_opts) == :index))
 
     {files, deferred} =
       if length(all_files) > @large_project_threshold do
-        FileClassifier.prioritize_with_info(all_files, max_files)
+        FileClassifier.prioritize_with_info(all_files, max_files, classify_opts)
       else
         {all_files, 0}
       end
@@ -247,22 +250,22 @@ defmodule Familiar.Knowledge.InitScanner do
     end)
   end
 
-  defp walk_tree(dir, fs) do
+  defp walk_tree(dir, fs, classify_opts) do
     case fs.ls(dir) do
       {:ok, entries} ->
-        Enum.flat_map(entries, &walk_entry(dir, &1, fs))
+        Enum.flat_map(entries, &walk_entry(dir, &1, fs, classify_opts))
 
       {:error, _} ->
         []
     end
   end
 
-  defp walk_entry(dir, entry, fs) do
+  defp walk_entry(dir, entry, fs, classify_opts) do
     full_path = Path.join(dir, entry)
 
     cond do
-      File.dir?(full_path) and FileClassifier.classify(entry <> "/") != :skip ->
-        walk_tree(full_path, fs)
+      File.dir?(full_path) and FileClassifier.classify(entry <> "/", classify_opts) != :skip ->
+        walk_tree(full_path, fs, classify_opts)
 
       File.regular?(full_path) ->
         [full_path]
@@ -275,6 +278,17 @@ defmodule Familiar.Knowledge.InitScanner do
   defp file_system(opts) do
     Keyword.get_lazy(opts, :file_system, fn ->
       Application.get_env(:familiar, Familiar.System.FileSystem, Familiar.System.LocalFileSystem)
+    end)
+  end
+
+  defp compile_test_patterns(nil), do: nil
+
+  defp compile_test_patterns(indexing) do
+    Map.update(indexing, :test_patterns, [], fn patterns ->
+      Enum.map(patterns, fn
+        %Regex{} = r -> r
+        s when is_binary(s) -> Regex.compile!(s)
+      end)
     end)
   end
 

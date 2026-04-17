@@ -17,7 +17,21 @@ defmodule Familiar.Config do
             providers: %{},
             scan: %{max_files: 200, large_project_threshold: 500},
             notifications: %{provider: "auto", enabled: true},
-            mcp_servers: []
+            mcp_servers: [],
+            indexing: %{
+              skip_dirs: ~w(.git/ vendor/ node_modules/ _build/ deps/ .elixir_ls/ .familiar/
+                    __pycache__/ .tox/ .mypy_cache/ target/ dist/ build/),
+              skip_extensions: ~w(.beam .pyc .pyo .class .o .so .dylib .min.js .min.css .map),
+              skip_files:
+                ~w(go.sum mix.lock package-lock.json yarn.lock Cargo.lock poetry.lock Gemfile.lock),
+              source_extensions:
+                ~w(.ex .exs .go .py .ts .tsx .js .jsx .rb .rs .java .c .cpp .h .hpp .cs .swift .kt),
+              config_files:
+                ~w(mix.exs package.json Cargo.toml pyproject.toml Gemfile Makefile CMakeLists.txt),
+              config_extensions: ~w(.toml .yaml .yml .json .xml .ini .cfg),
+              doc_extensions: ~w(.md .txt .rst .adoc),
+              test_patterns: ["test/", "spec/", "_test\\.", "_spec\\."]
+            }
 
   @doc "Returns the default configuration."
   @spec defaults() :: %__MODULE__{
@@ -71,14 +85,16 @@ defmodule Familiar.Config do
     with {:ok, provider} <- resolve_provider(default_provider, parsed["provider"]),
          {:ok, scan} <- validate_scan(parsed["scan"]),
          {:ok, notifications} <- validate_notifications(parsed["notifications"]),
-         {:ok, mcp_servers} <- parse_mcp_servers(parsed["mcp"]) do
+         {:ok, mcp_servers} <- parse_mcp_servers(parsed["mcp"]),
+         {:ok, indexing} <- validate_indexing(parsed["indexing"]) do
       {:ok,
        %__MODULE__{
          provider: provider,
          providers: providers,
          scan: scan,
          notifications: notifications,
-         mcp_servers: mcp_servers
+         mcp_servers: mcp_servers,
+         indexing: indexing
        }}
     end
   end
@@ -186,6 +202,97 @@ defmodule Familiar.Config do
          enabled: if(is_nil(section["enabled"]), do: defaults.enabled, else: section["enabled"])
        }}
     end
+  end
+
+  @indexing_list_keys ~w(skip_dirs skip_extensions skip_files source_extensions
+                         config_files config_extensions doc_extensions)a
+
+  defp validate_indexing(nil), do: {:ok, defaults().indexing}
+
+  defp validate_indexing(section) when is_map(section) do
+    with :ok <- validate_indexing_lists(section),
+         :ok <- validate_test_patterns(section["test_patterns"]) do
+      {:ok, merge_indexing_defaults(section)}
+    end
+  end
+
+  defp validate_indexing(_) do
+    {:error, {:invalid_config, %{field: "indexing", reason: "expected a TOML table"}}}
+  end
+
+  defp merge_indexing_defaults(section) do
+    defaults = defaults().indexing
+
+    indexing =
+      Enum.reduce(@indexing_list_keys, defaults, fn key, acc ->
+        case section[Atom.to_string(key)] do
+          nil -> acc
+          val -> Map.put(acc, key, val)
+        end
+      end)
+
+    test_patterns =
+      case section["test_patterns"] do
+        nil -> defaults.test_patterns
+        patterns when is_list(patterns) -> patterns
+      end
+
+    Map.put(indexing, :test_patterns, test_patterns)
+  end
+
+  defp validate_indexing_lists(section) do
+    Enum.reduce_while(@indexing_list_keys, :ok, fn key, :ok ->
+      str_key = Atom.to_string(key)
+      validate_string_list("indexing.#{str_key}", section[str_key])
+    end)
+  end
+
+  defp validate_string_list(_field, nil), do: {:cont, :ok}
+
+  defp validate_string_list(field, val) when is_list(val) do
+    if Enum.all?(val, &is_binary/1),
+      do: {:cont, :ok},
+      else:
+        {:halt, {:error, {:invalid_config, %{field: field, reason: "expected list of strings"}}}}
+  end
+
+  defp validate_string_list(field, val) do
+    {:halt,
+     {:error,
+      {:invalid_config, %{field: field, reason: "expected list of strings, got #{inspect(val)}"}}}}
+  end
+
+  defp validate_test_patterns(nil), do: :ok
+
+  defp validate_test_patterns(patterns) when is_list(patterns) do
+    Enum.reduce_while(patterns, :ok, fn
+      s, :ok when is_binary(s) ->
+        case Regex.compile(s) do
+          {:ok, _} ->
+            {:cont, :ok}
+
+          {:error, _} ->
+            {:halt,
+             {:error,
+              {:invalid_config,
+               %{field: "indexing.test_patterns", reason: "invalid regex: #{inspect(s)}"}}}}
+        end
+
+      val, :ok ->
+        {:halt,
+         {:error,
+          {:invalid_config,
+           %{
+             field: "indexing.test_patterns",
+             reason: "expected list of strings, got element #{inspect(val)}"
+           }}}}
+    end)
+  end
+
+  defp validate_test_patterns(val) do
+    {:error,
+     {:invalid_config,
+      %{field: "indexing.test_patterns", reason: "expected list of strings, got #{inspect(val)}"}}}
   end
 
   defp validate_string(_field, nil), do: :ok

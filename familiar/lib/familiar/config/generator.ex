@@ -36,6 +36,8 @@ defmodule Familiar.Config.Generator do
       scan_section(),
       "",
       notifications_section(),
+      "",
+      indexing_section(),
       ""
     ]
     |> Enum.join("\n")
@@ -100,6 +102,25 @@ defmodule Familiar.Config.Generator do
       "[notifications]",
       ~s(# provider = "auto"),
       "# enabled = true"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp indexing_section do
+    defaults = Config.defaults().indexing
+
+    [
+      "[indexing]",
+      "# Customize which files are indexed during project scanning.",
+      "# Uncomment and modify any key to override the defaults.",
+      "# skip_dirs = #{inspect(defaults.skip_dirs)}",
+      "# skip_extensions = #{inspect(defaults.skip_extensions)}",
+      "# skip_files = #{inspect(defaults.skip_files)}",
+      "# source_extensions = #{inspect(defaults.source_extensions)}",
+      "# config_files = #{inspect(defaults.config_files)}",
+      "# config_extensions = #{inspect(defaults.config_extensions)}",
+      "# doc_extensions = #{inspect(defaults.doc_extensions)}",
+      "# test_patterns = #{inspect(defaults.test_patterns)}"
     ]
     |> Enum.join("\n")
   end

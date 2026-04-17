@@ -147,6 +147,83 @@ defmodule Familiar.Knowledge.FileClassifierTest do
     end
   end
 
+  describe "classify/2 with custom indexing config" do
+    test "custom source_extensions causes .pdf to index" do
+      indexing = %{source_extensions: [".pdf", ".docx"]}
+      assert :index = FileClassifier.classify("paper.pdf", indexing: indexing)
+      assert :index = FileClassifier.classify("doc.docx", indexing: indexing)
+    end
+
+    test "custom skip_dirs skips custom directories" do
+      indexing = %{skip_dirs: ["manuscripts/", "drafts/"]}
+      assert :skip = FileClassifier.classify("manuscripts/chapter1.md", indexing: indexing)
+      assert :skip = FileClassifier.classify("drafts/outline.md", indexing: indexing)
+      # Default skip dirs no longer apply when overridden
+      assert :index = FileClassifier.classify("node_modules/pkg/index.js", indexing: indexing)
+    end
+
+    test "extra skip_dirs merges with indexing config skip_dirs" do
+      indexing = %{skip_dirs: [".git/", "vendor/"]}
+      opts = [indexing: indexing, skip_dirs: ["extra/"]]
+      assert :skip = FileClassifier.classify(".git/config", opts)
+      assert :skip = FileClassifier.classify("extra/tmp.txt", opts)
+    end
+
+    test "partial config merges with defaults for unspecified keys" do
+      # Only override skip_dirs, rest uses defaults
+      indexing = %{skip_dirs: ["custom/"]}
+      # .beam still skipped (default skip_extensions)
+      assert :skip = FileClassifier.classify("lib/mod.beam", indexing: indexing)
+      # mix.lock still skipped (default skip_files)
+      assert :skip = FileClassifier.classify("mix.lock", indexing: indexing)
+      # custom/ now skipped
+      assert :skip = FileClassifier.classify("custom/file.txt", indexing: indexing)
+    end
+
+    test "empty source_extensions means nothing classified as source" do
+      indexing = %{source_extensions: []}
+      # .ex files are normally source, but with empty list they're just :index (not skipped)
+      assert :index = FileClassifier.classify("lib/app.ex", indexing: indexing)
+    end
+
+    test "custom skip_extensions skips custom extensions" do
+      indexing = %{skip_extensions: [".log", ".tmp"]}
+      assert :skip = FileClassifier.classify("app.log", indexing: indexing)
+      assert :skip = FileClassifier.classify("data.tmp", indexing: indexing)
+      # Default .beam no longer skipped
+      assert :index = FileClassifier.classify("lib/mod.beam", indexing: indexing)
+    end
+
+    test "custom skip_files skips custom filenames" do
+      indexing = %{skip_files: ["CHANGELOG.md", "LICENSE"]}
+      assert :skip = FileClassifier.classify("CHANGELOG.md", indexing: indexing)
+      assert :skip = FileClassifier.classify("LICENSE", indexing: indexing)
+      # Default mix.lock no longer skipped
+      assert :index = FileClassifier.classify("mix.lock", indexing: indexing)
+    end
+  end
+
+  describe "significance/2 with custom indexing config" do
+    test "custom source_extensions changes significance scoring" do
+      indexing = %{source_extensions: [".pdf"]}
+      assert FileClassifier.significance("paper.pdf", indexing: indexing) == 100
+      # .ex no longer scored as source
+      assert FileClassifier.significance("lib/app.ex", indexing: indexing) == 10
+    end
+
+    test "custom config_files changes significance scoring" do
+      indexing = %{config_files: ["Justfile"]}
+      assert FileClassifier.significance("Justfile", indexing: indexing) == 80
+    end
+
+    test "custom test_patterns changes test detection" do
+      indexing = %{test_patterns: ["check/"]}
+      assert FileClassifier.significance("check/verify.ex", indexing: indexing) == 50
+      # Default test/ no longer detected
+      assert FileClassifier.significance("test/app_test.exs", indexing: indexing) == 100
+    end
+  end
+
   describe "significance/1" do
     test "source code has highest significance" do
       assert FileClassifier.significance("lib/app.ex") > FileClassifier.significance("README.md")

@@ -2,9 +2,13 @@ defmodule Familiar.Knowledge.FileClassifier do
   @moduledoc """
   File classification and significance scoring for the init scanner.
 
-  Classifies project files as `:index` or `:skip` based on built-in
-  skip patterns for directories and file extensions. Provides significance
+  Classifies project files as `:index` or `:skip` based on configurable
+  patterns for directories and file extensions. Provides significance
   scoring for large-project prioritization.
+
+  Accepts an optional `:indexing` config map (from `Familiar.Config`) to
+  override the built-in defaults. When no config is passed, falls back to
+  the module attributes.
   """
 
   @skip_dirs ~w(
@@ -28,17 +32,20 @@ defmodule Familiar.Knowledge.FileClassifier do
   @doc """
   Classify a file path as `:index` or `:skip`.
 
-  Accepts optional `skip_dirs` in opts for additional directory patterns.
+  Options:
+  - `:indexing` — indexing config map from `Familiar.Config` (overrides defaults)
+  - `:skip_dirs` — additional directory patterns to skip (merged with config/defaults)
   """
   @spec classify(String.t(), keyword()) :: :index | :skip
   def classify(path, opts \\ []) do
+    indexing = Keyword.get(opts, :indexing)
     extra_skip_dirs = Keyword.get(opts, :skip_dirs, [])
-    all_skip_dirs = @skip_dirs ++ extra_skip_dirs
+    all_skip_dirs = idx(indexing, :skip_dirs, @skip_dirs) ++ extra_skip_dirs
 
     cond do
       skip_dir?(path, all_skip_dirs) -> :skip
-      skip_file?(path) -> :skip
-      skip_extension?(path) -> :skip
+      skip_file?(path, idx(indexing, :skip_files, @skip_files)) -> :skip
+      skip_extension?(path, idx(indexing, :skip_extensions, @skip_extensions)) -> :skip
       true -> :index
     end
   end
@@ -52,17 +59,24 @@ defmodule Familiar.Knowledge.FileClassifier do
   - Test files: 50
   - Other: 10
   """
-  @spec significance(String.t()) :: pos_integer()
-  def significance(path) do
+  @spec significance(String.t(), keyword()) :: pos_integer()
+  def significance(path, opts \\ []) do
+    indexing = Keyword.get(opts, :indexing)
     basename = Path.basename(path)
     ext = Path.extname(path)
 
+    source_exts = idx(indexing, :source_extensions, @source_extensions)
+    cfg_files = idx(indexing, :config_files, @config_files)
+    cfg_exts = idx(indexing, :config_extensions, @config_extensions)
+    doc_exts = idx(indexing, :doc_extensions, @doc_extensions)
+    test_pats = idx(indexing, :test_patterns, @test_patterns) |> ensure_regexes()
+
     cond do
-      ext in @source_extensions and not test_file?(path) -> 100
-      basename in @config_files -> 80
-      ext in @config_extensions -> 80
-      test_file?(path) -> 50
-      ext in @doc_extensions -> 50
+      ext in source_exts and not test_file?(path, test_pats) -> 100
+      basename in cfg_files -> 80
+      ext in cfg_exts -> 80
+      test_file?(path, test_pats) -> 50
+      ext in doc_exts -> 50
       true -> 10
     end
   end
@@ -72,12 +86,13 @@ defmodule Familiar.Knowledge.FileClassifier do
 
   Returns the list unchanged if under budget.
   """
-  @spec prioritize([String.t()], pos_integer()) :: [String.t()]
-  def prioritize(files, budget) when length(files) <= budget, do: files
+  @spec prioritize([String.t()], pos_integer(), keyword()) :: [String.t()]
+  def prioritize(files, budget, opts \\ [])
+  def prioritize(files, budget, _opts) when length(files) <= budget, do: files
 
-  def prioritize(files, budget) do
+  def prioritize(files, budget, opts) do
     files
-    |> Enum.sort_by(&significance/1, :desc)
+    |> Enum.sort_by(&significance(&1, opts), :desc)
     |> Enum.take(budget)
   end
 
@@ -86,13 +101,24 @@ defmodule Familiar.Knowledge.FileClassifier do
 
   Returns `{kept_files, deferred_count}`.
   """
-  @spec prioritize_with_info([String.t()], pos_integer()) :: {[String.t()], non_neg_integer()}
-  def prioritize_with_info(files, budget) do
-    kept = prioritize(files, budget)
+  @spec prioritize_with_info([String.t()], pos_integer(), keyword()) ::
+          {[String.t()], non_neg_integer()}
+  def prioritize_with_info(files, budget, opts \\ []) do
+    kept = prioritize(files, budget, opts)
     {kept, length(files) - length(kept)}
   end
 
   # -- Private --
+
+  defp idx(nil, _key, default), do: default
+  defp idx(indexing, key, default), do: Map.get(indexing, key, default)
+
+  defp ensure_regexes(patterns) do
+    Enum.map(patterns, fn
+      %Regex{} = r -> r
+      s when is_binary(s) -> Regex.compile!(s)
+    end)
+  end
 
   defp skip_dir?(path, skip_dirs) do
     Enum.any?(skip_dirs, fn dir ->
@@ -101,17 +127,17 @@ defmodule Familiar.Knowledge.FileClassifier do
     end)
   end
 
-  defp skip_file?(path) do
-    Path.basename(path) in @skip_files
+  defp skip_file?(path, skip_files) do
+    Path.basename(path) in skip_files
   end
 
-  defp skip_extension?(path) do
+  defp skip_extension?(path, skip_extensions) do
     ext = Path.extname(path)
 
     if ext == "" do
       false
     else
-      ext in @skip_extensions or double_ext_skip?(path)
+      ext in skip_extensions or double_ext_skip?(path)
     end
   end
 
@@ -124,7 +150,7 @@ defmodule Familiar.Knowledge.FileClassifier do
       String.ends_with?(basename, ".js.map")
   end
 
-  defp test_file?(path) do
-    Enum.any?(@test_patterns, &Regex.match?(&1, path))
+  defp test_file?(path, test_patterns) do
+    Enum.any?(test_patterns, &Regex.match?(&1, path))
   end
 end

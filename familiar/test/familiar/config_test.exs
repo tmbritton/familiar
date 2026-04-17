@@ -19,6 +19,12 @@ defmodule Familiar.ConfigTest do
 
       assert config.notifications.provider == "auto"
       assert config.notifications.enabled == true
+
+      assert is_list(config.indexing.skip_dirs)
+      assert ".git/" in config.indexing.skip_dirs
+      assert is_list(config.indexing.source_extensions)
+      assert ".ex" in config.indexing.source_extensions
+      assert is_list(config.indexing.test_patterns)
     end
   end
 
@@ -222,6 +228,94 @@ defmodule Familiar.ConfigTest do
 
       assert {:ok, config} = Config.load(path)
       assert config.mcp_servers == []
+    end
+  end
+
+  describe "load/1 indexing section" do
+    test "parses valid indexing section", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+
+      File.write!(path, """
+      [indexing]
+      source_extensions = [".pdf", ".docx"]
+      skip_dirs = ["manuscripts/"]
+      """)
+
+      assert {:ok, config} = Config.load(path)
+      assert config.indexing.source_extensions == [".pdf", ".docx"]
+      assert config.indexing.skip_dirs == ["manuscripts/"]
+      # Other keys fall back to defaults
+      assert config.indexing.skip_extensions == Config.defaults().indexing.skip_extensions
+      assert config.indexing.doc_extensions == Config.defaults().indexing.doc_extensions
+    end
+
+    test "missing indexing section returns defaults", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+      File.write!(path, "[scan]\nmax_files = 100\n")
+
+      assert {:ok, config} = Config.load(path)
+      assert config.indexing == Config.defaults().indexing
+    end
+
+    test "partial indexing keys merge with defaults", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+
+      File.write!(path, """
+      [indexing]
+      doc_extensions = [".md", ".org"]
+      """)
+
+      assert {:ok, config} = Config.load(path)
+      assert config.indexing.doc_extensions == [".md", ".org"]
+      assert config.indexing.skip_dirs == Config.defaults().indexing.skip_dirs
+      assert config.indexing.source_extensions == Config.defaults().indexing.source_extensions
+    end
+
+    test "test_patterns parsed as strings", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+
+      File.write!(path, """
+      [indexing]
+      test_patterns = ["check/", "verify_"]
+      """)
+
+      assert {:ok, config} = Config.load(path)
+      assert config.indexing.test_patterns == ["check/", "verify_"]
+    end
+
+    test "invalid indexing value returns error", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+      File.write!(path, "[indexing]\nskip_dirs = \"not-a-list\"\n")
+
+      assert {:error, {:invalid_config, %{field: "indexing.skip_dirs"}}} = Config.load(path)
+    end
+
+    test "indexing list with non-string element returns error", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+      File.write!(path, "[indexing]\nskip_dirs = [123]\n")
+
+      assert {:error, {:invalid_config, %{field: "indexing.skip_dirs"}}} = Config.load(path)
+    end
+
+    test "invalid test_patterns type returns error", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+      File.write!(path, ~s([indexing]\ntest_patterns = "not-a-list"\n))
+
+      assert {:error, {:invalid_config, %{field: "indexing.test_patterns"}}} = Config.load(path)
+    end
+
+    test "test_patterns with non-string element returns error", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+      File.write!(path, "[indexing]\ntest_patterns = [42]\n")
+
+      assert {:error, {:invalid_config, %{field: "indexing.test_patterns"}}} = Config.load(path)
+    end
+
+    test "test_patterns with invalid regex returns error", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "config.toml")
+      File.write!(path, ~s([indexing]\ntest_patterns = ["["]\n))
+
+      assert {:error, {:invalid_config, %{field: "indexing.test_patterns"}}} = Config.load(path)
     end
   end
 end
