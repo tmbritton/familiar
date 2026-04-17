@@ -20,7 +20,6 @@ defmodule Familiar.Knowledge.Hygiene do
   alias Familiar.Providers
   alias Familiar.Repo
 
-  @slug_format ~r/^[a-z][a-z0-9_]*$/
   @duplicate_threshold 0.3
 
   @doc """
@@ -208,7 +207,8 @@ defmodule Familiar.Knowledge.Hygiene do
 
   defp valid_hygiene_entry?(%{"type" => type, "text" => text})
        when is_binary(type) and is_binary(text) do
-    Regex.match?(@slug_format, type) and String.length(type) <= 50 and String.trim(text) != ""
+    Regex.match?(Entry.slug_format(), type) and String.length(type) <= 50 and
+      String.trim(text) != ""
   end
 
   defp valid_hygiene_entry?(_), do: false

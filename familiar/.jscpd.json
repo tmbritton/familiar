@@ -1,0 +1,12 @@
+{
+  "threshold": 1,
+  "minLines": 5,
+  "minTokens": 50,
+  "reporters": ["consoleFull"],
+  "format": ["elixir"],
+  "formatsExts": {
+    "elixir": ["ex"]
+  },
+  "ignore": ["deps/**", "_build/**", "node_modules/**"],
+  "absolute": true
+}

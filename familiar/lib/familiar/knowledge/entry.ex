@@ -63,4 +63,7 @@ defmodule Familiar.Knowledge.Entry do
 
   @doc "Returns the default sources used by init scan and post-task hygiene."
   def default_sources, do: @default_sources
+
+  @doc "Returns the slug format regex shared by Entry, Extractor, and Hygiene."
+  def slug_format, do: @slug_format
 end

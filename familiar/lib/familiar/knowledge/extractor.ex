@@ -12,8 +12,6 @@ defmodule Familiar.Knowledge.Extractor do
   alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.SecretFilter
 
-  @slug_format ~r/^[a-z][a-z0-9_]*$/
-
   @doc """
   Extract knowledge entries from a list of file info maps.
 
@@ -134,7 +132,8 @@ defmodule Familiar.Knowledge.Extractor do
 
   defp valid_entry?(%{"type" => type, "text" => text})
        when is_binary(type) and is_binary(text) do
-    Regex.match?(@slug_format, type) and String.length(type) <= 50 and String.trim(text) != ""
+    Regex.match?(Entry.slug_format(), type) and String.length(type) <= 50 and
+      String.trim(text) != ""
   end
 
   defp valid_entry?(_), do: false

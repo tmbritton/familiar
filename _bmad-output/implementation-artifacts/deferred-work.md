@@ -32,6 +32,14 @@ Items deferred from code reviews and other workflows. Triaged 2026-04-15.
 - **MCP CLI test coverage gaps** (from 8-4) — covered by 8-5 integration test.
 - **No `quiet_summary` for MCP result shapes** (from 8-4) — consistent with existing behavior.
 
+## Deferred from: code review of 9-5 (2026-04-17)
+
+- **Runtime file reads on every extraction call** — `Extractor.load_template/0` reads from disk per `build_prompt` call. Could cache, but only runs during batch init scan or context refresh. Low impact.
+
+## Fixed — 2026-04-17 post-Epic 9
+
+- **`@slug_format` duplicated across Entry, Extractor, Hygiene** (from 9-4 review) — consolidated to `Entry.slug_format/0`, Extractor and Hygiene now reference it.
+
 ## Fixed — 2026-04-15 deferred item triage
 
 - **FakePort module duplicated across 3 test files** (from 8-5) — extracted to `test/support/fake_mcp_server.ex`.

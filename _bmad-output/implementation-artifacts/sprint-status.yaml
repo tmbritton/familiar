@@ -38,7 +38,11 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: '2026-04-01'
-last_updated: '2026-04-15'
+last_updated: '2026-04-17'
+# Epic 9.5 drafted 2026-04-17 — loadable tool schemas, prioritized next.
+# Epic 9 (Domain Decoupling) completed 2026-04-17 — 5 stories done.
+# Sprint status reconciled: stale Epic 9 (Ratatouille TUI) replaced with
+# actual Epic 9 (Domain Decoupling) entries.
 # Story 8-5 story file created 2026-04-15.
 # Story 8-3 story file created 2026-04-15.
 # Story 7.5-8 completed 2026-04-11 after code review + patch application.
@@ -200,14 +204,25 @@ development_status:
   8-4-fam-mcp-management-cli: done
   8-5-mcp-client-integration-test: done
 
-  # Epic 9: Terminal UI (Ratatouille) — stories TBD
-  # Split-pane TUI with streaming responses, tool visibility, agent status.
-  epic-9: backlog
-  9-1-ratatouille-scaffold: backlog
-  9-2-streaming-responses: backlog
-  9-3-tool-call-pane: backlog
-  9-4-agent-status-pane: backlog
-  9-5-chat-history-scroll: backlog
+  # Epic 9: Domain Decoupling — Configuration Over Code (5 stories)
+  # Completed 2026-04-17. Moves domain-specific behavior out of Elixir code
+  # into configurable files (markdown templates, TOML sections, disk-loaded prompts).
+  epic-9: done
+  9-1-remove-cli-shortcuts: done
+  9-2-default-files-to-priv: done
+  9-3-configurable-file-classification: done
+  9-4-open-entry-type-source-validation: done
+  9-5-loadable-system-templates: done
+
+  # Epic 9.5: Loadable Tool Schemas (4 stories — drafted 2026-04-17)
+  # Makes tool parameter schemas loadable from .familiar/tools/ instead of
+  # hardcoded in ToolSchemas. Completes "configuration is data, not code."
+  # Extensions and MCP servers can provide schemas; user files override all.
+  epic-9.5: backlog
+  9.5-1-tool-schema-file-format: backlog
+  9.5-2-schema-loader-refactor: backlog
+  9.5-3-extension-mcp-schema-registration: backlog
+  9.5-4-cli-and-integration-test: backlog
 
   # Epic 10: Web UI Extension (placeholder)
   # [Reordered] LiveView dashboard, multi-user, agent node graph. Optional — headless is valid.

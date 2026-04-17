@@ -1763,6 +1763,100 @@ Update tests — verify custom prompt template is loaded when present, fallback 
 **Deferred to future epics:**
 - Secret filter patterns configurable via config (currently protective, low urgency)
 - Convention discoverer heuristics → LLM-driven or configurable (medium value)
-- Tool schemas loadable from `.familiar/tools/` directory (blocked on tool registry redesign)
 - Prerequisites checker provider-aware messaging (low impact)
 - Config defaults from template file (low impact — already overridden by config.toml)
+
+---
+
+## Epic 9.5: Loadable Tool Schemas (4 stories — drafted 2026-04-17)
+
+Make tool parameter schemas (the OpenAI-format definitions that tell the LLM what arguments each tool accepts) loadable from `.familiar/tools/` instead of hardcoded in `ToolSchemas`. Completes the "configuration is data, not code" principle from Epic 9 — after this epic, every surface the LLM interacts with (roles, skills, workflows, system prompts, **and tool schemas**) is editable without recompilation.
+
+Currently, `ToolSchemas` is a pure module with a compile-time `@schemas` map. `ToolRegistry` stores `{function, description, extension}` per tool but has no schema concept. Extensions (e.g., knowledge_store) register tools via `tools/0` callback returning `{name, fun, description}` triples — no parameter schemas. MCP tools from Epic 8 also lack schemas. The LLM gets incomplete or missing parameter definitions for extension and MCP tools.
+
+**After this epic:**
+- Default tool schemas live in `priv/defaults/tools/` as TOML files (one per tool)
+- `fam init` copies them to `.familiar/tools/` (same skip-if-exists pattern as roles/skills)
+- Extensions and MCP servers can provide schemas alongside their tool registrations
+- `ToolSchemas` loads schemas from `.familiar/tools/` at startup, merges with extension-provided and MCP-discovered schemas, and serves them from memory
+- Users can edit `.familiar/tools/read_file.toml` to customize parameter descriptions for their domain
+
+**FRs covered:** FR65, FR66 (configuration over code), Epic 9 deferred item "Tool schemas loadable from `.familiar/tools/`"
+
+### Story 9.5-1: Tool Schema File Format and Default Files
+
+As a Familiar contributor,
+I want tool schemas defined as TOML files in `priv/defaults/tools/`,
+So that schemas are data files rather than Elixir code, following the Epic 9 pattern.
+
+**Scope:** Define the TOML schema format for tool parameter definitions. Create one `.toml` file per existing tool in `priv/defaults/tools/` (13 tools: read_file, write_file, delete_file, list_files, search_files, run_command, spawn_agent, run_workflow, monitor_agents, broadcast_status, signal_ready, search_context, store_context). Each file contains the tool name, description, and OpenAI-format parameter definition in TOML tables. Add `"tools"` to `DefaultFiles.@subdirs` so `fam init` copies them to `.familiar/tools/`. Delete the hardcoded `@schemas` map from `ToolSchemas` — it will be replaced in Story 9.5-2.
+
+Format example (`read_file.toml`):
+```toml
+name = "read_file"
+description = "Read the contents of a file at the given path"
+
+[parameters]
+type = "object"
+required = ["path"]
+
+[parameters.properties.path]
+type = "string"
+description = "Absolute or relative file path to read"
+```
+
+**Verification:** `mix compile --warnings-as-errors`, `mix test`. Verify all 13 TOML files parse correctly and round-trip to the same OpenAI schema maps that `@schemas` currently produces. Stress-test 50×.
+
+### Story 9.5-2: Schema Loader and ToolSchemas Refactor
+
+As a Familiar user,
+I want `ToolSchemas` to load parameter definitions from `.familiar/tools/` at startup,
+So that I can customize tool descriptions and parameters for my domain.
+
+**Scope:** Add a `ToolSchemas.load/1` function that:
+1. Scans `.familiar/tools/*.toml` — parses each into an OpenAI-format schema map.
+2. Falls back to compiled-in defaults from `DefaultFiles.default_content("tools", filename)` for any missing files.
+3. Stores loaded schemas in module state (convert `ToolSchemas` from a pure module to a GenServer, or use `:persistent_term` for zero-cost reads).
+
+Update `for_tools/1` and `all/0` to read from the loaded state instead of `@schemas`. Call `ToolSchemas.load/1` during application startup (after `DefaultFiles.install` but before agents can run).
+
+Custom `.familiar/tools/read_file.toml` overrides the default — users can change descriptions, add parameter constraints, etc. Missing files fall back to defaults. Malformed files log a warning and fall back to the default for that tool.
+
+**Verification:** `mix compile --warnings-as-errors`, `mix test`. Verify: edit `.familiar/tools/read_file.toml` description to "Read a research document", confirm LLM prompt assembly uses the custom description. Verify fallback when file is deleted. Stress-test 50×.
+
+### Story 9.5-3: Extension and MCP Tool Schema Registration
+
+As a Familiar extension author,
+I want extensions and MCP servers to provide tool schemas alongside their tool registrations,
+So that the LLM gets accurate parameter definitions for all available tools.
+
+**Scope:** Extend the `Extension.tools/0` callback to optionally include parameter schemas: `{name, fun, description}` (existing) or `{name, fun, description, parameters}` (new). Update `ExtensionLoader` to pass schemas through to `ToolSchemas` when provided.
+
+For MCP tools: when `MCPClient` discovers tools from an MCP server (via `tools/list`), the server already returns OpenAI-format schemas. Store these in `ToolSchemas` alongside file-loaded schemas. MCP schemas take precedence over file defaults (the server knows its own tools best). User file overrides take precedence over MCP schemas (user is king).
+
+**Precedence chain:** user `.familiar/tools/` file > MCP server-provided schema > extension-provided schema > `priv/defaults/tools/` compiled default.
+
+Update `ToolRegistry.register/4` to accept an optional 5th argument (parameters map) and forward to `ToolSchemas`.
+
+**Verification:** `mix compile --warnings-as-errors`, `mix test`. Verify knowledge_store's `search_context` and `store_context` schemas appear in prompt assembly. Verify MCP tool schemas flow through. Stress-test 50×.
+
+### Story 9.5-4: CLI and Integration Test
+
+As a Familiar user,
+I want `fam tools list` to show all registered tools with their schema sources,
+So that I can verify which tools are available and where their schemas come from.
+
+**Scope:** Add `fam tools list` and `fam tools show <name>` CLI commands. `list` shows tool name, source (harness/extension/mcp), and schema source (file/extension/mcp/default). `show` displays the full OpenAI schema for a specific tool. Both support `--output json`.
+
+Write an integration test that:
+1. Starts a clean project with `fam init`
+2. Verifies all 13 default tool schemas are loaded
+3. Customizes one schema file, restarts, verifies the custom version is used
+4. Registers an MCP server with tools, verifies MCP schemas appear
+5. Verifies the precedence chain (user file > MCP > extension > default)
+
+**Verification:** Full toolchain. Integration test passes. Stress-test 50×.
+
+---
+
+**Epic 9.5 Summary:** 4 stories. Completes domain decoupling for tool schemas — the last hardcoded surface the LLM interacts with. Story 9.5-1 extracts the 13 existing tool schemas from Elixir code to TOML files. Story 9.5-2 makes ToolSchemas load from `.familiar/tools/` at startup with fallback to defaults. Story 9.5-3 adds schema support to extensions and MCP tools with a clear precedence chain. Story 9.5-4 adds CLI visibility and an integration test. After this epic, users can fully customize how Familiar presents tools to the LLM.
