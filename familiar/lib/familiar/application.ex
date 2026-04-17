@@ -147,8 +147,17 @@ defmodule Familiar.Application do
   end
 
   defp load_extensions do
+    alias Familiar.Daemon.Paths
     alias Familiar.Execution.ExtensionLoader
     alias Familiar.Execution.ToolRegistry
+    alias Familiar.Execution.ToolSchemas
+
+    # Load tool schemas from .familiar/tools/ (or compiled-in defaults)
+    if File.dir?(Paths.familiar_dir()) do
+      ToolSchemas.load(Paths.familiar_dir())
+    else
+      ToolSchemas.load_defaults()
+    end
 
     # Register core built-in tool stubs before extensions (extensions can override)
     ToolRegistry.register_builtins()

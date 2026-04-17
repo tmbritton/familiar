@@ -57,6 +57,14 @@ defmodule Familiar.Knowledge.DefaultFiles do
     end
   end
 
+  @doc "List compiled-in filenames for a given subdirectory."
+  @spec list_files(String.t()) :: [String.t()]
+  def list_files(subdir) do
+    @defaults
+    |> Enum.filter(fn {s, _, _} -> s == subdir end)
+    |> Enum.map(fn {_, f, _} -> f end)
+  end
+
   @doc false
   def priv_defaults_path do
     Path.join(:code.priv_dir(:familiar), "defaults")

@@ -2,199 +2,70 @@ defmodule Familiar.Execution.ToolSchemas do
   @moduledoc """
   OpenAI-compatible tool schemas for LLM function calling.
 
-  Converts registered tool names into the structured format expected by
-  the `/v1/chat/completions` API with `tools` parameter.
+  Schemas are loaded from `.familiar/tools/*.toml` at startup, with
+  compiled-in defaults from `priv/defaults/tools/` as fallback. Loaded
+  schemas are stored in `:persistent_term` for zero-cost reads on the
+  agent prompt assembly hot path.
   """
 
-  @schemas %{
-    read_file: %{
-      description: "Read the contents of a file at the given path",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "path" => %{
-            "type" => "string",
-            "description" => "Absolute or relative file path to read"
-          }
-        },
-        "required" => ["path"]
-      }
-    },
-    write_file: %{
-      description: "Write content to a file at the given path",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "path" => %{"type" => "string", "description" => "File path to write to"},
-          "content" => %{"type" => "string", "description" => "Content to write"}
-        },
-        "required" => ["path", "content"]
-      }
-    },
-    delete_file: %{
-      description: "Delete a file at the given path",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "path" => %{"type" => "string", "description" => "File path to delete"}
-        },
-        "required" => ["path"]
-      }
-    },
-    list_files: %{
-      description: "List files in a directory",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "path" => %{
-            "type" => "string",
-            "description" => "Directory path to list (defaults to project root)"
-          }
-        }
-      }
-    },
-    search_files: %{
-      description: "Search file contents for a pattern using grep",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "pattern" => %{"type" => "string", "description" => "Search pattern (regex)"},
-          "path" => %{
-            "type" => "string",
-            "description" => "Directory to search in (defaults to project root)"
-          }
-        },
-        "required" => ["pattern"]
-      }
-    },
-    run_command: %{
-      description: "Run a shell command",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "command" => %{"type" => "string", "description" => "Shell command to execute"}
-        },
-        "required" => ["command"]
-      }
-    },
-    spawn_agent: %{
-      description: "Spawn a child agent process with a given role and task",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "role" => %{
-            "type" => "string",
-            "description" =>
-              "Agent role name (analyst, coder, reviewer, project-manager, librarian)"
-          },
-          "task" => %{"type" => "string", "description" => "Task description for the agent"}
-        },
-        "required" => ["role", "task"]
-      }
-    },
-    run_workflow: %{
-      description: "Run a workflow defined in a markdown file",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "workflow" => %{
-            "type" => "string",
-            "description" => "Workflow name (feature-planning, feature-implementation, task-fix)"
-          },
-          "task" => %{"type" => "string", "description" => "Task description for the workflow"}
-        },
-        "required" => ["workflow", "task"]
-      }
-    },
-    monitor_agents: %{
-      description: "List running agent processes and their status",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{}
-      }
-    },
-    broadcast_status: %{
-      description: "Broadcast a status message to subscribers",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "message" => %{"type" => "string", "description" => "Status message to broadcast"}
-        },
-        "required" => ["message"]
-      }
-    },
-    signal_ready: %{
-      description: "Signal that the current workflow step is complete",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{}
-      }
-    },
-    search_context: %{
-      description: "Search the knowledge store for relevant entries",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "query" => %{"type" => "string", "description" => "Search query"}
-        },
-        "required" => ["query"]
-      }
-    },
-    store_context: %{
-      description: "Store a new entry in the knowledge store",
-      parameters: %{
-        "type" => "object",
-        "properties" => %{
-          "text" => %{"type" => "string", "description" => "Knowledge entry text"},
-          "type" => %{
-            "type" => "string",
-            "description" =>
-              "Entry type — any lowercase snake_case slug (e.g. convention, fact, decision, gotcha, file_summary, architecture)"
-          }
-        },
-        "required" => ["text", "type"]
-      }
-    }
-  }
+  require Logger
+
+  alias Familiar.Knowledge.DefaultFiles
+
+  @persistent_key {__MODULE__, :schemas}
+
+  # -- Public API --
+
+  @doc """
+  Load tool schemas from disk and store in `:persistent_term`.
+
+  Scans `familiar_dir/tools/*.toml` for custom schemas, falls back to
+  compiled-in defaults for any tools not overridden. Malformed files
+  log a warning and fall back to the default.
+  """
+  @spec load(String.t()) :: :ok
+  def load(familiar_dir) do
+    tools_dir = Path.join(familiar_dir, "tools")
+    defaults = load_compiled_defaults()
+    customs = load_custom_files(tools_dir)
+    merged = Map.merge(defaults, customs)
+    :persistent_term.put(@persistent_key, merged)
+    :ok
+  end
+
+  @doc """
+  Load only compiled-in defaults (no disk reads).
+
+  Useful for tests that don't need custom overrides.
+  """
+  @spec load_defaults() :: :ok
+  def load_defaults do
+    :persistent_term.put(@persistent_key, load_compiled_defaults())
+    :ok
+  end
 
   @doc "Convert a list of tool name strings to OpenAI-format tool schemas."
   @spec for_tools([String.t()]) :: [map()]
   def for_tools(tool_names) do
+    schemas = :persistent_term.get(@persistent_key, %{})
+
     tool_names
-    |> Enum.map(&to_schema/1)
+    |> Enum.map(fn name ->
+      case Map.get(schemas, name) do
+        nil -> nil
+        schema -> build_openai_schema(name, schema)
+      end
+    end)
     |> Enum.reject(&is_nil/1)
   end
 
-  @doc "Convert all registered tool names to schemas."
+  @doc "Convert all loaded tool schemas to OpenAI format."
   @spec all :: [map()]
   def all do
-    @schemas
-    |> Map.keys()
-    |> Enum.map(&to_schema(to_string(&1)))
-  end
+    schemas = :persistent_term.get(@persistent_key, %{})
 
-  defp to_schema(name) when is_binary(name) do
-    case safe_to_atom(name) do
-      {:ok, atom_name} ->
-        case Map.get(@schemas, atom_name) do
-          nil -> nil
-          schema -> build_openai_schema(name, schema)
-        end
-
-      :error ->
-        nil
-    end
-  end
-
-  defp build_openai_schema(name, schema) do
-    %{
-      "type" => "function",
-      "function" => %{
-        "name" => name,
-        "description" => schema.description,
-        "parameters" => schema.parameters
-      }
-    }
+    schemas
+    |> Enum.map(fn {name, schema} -> build_openai_schema(name, schema) end)
   end
 
   @doc """
@@ -217,6 +88,89 @@ defmodule Familiar.Execution.ToolSchemas do
 
       {:error, reason} ->
         {:error, {:toml_parse_error, reason}}
+    end
+  end
+
+  # -- Private --
+
+  defp build_openai_schema(name, schema) do
+    %{
+      "type" => "function",
+      "function" => %{
+        "name" => name,
+        "description" => schema.description,
+        "parameters" => schema.parameters
+      }
+    }
+  end
+
+  defp load_compiled_defaults do
+    for filename <- DefaultFiles.list_files("tools"),
+        {:ok, content} <- [DefaultFiles.default_content("tools", filename)],
+        {:ok, schema} <- [parse_toml(content)],
+        into: %{} do
+      tool_name = Path.rootname(filename)
+      {tool_name, schema}
+    end
+  end
+
+  defp load_custom_files(tools_dir) do
+    case File.ls(tools_dir) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.ends_with?(&1, ".toml"))
+        |> Enum.flat_map(&load_custom_entry(tools_dir, &1))
+        |> Map.new()
+
+      {:error, :enoent} ->
+        %{}
+
+      {:error, reason} ->
+        Logger.warning("[ToolSchemas] Cannot list tools dir: #{inspect(reason)}")
+        %{}
+    end
+  end
+
+  defp load_custom_entry(tools_dir, filename) do
+    case load_custom_file(tools_dir, filename) do
+      {:ok, tool_name, schema} -> [{tool_name, schema}]
+      :skip -> []
+    end
+  end
+
+  defp load_custom_file(tools_dir, filename) do
+    path = Path.join(tools_dir, filename)
+    tool_name = Path.rootname(filename)
+
+    with {:ok, content} <- read_or_warn(path, filename),
+         {:ok, schema} <- parse_or_warn(content, filename) do
+      {:ok, tool_name, schema}
+    end
+  end
+
+  defp read_or_warn(path, filename) do
+    case File.read(path) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[ToolSchemas] Cannot read #{filename}: #{inspect(reason)} — using default"
+        )
+
+        :skip
+    end
+  end
+
+  defp parse_or_warn(content, filename) do
+    case parse_toml(content) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, reason} ->
+        Logger.warning("[ToolSchemas] Malformed #{filename}: #{inspect(reason)} — using default")
+
+        :skip
     end
   end
 
@@ -243,11 +197,5 @@ defmodule Familiar.Execution.ToolSchemas do
 
   defp normalize_parameters(params) do
     Map.put_new(params, "properties", %{})
-  end
-
-  defp safe_to_atom(name) do
-    {:ok, String.to_existing_atom(name)}
-  rescue
-    ArgumentError -> :error
   end
 end

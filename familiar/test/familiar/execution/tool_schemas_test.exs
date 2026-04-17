@@ -1,5 +1,7 @@
 defmodule Familiar.Execution.ToolSchemasTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+
+  import ExUnit.CaptureLog
 
   alias Familiar.Execution.ToolSchemas
   alias Familiar.Knowledge.DefaultFiles
@@ -11,9 +13,19 @@ defmodule Familiar.Execution.ToolSchemasTest do
     search_context store_context
   )
 
-  # Access the compile-time @schemas map for round-trip comparison.
-  # ToolSchemas.all/0 returns OpenAI-wrapped schemas; we need the raw map.
-  # We reconstruct expectations from the known TOML files instead.
+  setup do
+    ToolSchemas.load_defaults()
+
+    on_exit(fn ->
+      try do
+        :persistent_term.erase({ToolSchemas, :schemas})
+      rescue
+        ArgumentError -> :ok
+      end
+    end)
+
+    :ok
+  end
 
   describe "parse_toml/1" do
     test "parses a simple tool with one required param" do
@@ -117,186 +129,146 @@ defmodule Familiar.Execution.ToolSchemasTest do
     end
   end
 
-  describe "TOML round-trip equivalence" do
-    # The canonical @schemas map, reconstructed here for comparison.
-    # This must match tool_schemas.ex @schemas exactly.
-    @canonical_schemas %{
-      read_file: %{
-        description: "Read the contents of a file at the given path",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "path" => %{
-              "type" => "string",
-              "description" => "Absolute or relative file path to read"
-            }
-          },
-          "required" => ["path"]
-        }
-      },
-      write_file: %{
-        description: "Write content to a file at the given path",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "path" => %{"type" => "string", "description" => "File path to write to"},
-            "content" => %{"type" => "string", "description" => "Content to write"}
-          },
-          "required" => ["path", "content"]
-        }
-      },
-      delete_file: %{
-        description: "Delete a file at the given path",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "path" => %{"type" => "string", "description" => "File path to delete"}
-          },
-          "required" => ["path"]
-        }
-      },
-      list_files: %{
-        description: "List files in a directory",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "path" => %{
-              "type" => "string",
-              "description" => "Directory path to list (defaults to project root)"
-            }
-          }
-        }
-      },
-      search_files: %{
-        description: "Search file contents for a pattern using grep",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "pattern" => %{"type" => "string", "description" => "Search pattern (regex)"},
-            "path" => %{
-              "type" => "string",
-              "description" => "Directory to search in (defaults to project root)"
-            }
-          },
-          "required" => ["pattern"]
-        }
-      },
-      run_command: %{
-        description: "Run a shell command",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "command" => %{"type" => "string", "description" => "Shell command to execute"}
-          },
-          "required" => ["command"]
-        }
-      },
-      spawn_agent: %{
-        description: "Spawn a child agent process with a given role and task",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "role" => %{
-              "type" => "string",
-              "description" =>
-                "Agent role name (analyst, coder, reviewer, project-manager, librarian)"
-            },
-            "task" => %{"type" => "string", "description" => "Task description for the agent"}
-          },
-          "required" => ["role", "task"]
-        }
-      },
-      run_workflow: %{
-        description: "Run a workflow defined in a markdown file",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "workflow" => %{
-              "type" => "string",
-              "description" =>
-                "Workflow name (feature-planning, feature-implementation, task-fix)"
-            },
-            "task" => %{
-              "type" => "string",
-              "description" => "Task description for the workflow"
-            }
-          },
-          "required" => ["workflow", "task"]
-        }
-      },
-      monitor_agents: %{
-        description: "List running agent processes and their status",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{}
-        }
-      },
-      broadcast_status: %{
-        description: "Broadcast a status message to subscribers",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "message" => %{"type" => "string", "description" => "Status message to broadcast"}
-          },
-          "required" => ["message"]
-        }
-      },
-      signal_ready: %{
-        description: "Signal that the current workflow step is complete",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{}
-        }
-      },
-      search_context: %{
-        description: "Search the knowledge store for relevant entries",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "query" => %{"type" => "string", "description" => "Search query"}
-          },
-          "required" => ["query"]
-        }
-      },
-      store_context: %{
-        description: "Store a new entry in the knowledge store",
-        parameters: %{
-          "type" => "object",
-          "properties" => %{
-            "text" => %{"type" => "string", "description" => "Knowledge entry text"},
-            "type" => %{
-              "type" => "string",
-              "description" =>
-                "Entry type — any lowercase snake_case slug (e.g. convention, fact, decision, gotcha, file_summary, architecture)"
-            }
-          },
-          "required" => ["text", "type"]
-        }
-      }
-    }
+  describe "load_defaults/0" do
+    test "loads all 13 compiled-in tool schemas" do
+      ToolSchemas.load_defaults()
+      schemas = ToolSchemas.all()
+      assert length(schemas) == 13
 
+      names = Enum.map(schemas, & &1["function"]["name"]) |> Enum.sort()
+      assert names == Enum.sort(@expected_tools)
+    end
+
+    test "each default schema has description and parameters" do
+      ToolSchemas.load_defaults()
+
+      for tool <- @expected_tools do
+        [schema] = ToolSchemas.for_tools([tool])
+        assert is_binary(schema["function"]["description"]), "#{tool} missing description"
+        assert is_map(schema["function"]["parameters"]), "#{tool} missing parameters"
+      end
+    end
+  end
+
+  describe "load/1" do
+    @tag :tmp_dir
+    test "loads custom schema that overrides default", %{tmp_dir: tmp_dir} do
+      tools_dir = Path.join(tmp_dir, "tools")
+      File.mkdir_p!(tools_dir)
+
+      custom_toml = """
+      name = "read_file"
+      description = "Read a research document from the archive"
+
+      [parameters]
+      type = "object"
+      required = ["path"]
+
+      [parameters.properties.path]
+      type = "string"
+      description = "Path to research document"
+      """
+
+      File.write!(Path.join(tools_dir, "read_file.toml"), custom_toml)
+
+      ToolSchemas.load(tmp_dir)
+
+      [schema] = ToolSchemas.for_tools(["read_file"])
+      assert schema["function"]["description"] == "Read a research document from the archive"
+
+      assert schema["function"]["parameters"]["properties"]["path"]["description"] ==
+               "Path to research document"
+    end
+
+    @tag :tmp_dir
+    test "falls back to compiled default when no custom file exists", %{tmp_dir: tmp_dir} do
+      tools_dir = Path.join(tmp_dir, "tools")
+      File.mkdir_p!(tools_dir)
+
+      # No custom files — should load all defaults
+      ToolSchemas.load(tmp_dir)
+
+      schemas = ToolSchemas.all()
+      assert length(schemas) == 13
+    end
+
+    @tag :tmp_dir
+    test "malformed TOML file logs warning and falls back to default", %{tmp_dir: tmp_dir} do
+      tools_dir = Path.join(tmp_dir, "tools")
+      File.mkdir_p!(tools_dir)
+
+      # Write a malformed file
+      File.write!(Path.join(tools_dir, "read_file.toml"), "not valid toml [[[")
+
+      log =
+        capture_log(fn ->
+          ToolSchemas.load(tmp_dir)
+        end)
+
+      assert log =~ "Malformed read_file.toml"
+      assert log =~ "using default"
+
+      # Should still have read_file from defaults
+      [schema] = ToolSchemas.for_tools(["read_file"])
+      assert schema["function"]["description"] == "Read the contents of a file at the given path"
+    end
+
+    @tag :tmp_dir
+    test "handles missing tools directory gracefully", %{tmp_dir: tmp_dir} do
+      # No tools/ dir at all — should load all defaults
+      ToolSchemas.load(tmp_dir)
+
+      schemas = ToolSchemas.all()
+      assert length(schemas) == 13
+    end
+
+    @tag :tmp_dir
+    test "custom file for non-default tool adds new schema", %{tmp_dir: tmp_dir} do
+      tools_dir = Path.join(tmp_dir, "tools")
+      File.mkdir_p!(tools_dir)
+
+      custom_toml = """
+      name = "custom_tool"
+      description = "A custom domain tool"
+
+      [parameters]
+      type = "object"
+      required = ["input"]
+
+      [parameters.properties.input]
+      type = "string"
+      description = "Input data"
+      """
+
+      File.write!(Path.join(tools_dir, "custom_tool.toml"), custom_toml)
+
+      ToolSchemas.load(tmp_dir)
+
+      # Should have 13 defaults + 1 custom
+      schemas = ToolSchemas.all()
+      assert length(schemas) == 14
+
+      [custom] = ToolSchemas.for_tools(["custom_tool"])
+      assert custom["function"]["description"] == "A custom domain tool"
+    end
+  end
+
+  describe "TOML round-trip — defaults parse correctly" do
     for tool_name <- ~w(
           read_file write_file delete_file list_files search_files
           run_command spawn_agent run_workflow
           monitor_agents broadcast_status signal_ready
           search_context store_context
-        )a do
-      test "#{tool_name}.toml round-trips to match @schemas" do
-        tool_atom = unquote(tool_name)
-        filename = "#{tool_atom}.toml"
-        expected = Map.fetch!(@canonical_schemas, tool_atom)
+        ) do
+      test "#{tool_name}.toml parses and loads successfully" do
+        tool = unquote(tool_name)
+        filename = "#{tool}.toml"
 
-        assert {:ok, toml_content} = DefaultFiles.default_content("tools", filename),
-               "Missing compiled default for tools/#{filename}"
-
-        assert {:ok, parsed} = ToolSchemas.parse_toml(toml_content),
-               "Failed to parse tools/#{filename}"
-
-        assert parsed.description == expected.description,
-               "Description mismatch for #{tool_atom}: #{inspect(parsed.description)} != #{inspect(expected.description)}"
-
-        assert parsed.parameters == expected.parameters,
-               "Parameters mismatch for #{tool_atom}:\n  got:      #{inspect(parsed.parameters)}\n  expected: #{inspect(expected.parameters)}"
+        assert {:ok, toml_content} = DefaultFiles.default_content("tools", filename)
+        assert {:ok, schema} = ToolSchemas.parse_toml(toml_content)
+        assert is_binary(schema.description)
+        assert is_map(schema.parameters)
+        assert schema.parameters["type"] == "object"
       end
     end
   end
@@ -308,7 +280,7 @@ defmodule Familiar.Execution.ToolSchemasTest do
 
       [schema | _] = schemas
       assert schema["type"] == "function"
-      assert schema["function"]["name"] == "read_file"
+      assert is_binary(schema["function"]["name"])
       assert is_binary(schema["function"]["description"])
       assert is_map(schema["function"]["parameters"])
     end
@@ -317,10 +289,15 @@ defmodule Familiar.Execution.ToolSchemasTest do
       schemas = ToolSchemas.for_tools(["read_file", "nonexistent_tool"])
       assert length(schemas) == 1
     end
+
+    test "returns empty list when no schemas loaded" do
+      :persistent_term.erase({ToolSchemas, :schemas})
+      assert [] == ToolSchemas.for_tools(["read_file"])
+    end
   end
 
   describe "all/0" do
-    test "returns schemas for all 13 tools" do
+    test "returns schemas for all 13 default tools" do
       schemas = ToolSchemas.all()
       assert length(schemas) == 13
 
