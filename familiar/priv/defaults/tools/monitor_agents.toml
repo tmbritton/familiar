@@ -1,0 +1,5 @@
+name = "monitor_agents"
+description = "List running agent processes and their status"
+
+[parameters]
+type = "object"

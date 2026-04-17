@@ -218,8 +218,8 @@ development_status:
   # Makes tool parameter schemas loadable from .familiar/tools/ instead of
   # hardcoded in ToolSchemas. Completes "configuration is data, not code."
   # Extensions and MCP servers can provide schemas; user files override all.
-  epic-9.5: backlog
-  9.5-1-tool-schema-file-format: backlog
+  epic-9.5: in-progress
+  9.5-1-tool-schema-file-format: ready-for-dev
   9.5-2-schema-loader-refactor: backlog
   9.5-3-extension-mcp-schema-registration: backlog
   9.5-4-cli-and-integration-test: backlog

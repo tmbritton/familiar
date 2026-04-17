@@ -1,0 +1,14 @@
+name = "spawn_agent"
+description = "Spawn a child agent process with a given role and task"
+
+[parameters]
+type = "object"
+required = ["role", "task"]
+
+[parameters.properties.role]
+type = "string"
+description = "Agent role name (analyst, coder, reviewer, project-manager, librarian)"
+
+[parameters.properties.task]
+type = "string"
+description = "Task description for the agent"

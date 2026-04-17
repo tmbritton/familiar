@@ -197,6 +197,54 @@ defmodule Familiar.Execution.ToolSchemas do
     }
   end
 
+  @doc """
+  Parse a TOML string into a tool schema map.
+
+  Returns `{:ok, %{description: String.t(), parameters: map()}}` or
+  `{:error, reason}`. The returned map uses atom keys at the top level
+  (`:description`, `:parameters`) and string keys within the parameters
+  sub-tree, matching the shape expected by `build_openai_schema/2`.
+  """
+  @spec parse_toml(String.t()) ::
+          {:ok, %{description: String.t(), parameters: map()}} | {:error, term()}
+  def parse_toml(toml_string) do
+    case Toml.decode(toml_string) do
+      {:ok, decoded} ->
+        with {:ok, description} <- fetch_string(decoded, "description"),
+             {:ok, parameters} <- fetch_parameters(decoded) do
+          {:ok, %{description: description, parameters: parameters}}
+        end
+
+      {:error, reason} ->
+        {:error, {:toml_parse_error, reason}}
+    end
+  end
+
+  defp fetch_string(map, key) do
+    case Map.fetch(map, key) do
+      {:ok, value} when is_binary(value) -> {:ok, value}
+      {:ok, _} -> {:error, {:invalid_type, key, "expected string"}}
+      :error -> {:error, {:missing_key, key}}
+    end
+  end
+
+  defp fetch_parameters(map) do
+    case Map.fetch(map, "parameters") do
+      {:ok, params} when is_map(params) ->
+        {:ok, normalize_parameters(params)}
+
+      {:ok, _} ->
+        {:error, {:invalid_type, "parameters", "expected table"}}
+
+      :error ->
+        {:error, {:missing_key, "parameters"}}
+    end
+  end
+
+  defp normalize_parameters(params) do
+    Map.put_new(params, "properties", %{})
+  end
+
   defp safe_to_atom(name) do
     {:ok, String.to_existing_atom(name)}
   rescue

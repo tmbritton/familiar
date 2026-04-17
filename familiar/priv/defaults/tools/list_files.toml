@@ -1,0 +1,9 @@
+name = "list_files"
+description = "List files in a directory"
+
+[parameters]
+type = "object"
+
+[parameters.properties.path]
+type = "string"
+description = "Directory path to list (defaults to project root)"

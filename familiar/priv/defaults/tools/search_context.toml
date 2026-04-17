@@ -1,0 +1,10 @@
+name = "search_context"
+description = "Search the knowledge store for relevant entries"
+
+[parameters]
+type = "object"
+required = ["query"]
+
+[parameters.properties.query]
+type = "string"
+description = "Search query"

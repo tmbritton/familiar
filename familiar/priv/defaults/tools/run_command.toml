@@ -1,0 +1,10 @@
+name = "run_command"
+description = "Run a shell command"
+
+[parameters]
+type = "object"
+required = ["command"]
+
+[parameters.properties.command]
+type = "string"
+description = "Shell command to execute"

@@ -1,0 +1,14 @@
+name = "run_workflow"
+description = "Run a workflow defined in a markdown file"
+
+[parameters]
+type = "object"
+required = ["workflow", "task"]
+
+[parameters.properties.workflow]
+type = "string"
+description = "Workflow name (feature-planning, feature-implementation, task-fix)"
+
+[parameters.properties.task]
+type = "string"
+description = "Task description for the workflow"

@@ -1,0 +1,14 @@
+name = "store_context"
+description = "Store a new entry in the knowledge store"
+
+[parameters]
+type = "object"
+required = ["text", "type"]
+
+[parameters.properties.text]
+type = "string"
+description = "Knowledge entry text"
+
+[parameters.properties.type]
+type = "string"
+description = "Entry type — any lowercase snake_case slug (e.g. convention, fact, decision, gotcha, file_summary, architecture)"

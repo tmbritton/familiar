@@ -30,7 +30,7 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
       path = DefaultFiles.priv_defaults_path()
       assert File.dir?(path), "priv_defaults_path #{path} does not exist"
 
-      for subdir <- ~w(workflows roles skills system) do
+      for subdir <- ~w(workflows roles skills system tools) do
         assert File.dir?(Path.join(path, subdir)),
                "expected #{subdir}/ subdirectory in priv defaults"
       end
@@ -158,6 +158,33 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
       :ok = DefaultFiles.install(familiar_dir)
 
       assert File.read!(Path.join(system_dir, "extractor.md")) == custom_content
+    end
+
+    test "creates tools/*.toml files matching priv sources byte-for-byte", %{tmp_dir: tmp_dir} do
+      familiar_dir = install_defaults(tmp_dir)
+      priv_dir = DefaultFiles.priv_defaults_path()
+
+      tools_dir = Path.join(familiar_dir, "tools")
+      assert File.dir?(tools_dir)
+
+      for filename <- File.ls!(Path.join(priv_dir, "tools")) do
+        installed = File.read!(Path.join(tools_dir, filename))
+        source = File.read!(Path.join(priv_dir, "tools/#{filename}"))
+        assert installed == source, "tools/#{filename} content differs from priv source"
+      end
+    end
+
+    test "does not overwrite existing tools files", %{tmp_dir: tmp_dir} do
+      familiar_dir = Path.join(tmp_dir, ".familiar")
+      tools_dir = Path.join(familiar_dir, "tools")
+      File.mkdir_p!(tools_dir)
+
+      custom_content = "# My custom read_file schema"
+      File.write!(Path.join(tools_dir, "read_file.toml"), custom_content)
+
+      :ok = DefaultFiles.install(familiar_dir)
+
+      assert File.read!(Path.join(tools_dir, "read_file.toml")) == custom_content
     end
   end
 

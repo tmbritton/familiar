@@ -1,0 +1,14 @@
+name = "search_files"
+description = "Search file contents for a pattern using grep"
+
+[parameters]
+type = "object"
+required = ["pattern"]
+
+[parameters.properties.pattern]
+type = "string"
+description = "Search pattern (regex)"
+
+[parameters.properties.path]
+type = "string"
+description = "Directory to search in (defaults to project root)"

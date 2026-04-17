@@ -1,0 +1,10 @@
+name = "broadcast_status"
+description = "Broadcast a status message to subscribers"
+
+[parameters]
+type = "object"
+required = ["message"]
+
+[parameters.properties.message]
+type = "string"
+description = "Status message to broadcast"

@@ -1,0 +1,5 @@
+name = "signal_ready"
+description = "Signal that the current workflow step is complete"
+
+[parameters]
+type = "object"

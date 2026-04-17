@@ -8,7 +8,7 @@ defmodule Familiar.Knowledge.DefaultFiles do
   user customizations.
   """
 
-  @subdirs ~w(workflows roles skills system)
+  @subdirs ~w(workflows roles skills system tools)
 
   # Read all default files from priv/defaults/ at compile time.
   # This ensures the escript includes the content without needing
@@ -16,7 +16,7 @@ defmodule Familiar.Knowledge.DefaultFiles do
   @defaults (for subdir <- @subdirs,
                  filename <-
                    File.ls!(Path.join([:code.priv_dir(:familiar), "defaults", subdir])),
-                 String.ends_with?(filename, ".md") do
+                 Path.extname(filename) in ~w(.md .toml) do
                path = Path.join([:code.priv_dir(:familiar), "defaults", subdir, filename])
                @external_resource path
                {subdir, filename, File.read!(path)}
