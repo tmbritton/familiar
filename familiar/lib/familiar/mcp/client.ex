@@ -338,6 +338,7 @@ defmodule Familiar.MCP.Client do
 
   defp register_discovered_tools(state, tools) do
     registry = Application.get_env(:familiar, :tool_registry, Familiar.Execution.ToolRegistry)
+    schemas_mod = Application.get_env(:familiar, :tool_schemas, Familiar.Execution.ToolSchemas)
     client_pid = self()
     call_timeout = state.call_timeout
     tools = filter_read_only_tools(tools, state)
@@ -345,6 +346,7 @@ defmodule Familiar.MCP.Client do
     Enum.map(tools, fn tool ->
       mcp_tool_name = tool["name"]
       tool_atom = String.to_atom("#{state.server_name}__#{mcp_tool_name}")
+      tool_string = "#{state.server_name}__#{mcp_tool_name}"
       description = tool["description"] || "MCP tool: #{mcp_tool_name}"
       extension_name = "mcp:#{state.server_name}"
 
@@ -353,6 +355,12 @@ defmodule Familiar.MCP.Client do
       end
 
       registry.register(tool_atom, tool_fn, description, extension_name)
+
+      if input_schema = tool["inputSchema"] do
+        schema = %{description: description, parameters: input_schema}
+        schemas_mod.register(tool_string, schema, :mcp)
+      end
+
       tool_atom
     end)
   end

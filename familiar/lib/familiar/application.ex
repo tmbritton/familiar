@@ -179,9 +179,15 @@ defmodule Familiar.Application do
 
   defp register_extension_tools(tools) do
     alias Familiar.Execution.ToolRegistry
+    alias Familiar.Execution.ToolSchemas
 
-    for {name, function, description, extension_name} <- tools do
+    for {name, function, description, extension_name, params} <- tools do
       ToolRegistry.register(name, function, description, extension_name)
+
+      if params do
+        schema = %{description: description, parameters: params}
+        ToolSchemas.register(to_string(name), schema, :extension)
+      end
     end
   end
 

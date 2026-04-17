@@ -13,6 +13,7 @@ defmodule Familiar.Execution.ToolSchemas do
   alias Familiar.Knowledge.DefaultFiles
 
   @persistent_key {__MODULE__, :schemas}
+  @source_priority %{default: 0, extension: 1, mcp: 2, file: 3}
 
   # -- Public API --
 
@@ -41,6 +42,27 @@ defmodule Familiar.Execution.ToolSchemas do
   @spec load_defaults() :: :ok
   def load_defaults do
     :persistent_term.put(@persistent_key, load_compiled_defaults())
+    :ok
+  end
+
+  @doc """
+  Register a tool schema at runtime with source-based precedence.
+
+  Only overwrites if `source` has higher priority than the existing entry.
+  Priority: `:default` < `:extension` < `:mcp` < `:file`.
+  """
+  @spec register(String.t(), map(), :default | :extension | :mcp | :file) :: :ok
+  def register(tool_name, schema, source) when is_binary(tool_name) and is_map(schema) do
+    schemas = :persistent_term.get(@persistent_key, %{})
+    existing = Map.get(schemas, tool_name)
+    existing_priority = @source_priority[get_source(existing)]
+    new_priority = @source_priority[source]
+
+    if new_priority > existing_priority do
+      entry = Map.put(schema, :source, source)
+      :persistent_term.put(@persistent_key, Map.put(schemas, tool_name, entry))
+    end
+
     :ok
   end
 
@@ -104,13 +126,17 @@ defmodule Familiar.Execution.ToolSchemas do
     }
   end
 
+  defp get_source(nil), do: :default
+  defp get_source(%{source: source}), do: source
+  defp get_source(_), do: :default
+
   defp load_compiled_defaults do
     for filename <- DefaultFiles.list_files("tools"),
         {:ok, content} <- [DefaultFiles.default_content("tools", filename)],
         {:ok, schema} <- [parse_toml(content)],
         into: %{} do
       tool_name = Path.rootname(filename)
-      {tool_name, schema}
+      {tool_name, Map.put(schema, :source, :default)}
     end
   end
 
@@ -144,7 +170,7 @@ defmodule Familiar.Execution.ToolSchemas do
 
     with {:ok, content} <- read_or_warn(path, filename),
          {:ok, schema} <- parse_or_warn(content, filename) do
-      {:ok, tool_name, schema}
+      {:ok, tool_name, Map.put(schema, :source, :file)}
     end
   end
 

@@ -43,9 +43,11 @@ defmodule Familiar.Extensions.KnowledgeStoreTest do
       assert :search_context in names
       assert :store_context in names
 
-      Enum.each(tools, fn {_name, fun, desc} ->
+      Enum.each(tools, fn {_name, fun, desc, params} ->
         assert is_function(fun, 2)
         assert is_binary(desc)
+        assert is_map(params)
+        assert params["type"] == "object"
       end)
     end
 

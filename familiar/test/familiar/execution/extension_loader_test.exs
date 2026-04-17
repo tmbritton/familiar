@@ -105,7 +105,7 @@ defmodule Familiar.Execution.ExtensionLoaderTest do
 
       assert result.loaded == ["success-ext"]
       assert result.failed == []
-      assert [{:test_tool, fun, "A test tool", "success-ext"}] = result.tools
+      assert [{:test_tool, fun, "A test tool", "success-ext", nil}] = result.tools
       assert is_function(fun, 2)
       assert result.child_specs == []
     end

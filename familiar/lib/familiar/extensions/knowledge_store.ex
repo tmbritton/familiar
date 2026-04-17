@@ -31,8 +31,27 @@ defmodule Familiar.Extensions.KnowledgeStore do
   @impl true
   def tools do
     [
-      {:search_context, &search_context/2, "Semantic search of the knowledge store"},
-      {:store_context, &store_context/2, "Insert a new knowledge entry"}
+      {:search_context, &search_context/2, "Semantic search of the knowledge store",
+       %{
+         "type" => "object",
+         "properties" => %{
+           "query" => %{"type" => "string", "description" => "Search query"}
+         },
+         "required" => ["query"]
+       }},
+      {:store_context, &store_context/2, "Insert a new knowledge entry",
+       %{
+         "type" => "object",
+         "properties" => %{
+           "text" => %{"type" => "string", "description" => "Knowledge entry text"},
+           "type" => %{
+             "type" => "string",
+             "description" =>
+               "Entry type — any lowercase snake_case slug (e.g. convention, fact, decision, gotcha, file_summary, architecture)"
+           }
+         },
+         "required" => ["text", "type"]
+       }}
     ]
   end
 

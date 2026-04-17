@@ -32,6 +32,11 @@ Items deferred from code reviews and other workflows. Triaged 2026-04-15.
 - **MCP CLI test coverage gaps** (from 8-4) — covered by 8-5 integration test.
 - **No `quiet_summary` for MCP result shapes** (from 8-4) — consistent with existing behavior.
 
+## Deferred from: code review of 9.5-3 (2026-04-17)
+
+- **Race condition in `ToolSchemas.register/3`** — get+put on `:persistent_term` without serialization. Low real-world risk (MCP clients register sequentially per GenServer). Consider batching or a serialized write path if many concurrent MCP servers become common.
+- **`:persistent_term.put` GC pressure with many MCP tools** — each `register/3` call copies all persistent terms. Batch registration for MCP tool lists would reduce from O(N) puts to O(1).
+
 ## Deferred from: code review of 9-5 (2026-04-17)
 
 - **Runtime file reads on every extraction call** — `Extractor.load_template/0` reads from disk per `build_prompt` call. Could cache, but only runs during batch init scan or context refresh. Low impact.

@@ -45,7 +45,8 @@ defmodule Familiar.Extension do
       end
   """
 
-  @type tool_registration :: {atom(), function(), String.t()}
+  @type tool_registration ::
+          {atom(), function(), String.t()} | {atom(), function(), String.t(), map()}
 
   @type hook_registration :: %{
           hook: atom(),

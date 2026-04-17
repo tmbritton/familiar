@@ -305,4 +305,99 @@ defmodule Familiar.Execution.ToolSchemasTest do
       assert names == Enum.sort(@expected_tools)
     end
   end
+
+  describe "register/3" do
+    test "extension schema overrides default" do
+      ToolSchemas.load_defaults()
+
+      schema = %{description: "Extension search", parameters: %{"type" => "object"}}
+      ToolSchemas.register("search_context", schema, :extension)
+
+      [result] = ToolSchemas.for_tools(["search_context"])
+      assert result["function"]["description"] == "Extension search"
+    end
+
+    test "mcp schema overrides extension" do
+      ToolSchemas.load_defaults()
+
+      ext_schema = %{description: "Extension version", parameters: %{"type" => "object"}}
+      ToolSchemas.register("my_tool", ext_schema, :extension)
+
+      mcp_schema = %{description: "MCP version", parameters: %{"type" => "object"}}
+      ToolSchemas.register("my_tool", mcp_schema, :mcp)
+
+      [result] = ToolSchemas.for_tools(["my_tool"])
+      assert result["function"]["description"] == "MCP version"
+    end
+
+    test "extension does not override mcp" do
+      ToolSchemas.load_defaults()
+
+      mcp_schema = %{description: "MCP version", parameters: %{"type" => "object"}}
+      ToolSchemas.register("my_tool", mcp_schema, :mcp)
+
+      ext_schema = %{description: "Extension version", parameters: %{"type" => "object"}}
+      ToolSchemas.register("my_tool", ext_schema, :extension)
+
+      [result] = ToolSchemas.for_tools(["my_tool"])
+      assert result["function"]["description"] == "MCP version"
+    end
+
+    @tag :tmp_dir
+    test "user file overrides everything", %{tmp_dir: tmp_dir} do
+      tools_dir = Path.join(tmp_dir, "tools")
+      File.mkdir_p!(tools_dir)
+
+      custom_toml = """
+      name = "read_file"
+      description = "User custom read"
+
+      [parameters]
+      type = "object"
+      required = ["path"]
+
+      [parameters.properties.path]
+      type = "string"
+      description = "Custom path"
+      """
+
+      File.write!(Path.join(tools_dir, "read_file.toml"), custom_toml)
+      ToolSchemas.load(tmp_dir)
+
+      # Try to override with extension — should be rejected
+      ext_schema = %{description: "Extension read", parameters: %{"type" => "object"}}
+      ToolSchemas.register("read_file", ext_schema, :extension)
+
+      [result] = ToolSchemas.for_tools(["read_file"])
+      assert result["function"]["description"] == "User custom read"
+
+      # Try to override with MCP — should also be rejected
+      mcp_schema = %{description: "MCP read", parameters: %{"type" => "object"}}
+      ToolSchemas.register("read_file", mcp_schema, :mcp)
+
+      [result] = ToolSchemas.for_tools(["read_file"])
+      assert result["function"]["description"] == "User custom read"
+    end
+
+    test "extension schema for new tool adds it to registry" do
+      ToolSchemas.load_defaults()
+
+      schema = %{description: "Brand new tool", parameters: %{"type" => "object"}}
+      ToolSchemas.register("brand_new", schema, :extension)
+
+      [result] = ToolSchemas.for_tools(["brand_new"])
+      assert result["function"]["description"] == "Brand new tool"
+    end
+
+    test "3-tuple extension (no params) still works via defaults" do
+      ToolSchemas.load_defaults()
+
+      # search_context has a default from TOML — 3-tuple extension would not register a schema
+      # so the default should still be there
+      [result] = ToolSchemas.for_tools(["search_context"])
+
+      assert result["function"]["description"] ==
+               "Search the knowledge store for relevant entries"
+    end
+  end
 end
