@@ -7,6 +7,8 @@ defmodule Familiar.Knowledge.Extractor do
   decisions) following the knowledge-not-code rule.
   """
 
+  alias Familiar.Daemon.Paths
+  alias Familiar.Knowledge.DefaultFiles
   alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.SecretFilter
 
@@ -72,27 +74,36 @@ defmodule Familiar.Knowledge.Extractor do
   @doc false
   @spec build_prompt(String.t(), String.t()) :: String.t()
   def build_prompt(file_path, content) do
-    """
-    Analyze this source file and produce knowledge entries as a JSON array.
-    Each entry must have "type", "text", and "source_file" fields.
+    load_template()
+    |> interpolate_template(file_path, content)
+  end
 
-    Valid types: #{Entry.default_types() |> Enum.map_join(", ", &~s("#{&1}"))}
+  defp load_template do
+    custom_path = Path.join([Paths.familiar_dir(), "system", "extractor.md"])
 
-    Rules:
-    - Describe what the code DOES in natural language prose
-    - Do NOT include raw code snippets
-    - Do NOT include secret values (API keys, tokens, passwords)
-    - Focus on purpose, patterns, dependencies, and architectural decisions
-    - Keep each entry concise (1-3 sentences)
+    case File.read(custom_path) do
+      {:ok, template} -> template
+      {:error, _} -> default_template()
+    end
+  end
 
-    File: #{file_path}
-    Content:
-    ```
-    #{String.slice(content, 0, 4000)}
-    ```
+  defp default_template do
+    case DefaultFiles.default_content("system", "extractor.md") do
+      {:ok, content} -> content
+      :error -> raise "Missing default extractor template in priv/defaults/system/extractor.md"
+    end
+  end
 
-    Respond with ONLY a JSON array of entry objects, no other text.
-    """
+  defp interpolate_template(template, file_path, content) do
+    valid_types = Entry.default_types() |> Enum.map_join(", ", &inspect/1)
+
+    # Replace {{valid_types}} first (fixed, no user content), then {{file_path}},
+    # then {{content}} last — avoids cross-contamination if file_path or content
+    # happen to contain template variable patterns.
+    template
+    |> String.replace("{{valid_types}}", valid_types)
+    |> String.replace("{{file_path}}", file_path)
+    |> String.replace("{{content}}", String.slice(content, 0, 4000))
   end
 
   @doc false

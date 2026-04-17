@@ -153,6 +153,75 @@ defmodule Familiar.Knowledge.ExtractorTest do
       # Prompt should contain truncated content (4000 chars max)
       assert String.length(prompt) < 5000 + 500
     end
+
+    test "uses custom template from .familiar/system/extractor.md when present" do
+      # Set up a temp project dir with a custom template
+      tmp_dir =
+        System.tmp_dir!() |> Path.join("extractor_tpl_#{System.unique_integer([:positive])}")
+
+      system_dir = Path.join(tmp_dir, ".familiar/system")
+      File.mkdir_p!(system_dir)
+
+      custom_template =
+        "CUSTOM PROMPT for {{file_path}}\nTypes: {{valid_types}}\n```\n{{content}}\n```"
+
+      File.write!(Path.join(system_dir, "extractor.md"), custom_template)
+
+      original_project_dir = Application.get_env(:familiar, :project_dir)
+      Application.put_env(:familiar, :project_dir, tmp_dir)
+
+      try do
+        prompt = Extractor.build_prompt("lib/my.ex", "hello world")
+        assert prompt =~ "CUSTOM PROMPT for lib/my.ex"
+        assert prompt =~ "hello world"
+        refute prompt =~ "{{file_path}}"
+        refute prompt =~ "{{content}}"
+        refute prompt =~ "{{valid_types}}"
+      after
+        Application.put_env(:familiar, :project_dir, original_project_dir)
+        File.rm_rf!(tmp_dir)
+      end
+    end
+
+    test "falls back to default template when custom file is absent" do
+      # Point to a temp dir with no .familiar/system/extractor.md
+      tmp_dir =
+        System.tmp_dir!() |> Path.join("extractor_fb_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+
+      original_project_dir = Application.get_env(:familiar, :project_dir)
+      Application.put_env(:familiar, :project_dir, tmp_dir)
+
+      try do
+        prompt = Extractor.build_prompt("lib/app.ex", "code")
+        # Should still produce a valid prompt with the default template content
+        assert prompt =~ "lib/app.ex"
+        assert prompt =~ "JSON array"
+        assert prompt =~ "code"
+      after
+        Application.put_env(:familiar, :project_dir, original_project_dir)
+        File.rm_rf!(tmp_dir)
+      end
+    end
+
+    test "interpolates all template variables" do
+      prompt = Extractor.build_prompt("lib/demo.ex", "some content here")
+
+      # {{file_path}} interpolated
+      assert prompt =~ "lib/demo.ex"
+      # {{content}} interpolated
+      assert prompt =~ "some content here"
+      # {{valid_types}} interpolated — should contain quoted type names
+      for type <- Entry.default_types() do
+        assert prompt =~ ~s("#{type}")
+      end
+
+      # No raw template variables remain
+      refute prompt =~ "{{file_path}}"
+      refute prompt =~ "{{content}}"
+      refute prompt =~ "{{valid_types}}"
+    end
   end
 
   describe "parse_extraction_response/2" do

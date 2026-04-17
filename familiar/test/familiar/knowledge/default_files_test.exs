@@ -30,10 +30,24 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
       path = DefaultFiles.priv_defaults_path()
       assert File.dir?(path), "priv_defaults_path #{path} does not exist"
 
-      for subdir <- ~w(workflows roles skills) do
+      for subdir <- ~w(workflows roles skills system) do
         assert File.dir?(Path.join(path, subdir)),
                "expected #{subdir}/ subdirectory in priv defaults"
       end
+    end
+  end
+
+  describe "default_content/2" do
+    test "returns compiled-in content for system/extractor.md" do
+      assert {:ok, content} = DefaultFiles.default_content("system", "extractor.md")
+      assert is_binary(content)
+      assert content =~ "{{file_path}}"
+      assert content =~ "{{content}}"
+      assert content =~ "{{valid_types}}"
+    end
+
+    test "returns :error for non-existent file" do
+      assert :error = DefaultFiles.default_content("system", "nonexistent.md")
     end
   end
 
@@ -119,6 +133,31 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
       :ok = DefaultFiles.install(familiar_dir)
 
       assert File.read!(Path.join(skills_dir, "implement.md")) == custom_content
+    end
+
+    test "creates system/extractor.md matching priv source byte-for-byte", %{tmp_dir: tmp_dir} do
+      familiar_dir = install_defaults(tmp_dir)
+      priv_dir = DefaultFiles.priv_defaults_path()
+
+      system_dir = Path.join(familiar_dir, "system")
+      assert File.dir?(system_dir)
+
+      installed = File.read!(Path.join(system_dir, "extractor.md"))
+      source = File.read!(Path.join(priv_dir, "system/extractor.md"))
+      assert installed == source, "system/extractor.md content differs from priv source"
+    end
+
+    test "does not overwrite existing system files", %{tmp_dir: tmp_dir} do
+      familiar_dir = Path.join(tmp_dir, ".familiar")
+      system_dir = Path.join(familiar_dir, "system")
+      File.mkdir_p!(system_dir)
+
+      custom_content = "# My custom extractor prompt"
+      File.write!(Path.join(system_dir, "extractor.md"), custom_content)
+
+      :ok = DefaultFiles.install(familiar_dir)
+
+      assert File.read!(Path.join(system_dir, "extractor.md")) == custom_content
     end
   end
 

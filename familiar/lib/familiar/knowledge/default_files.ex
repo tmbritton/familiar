@@ -8,7 +8,7 @@ defmodule Familiar.Knowledge.DefaultFiles do
   user customizations.
   """
 
-  @subdirs ~w(workflows roles skills)
+  @subdirs ~w(workflows roles skills system)
 
   # Read all default files from priv/defaults/ at compile time.
   # This ensures the escript includes the content without needing
@@ -42,6 +42,19 @@ defmodule Familiar.Knowledge.DefaultFiles do
     end
 
     :ok
+  end
+
+  @doc """
+  Return the compiled-in content of a default file.
+
+  Returns `{:ok, content}` if the file exists, `:error` otherwise.
+  """
+  @spec default_content(String.t(), String.t()) :: {:ok, String.t()} | :error
+  def default_content(subdir, filename) do
+    case Enum.find(@defaults, fn {s, f, _} -> s == subdir and f == filename end) do
+      {_, _, content} -> {:ok, content}
+      nil -> :error
+    end
   end
 
   @doc false
