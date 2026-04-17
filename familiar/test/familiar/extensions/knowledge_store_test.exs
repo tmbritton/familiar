@@ -136,8 +136,8 @@ defmodule Familiar.Extensions.KnowledgeStoreTest do
       assert result.text == "String key fact"
     end
 
-    test "returns error for invalid type" do
-      args = %{text: "Bad type", type: "invalid_type", source: "agent"}
+    test "returns error for invalid type format" do
+      args = %{text: "Bad type", type: "Has Spaces", source: "agent"}
 
       assert {:error, {:validation_failed, _}} = KnowledgeStore.store_context(args, %{})
     end

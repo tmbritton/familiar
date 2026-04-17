@@ -99,12 +99,12 @@ defmodule Familiar.Knowledge.HygieneTest do
       assert [] == Hygiene.extract_from_success(%{success_context: %{}}, llm: LLMMock)
     end
 
-    test "filters out invalid types like file_summary" do
+    test "filters out entries with invalid type format" do
       llm_response =
         Jason.encode!([
           %{
-            "type" => "file_summary",
-            "text" => "This is a summary",
+            "type" => "Has Spaces",
+            "text" => "Bad type format",
             "source_file" => "lib/foo.ex"
           },
           %{"type" => "fact", "text" => "Valid fact entry", "source_file" => "lib/foo.ex"}
@@ -123,6 +123,31 @@ defmodule Familiar.Knowledge.HygieneTest do
 
       assert length(entries) == 1
       assert hd(entries).type == "fact"
+    end
+
+    test "accepts custom snake_case types from LLM" do
+      llm_response =
+        Jason.encode!([
+          %{
+            "type" => "insight",
+            "text" => "Custom type entry from LLM",
+            "source_file" => "lib/foo.ex"
+          }
+        ])
+
+      stub(LLMMock, :chat, fn _messages, _opts ->
+        {:ok, %{content: llm_response}}
+      end)
+
+      context = %{
+        success_context: %{task_summary: "test"},
+        modified_files: ["lib/foo.ex"]
+      }
+
+      entries = Hygiene.extract_from_success(context, llm: LLMMock)
+
+      assert length(entries) == 1
+      assert hd(entries).type == "insight"
     end
 
     test "applies SecretFilter to extracted text" do

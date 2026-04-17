@@ -7,7 +7,10 @@ defmodule Familiar.Knowledge.Extractor do
   decisions) following the knowledge-not-code rule.
   """
 
+  alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.SecretFilter
+
+  @slug_format ~r/^[a-z][a-z0-9_]*$/
 
   @doc """
   Extract knowledge entries from a list of file info maps.
@@ -73,7 +76,7 @@ defmodule Familiar.Knowledge.Extractor do
     Analyze this source file and produce knowledge entries as a JSON array.
     Each entry must have "type", "text", and "source_file" fields.
 
-    Valid types: "file_summary", "convention", "architecture", "relationship", "decision"
+    Valid types: #{Entry.default_types() |> Enum.map_join(", ", &~s("#{&1}"))}
 
     Rules:
     - Describe what the code DOES in natural language prose
@@ -120,8 +123,7 @@ defmodule Familiar.Knowledge.Extractor do
 
   defp valid_entry?(%{"type" => type, "text" => text})
        when is_binary(type) and is_binary(text) do
-    type in ~w(file_summary convention architecture relationship decision) and
-      String.length(text) > 0
+    Regex.match?(@slug_format, type) and String.length(type) <= 50 and String.trim(text) != ""
   end
 
   defp valid_entry?(_), do: false

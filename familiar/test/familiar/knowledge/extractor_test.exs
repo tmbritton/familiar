@@ -2,6 +2,7 @@ defmodule Familiar.Knowledge.ExtractorTest do
   use ExUnit.Case, async: false
   use Familiar.MockCase
 
+  alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.Extractor
 
   describe "extract_from_file/1" do
@@ -52,14 +53,14 @@ defmodule Familiar.Knowledge.ExtractorTest do
       assert [] == Extractor.extract_from_file(file)
     end
 
-    test "filters out entries with invalid types" do
+    test "filters out entries with invalid type format or empty text" do
       Mox.expect(Familiar.Providers.LLMMock, :chat, fn _messages, _opts ->
         {:ok,
          %{
            content:
              Jason.encode!([
                %{"type" => "file_summary", "text" => "Valid entry", "source_file" => "lib/a.ex"},
-               %{"type" => "invalid_type", "text" => "Bad entry", "source_file" => "lib/a.ex"},
+               %{"type" => "Has Spaces", "text" => "Bad type", "source_file" => "lib/a.ex"},
                %{"type" => "convention", "text" => "", "source_file" => "lib/a.ex"}
              ])
          }}
@@ -69,6 +70,27 @@ defmodule Familiar.Knowledge.ExtractorTest do
       entries = Extractor.extract_from_file(file)
       assert length(entries) == 1
       assert hd(entries).type == "file_summary"
+    end
+
+    test "accepts custom snake_case types from LLM" do
+      Mox.expect(Familiar.Providers.LLMMock, :chat, fn _messages, _opts ->
+        {:ok,
+         %{
+           content:
+             Jason.encode!([
+               %{
+                 "type" => "experiment",
+                 "text" => "Custom type entry",
+                 "source_file" => "lib/a.ex"
+               }
+             ])
+         }}
+      end)
+
+      file = %{relative_path: "lib/a.ex", content: "code"}
+      entries = Extractor.extract_from_file(file)
+      assert length(entries) == 1
+      assert hd(entries).type == "experiment"
     end
 
     test "uses default source_file when entry omits it" do
@@ -115,6 +137,14 @@ defmodule Familiar.Knowledge.ExtractorTest do
       prompt = Extractor.build_prompt("lib/app.ex", "defmodule App do end")
       assert prompt =~ "lib/app.ex"
       assert prompt =~ "defmodule App do end"
+    end
+
+    test "includes default types from Entry.default_types/0" do
+      prompt = Extractor.build_prompt("lib/app.ex", "code")
+
+      for type <- Entry.default_types() do
+        assert prompt =~ ~s("#{type}"), "Expected prompt to include type #{type}"
+      end
     end
 
     test "truncates very long content" do

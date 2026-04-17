@@ -20,7 +20,7 @@ defmodule Familiar.Knowledge.Hygiene do
   alias Familiar.Providers
   alias Familiar.Repo
 
-  @valid_hygiene_types ~w(fact decision gotcha relationship convention)
+  @slug_format ~r/^[a-z][a-z0-9_]*$/
   @duplicate_threshold 0.3
 
   @doc """
@@ -125,7 +125,7 @@ defmodule Familiar.Knowledge.Hygiene do
     Given this task execution summary, extract knowledge entries as a JSON array.
     Each entry must have "type", "text", and "source_file" fields.
 
-    Valid types: "fact", "decision", "gotcha", "relationship", "convention"
+    Valid types: #{Entry.default_types() |> Enum.map_join(", ", &~s("#{&1}"))}
 
     Rules:
     - Extract what was LEARNED, not what was CODED
@@ -208,7 +208,7 @@ defmodule Familiar.Knowledge.Hygiene do
 
   defp valid_hygiene_entry?(%{"type" => type, "text" => text})
        when is_binary(type) and is_binary(text) do
-    type in @valid_hygiene_types and String.trim(text) != ""
+    Regex.match?(@slug_format, type) and String.length(type) <= 50 and String.trim(text) != ""
   end
 
   defp valid_hygiene_entry?(_), do: false

@@ -57,11 +57,11 @@ defmodule Familiar.Knowledge.EmbeddingPipelineTest do
       refute changeset.valid?
     end
 
-    test "returns validation error for invalid type" do
+    test "returns validation error for invalid type format" do
       assert {:error, {:validation_failed, %{changeset: changeset}}} =
                Knowledge.store_with_embedding(%{
                  text: "some text",
-                 type: "invalid_type",
+                 type: "Has Spaces",
                  source: "init_scan"
                })
 

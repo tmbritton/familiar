@@ -11,8 +11,9 @@ defmodule Familiar.Knowledge.Entry do
 
   @type t :: %__MODULE__{}
 
-  @valid_types ~w(convention file_summary architecture relationship decision fact gotcha)
-  @valid_sources ~w(init_scan post_task manual agent user)
+  @default_types ~w(convention file_summary architecture relationship decision fact gotcha)
+  @default_sources ~w(init_scan post_task manual agent user)
+  @slug_format ~r/^[a-z][a-z0-9_]*$/
 
   schema "knowledge_entries" do
     field :text, :string
@@ -36,8 +37,14 @@ defmodule Familiar.Knowledge.Entry do
     entry
     |> cast(attrs, [:text, :type, :source, :source_file, :metadata, :checked_at])
     |> validate_required([:text, :type, :source])
-    |> validate_inclusion(:type, @valid_types)
-    |> validate_inclusion(:source, @valid_sources)
+    |> validate_format(:type, @slug_format,
+      message: "must start with a lowercase letter, followed by a-z, 0-9, or _"
+    )
+    |> validate_length(:type, min: 1, max: 50)
+    |> validate_format(:source, @slug_format,
+      message: "must start with a lowercase letter, followed by a-z, 0-9, or _"
+    )
+    |> validate_length(:source, min: 1, max: 50)
     |> validate_json(:metadata)
   end
 
@@ -51,9 +58,9 @@ defmodule Familiar.Knowledge.Entry do
     end)
   end
 
-  @doc "Returns the list of valid entry types."
-  def valid_types, do: @valid_types
+  @doc "Returns the default entry types used by init scan and extraction prompts."
+  def default_types, do: @default_types
 
-  @doc "Returns the list of valid sources."
-  def valid_sources, do: @valid_sources
+  @doc "Returns the default sources used by init scan and post-task hygiene."
+  def default_sources, do: @default_sources
 end

@@ -148,7 +148,8 @@ defmodule Familiar.Execution.ToolSchemas do
           "text" => %{"type" => "string", "description" => "Knowledge entry text"},
           "type" => %{
             "type" => "string",
-            "description" => "Entry type (convention, fact, decision, gotcha)"
+            "description" =>
+              "Entry type — any lowercase snake_case slug (e.g. convention, fact, decision, gotcha, file_summary, architecture)"
           }
         },
         "required" => ["text", "type"]
