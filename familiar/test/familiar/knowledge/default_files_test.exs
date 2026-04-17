@@ -25,39 +25,60 @@ defmodule Familiar.Knowledge.DefaultFilesTest do
     familiar_dir
   end
 
+  describe "priv_defaults_path/0" do
+    test "returns an existing directory with expected subdirectories" do
+      path = DefaultFiles.priv_defaults_path()
+      assert File.dir?(path), "priv_defaults_path #{path} does not exist"
+
+      for subdir <- ~w(workflows roles skills) do
+        assert File.dir?(Path.join(path, subdir)),
+               "expected #{subdir}/ subdirectory in priv defaults"
+      end
+    end
+  end
+
   describe "install/1" do
-    test "creates workflow files", %{tmp_dir: tmp_dir} do
+    test "creates workflow files matching priv sources byte-for-byte", %{tmp_dir: tmp_dir} do
       familiar_dir = install_defaults(tmp_dir)
+      priv_dir = DefaultFiles.priv_defaults_path()
 
       workflows_dir = Path.join(familiar_dir, "workflows")
       assert File.dir?(workflows_dir)
 
-      assert File.exists?(Path.join(workflows_dir, "feature-planning.md"))
-      assert File.exists?(Path.join(workflows_dir, "feature-implementation.md"))
-      assert File.exists?(Path.join(workflows_dir, "task-fix.md"))
+      for filename <- ~w(feature-planning.md feature-implementation.md task-fix.md) do
+        installed = File.read!(Path.join(workflows_dir, filename))
+        source = File.read!(Path.join(priv_dir, "workflows/#{filename}"))
+        assert installed == source, "#{filename} content differs from priv source"
+      end
     end
 
-    test "creates all 6 role files", %{tmp_dir: tmp_dir} do
+    test "creates all role files matching priv sources byte-for-byte", %{tmp_dir: tmp_dir} do
       familiar_dir = install_defaults(tmp_dir)
+      priv_dir = DefaultFiles.priv_defaults_path()
 
       roles_dir = Path.join(familiar_dir, "roles")
       assert File.dir?(roles_dir)
 
       for role_name <- @expected_roles do
-        assert File.exists?(Path.join(roles_dir, "#{role_name}.md")),
-               "expected role file #{role_name}.md to exist"
+        filename = "#{role_name}.md"
+        installed = File.read!(Path.join(roles_dir, filename))
+        source = File.read!(Path.join(priv_dir, "roles/#{filename}"))
+        assert installed == source, "#{filename} content differs from priv source"
       end
     end
 
-    test "creates all 12 skill files", %{tmp_dir: tmp_dir} do
+    test "creates all skill files matching priv sources byte-for-byte", %{tmp_dir: tmp_dir} do
       familiar_dir = install_defaults(tmp_dir)
+      priv_dir = DefaultFiles.priv_defaults_path()
 
       skills_dir = Path.join(familiar_dir, "skills")
       assert File.dir?(skills_dir)
 
       for skill_name <- @expected_skills do
-        assert File.exists?(Path.join(skills_dir, "#{skill_name}.md")),
-               "expected skill file #{skill_name}.md to exist"
+        filename = "#{skill_name}.md"
+        installed = File.read!(Path.join(skills_dir, filename))
+        source = File.read!(Path.join(priv_dir, "skills/#{filename}"))
+        assert installed == source, "#{filename} content differs from priv source"
       end
     end
 
