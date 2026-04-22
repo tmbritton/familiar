@@ -149,7 +149,7 @@ defmodule Familiar.Knowledge.FileClassifierTest do
 
   describe "classify/2 with custom indexing config" do
     test "custom source_extensions causes .pdf to index" do
-      indexing = %{source_extensions: [".pdf", ".docx"]}
+      indexing = %{source_extensions: [".pdf", ".docx"], skip_extensions: []}
       assert :index = FileClassifier.classify("paper.pdf", indexing: indexing)
       assert :index = FileClassifier.classify("doc.docx", indexing: indexing)
     end

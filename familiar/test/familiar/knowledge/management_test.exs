@@ -99,11 +99,15 @@ defmodule Familiar.Knowledge.ManagementTest do
 
   defp mock_fs_read(file_contents) do
     stub(Familiar.System.FileSystemMock, :read, fn path ->
-      case Map.get(file_contents, path) do
-        nil -> {:error, :enoent}
-        content -> {:ok, content}
-      end
+      find_content_by_suffix(file_contents, path)
     end)
+  end
+
+  defp find_content_by_suffix(file_contents, path) do
+    {_key, content} =
+      Enum.find(file_contents, {nil, nil}, fn {key, _} -> String.ends_with?(path, key) end)
+
+    if content, do: {:ok, content}, else: {:error, :enoent}
   end
 
   describe "Management.refresh/2" do

@@ -64,6 +64,10 @@ defmodule Familiar.CLI.Main do
   end
 
   defp bootstrap do
+    # Wire provider adapters from config.toml BEFORE starting the app,
+    # since runtime.exs doesn't execute in escript mode.
+    wire_providers_from_config()
+
     # Start the OTP application (Repo, PubSub, ToolRegistry, Hooks, etc.)
     {:ok, _} = Application.ensure_all_started(:familiar)
     ensure_project_initialized()
@@ -72,6 +76,52 @@ defmodule Familiar.CLI.Main do
       IO.puts(:stderr, "Failed to start Familiar: #{Exception.message(e)}")
       System.halt(1)
   end
+
+  defp wire_providers_from_config do
+    default_provider = read_default_provider()
+
+    provider_type =
+      System.get_env("FAMILIAR_PROVIDER") ||
+        (default_provider && default_provider["type"])
+
+    embedding_model =
+      System.get_env("FAMILIAR_EMBEDDING_MODEL") ||
+        (default_provider && default_provider["embedding_model"])
+
+    wire_provider_adapters(provider_type, embedding_model)
+  end
+
+  defp read_default_provider do
+    project_dir = System.get_env("FAMILIAR_PROJECT_DIR") || File.cwd!()
+    config_path = Path.join([project_dir, ".familiar", "config.toml"])
+
+    with true <- File.exists?(config_path),
+         {:ok, %{"providers" => providers}} <- Toml.decode_file(config_path) do
+      Enum.find_value(providers, &default_provider?/1)
+    else
+      _ -> nil
+    end
+  end
+
+  defp default_provider?({_name, %{"default" => true} = settings}), do: settings
+  defp default_provider?(_), do: nil
+
+  defp wire_provider_adapters("openai_compatible", embedding_model) do
+    Application.put_env(
+      :familiar,
+      Familiar.Providers.LLM,
+      Familiar.Providers.OpenAICompatibleAdapter
+    )
+
+    embedder =
+      if is_binary(embedding_model) and embedding_model != "",
+        do: Familiar.Providers.OpenAIEmbedder,
+        else: Familiar.Providers.StubEmbedder
+
+    Application.put_env(:familiar, Familiar.Knowledge.Embedder, embedder)
+  end
+
+  defp wire_provider_adapters(_, _), do: nil
 
   defp ensure_project_initialized do
     familiar_dir = Paths.familiar_dir()
@@ -358,9 +408,15 @@ defmodule Familiar.CLI.Main do
     {:error, {:usage_error, %{message: "Usage: fam search <query>"}}}
   end
 
-  defp run_with_daemon({"search", args, _flags}, deps) do
+  defp run_with_daemon({"search", args, flags}, deps) do
     query = Enum.join(args, " ")
-    run_raw_search(query, deps)
+    raw = Map.get(flags, :raw, false)
+
+    if raw do
+      run_raw_search(query, deps)
+    else
+      run_curated_search(query, deps)
+    end
   end
 
   defp run_with_daemon({"entry", [], _}, _deps) do
@@ -453,10 +509,17 @@ defmodule Familiar.CLI.Main do
         health_fn.([])
 
       refresh ->
+        force = Map.get(flags, :force, false)
         path_filter = find_path_arg(args)
         refresh_fn = Map.get(deps, :refresh_fn, &Management.refresh/2)
         project_dir = Map.get(deps, :project_dir, Paths.project_dir())
-        refresh_fn.(project_dir, path: path_filter)
+
+        if force do
+          refresh_progress("Clearing existing knowledge entries...")
+          Management.clear_all_entries()
+        end
+
+        refresh_fn.(project_dir, path: path_filter, progress_fn: &refresh_progress/1)
 
       Map.get(flags, :compact, false) ->
         run_compact(flags, deps)
@@ -762,6 +825,24 @@ defmodule Familiar.CLI.Main do
       %{message: "Usage: fam mcp <list|get|add|add-json|remove|enable|disable> [args]"}}}
   end
 
+  # -- Tools commands --
+
+  defp run_with_daemon({"tools", args, _flags}, deps) when args == [] or args == ["list"] do
+    list_fn = Map.get(deps, :list_tools_fn, &default_list_tools/0)
+    list_fn.()
+  end
+
+  defp run_with_daemon({"tools", ["show", name], _flags}, deps) do
+    show_fn = Map.get(deps, :show_tool_fn, &default_show_tool/1)
+    show_fn.(name)
+  end
+
+  defp run_with_daemon({"tools", [sub | _], _}, _deps) do
+    {:error,
+     {:usage_error,
+      %{message: "Unknown tools subcommand: #{sub}. Usage: fam tools <list|show> [args]"}}}
+  end
+
   # -- Validate commands --
 
   defp run_with_daemon({"validate", args, _}, deps) do
@@ -1031,6 +1112,40 @@ defmodule Familiar.CLI.Main do
   defp action_key(:enable), do: :enabled
   defp action_key(:disable), do: :disabled
 
+  # -- Tools defaults --
+
+  defp default_list_tools do
+    alias Familiar.Execution.ToolRegistry
+    alias Familiar.Execution.ToolSchemas
+
+    registry_tools = ToolRegistry.list_tools()
+    schema_entries = ToolSchemas.list_with_sources()
+
+    tools =
+      Enum.map(registry_tools, fn tool ->
+        tool_name = to_string(tool.name)
+        schema_info = Enum.find(schema_entries, fn s -> s.name == tool_name end)
+
+        %{
+          name: tool_name,
+          extension: tool.extension,
+          schema_source: if(schema_info, do: to_string(schema_info.schema_source), else: "none")
+        }
+      end)
+      |> Enum.sort_by(& &1.name)
+
+    {:ok, %{tools: tools}}
+  end
+
+  defp default_show_tool(name) do
+    alias Familiar.Execution.ToolSchemas
+
+    case ToolSchemas.get_schema(name) do
+      {:ok, schema} -> {:ok, %{tool: schema}}
+      {:error, :not_found} -> {:error, {:tool_not_found, %{name: name}}}
+    end
+  end
+
   defp build_mcp_add_attrs(name, command, extra_args, flags) do
     env_flags = List.wrap(Map.get(flags, :env, []))
     env_map = parse_env_flags(env_flags)
@@ -1220,6 +1335,53 @@ defmodule Familiar.CLI.Main do
     case search_fn.(query) do
       {:ok, results} -> {:ok, %{results: results, query: query}}
       {:error, _} = error -> error
+    end
+  end
+
+  defp run_curated_search(query, deps) do
+    search_fn = Map.get(deps, :search_fn, &Knowledge.search/1)
+    llm_fn = Map.get(deps, :llm_fn, &Familiar.Providers.chat/2)
+
+    case search_fn.(query) do
+      {:ok, []} ->
+        {:ok, %{results: [], query: query}}
+
+      {:ok, results} ->
+        context =
+          Enum.map_join(results, "\n\n", fn r ->
+            "[#{r.type}] #{r.text} [#{r.source_file}]"
+          end)
+
+        prompt = """
+        You are a knowledge librarian. Given a user's question and search results from the project's knowledge store, synthesize a concise answer.
+
+        Rules:
+        - Cite sources using [source_file] after each claim
+        - Prioritize specific facts over general descriptions
+        - Group related information together
+        - Exclude results not relevant to the query
+        - If conflicting information exists, present both sides with sources
+        - Keep the summary focused and under 500 words
+        - If the results don't adequately answer the question, say so
+
+        ## User Question
+        #{query}
+
+        ## Search Results
+        #{context}
+        """
+
+        case llm_fn.([%{role: "user", content: prompt}], []) do
+          {:ok, %{content: summary}} ->
+            {:ok, %{results: results, query: query, summary: summary}}
+
+          {:error, _} ->
+            # Fall back to raw results if LLM fails
+            {:ok, %{results: results, query: query}}
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -1740,6 +1902,10 @@ defmodule Familiar.CLI.Main do
     IO.puts(:stderr, msg)
   end
 
+  defp refresh_progress(msg) do
+    IO.puts(:stderr, msg)
+  end
+
   # -- `fam where` diagnostic (Story 7.5-8) --
 
   @doc false
@@ -2224,8 +2390,8 @@ defmodule Familiar.CLI.Main do
 
   def text_formatter("search") do
     fn
-      %{results: results, query: query, summary: summary} ->
-        "#{summary}\n\n---\nRaw results (#{length(results)} found) for \"#{query}\""
+      %{results: _results, query: _query, summary: summary} ->
+        summary
 
       %{results: results, query: query} ->
         format_search_results(results, query)

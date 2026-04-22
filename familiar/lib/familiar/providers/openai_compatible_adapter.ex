@@ -31,8 +31,15 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
   @default_chat_model "deepseek-chat"
   @default_receive_timeout 120_000
 
+  @max_retries 3
+  @initial_backoff_ms 1_000
+
   @impl true
   def chat(messages, opts \\ []) do
+    do_chat(messages, opts, 0)
+  end
+
+  defp do_chat(messages, opts, attempt) do
     body = build_request_body(messages, opts)
 
     case Req.post(base_url() <> "/chat/completions",
@@ -45,6 +52,16 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
 
       {:ok, %Req.Response{status: 401}} ->
         {:error, {:provider_unavailable, %{provider: :openai_compatible, reason: :unauthorized}}}
+
+      {:ok, %Req.Response{status: 429} = resp} when attempt < @max_retries ->
+        backoff = retry_delay(resp, attempt)
+
+        Logger.info(
+          "Rate limited, retrying in #{backoff}ms (attempt #{attempt + 1}/#{@max_retries})"
+        )
+
+        Process.sleep(backoff)
+        do_chat(messages, opts, attempt + 1)
 
       {:ok, %Req.Response{status: 429}} ->
         {:error, {:provider_unavailable, %{provider: :openai_compatible, reason: :rate_limited}}}
@@ -63,6 +80,20 @@ defmodule Familiar.Providers.OpenAICompatibleAdapter do
 
       {:error, reason} ->
         {:error, {:provider_unavailable, %{provider: :openai_compatible, reason: reason}}}
+    end
+  end
+
+  defp retry_delay(resp, attempt) do
+    # Respect Retry-After header if present, otherwise exponential backoff
+    case Req.Response.get_header(resp, "retry-after") do
+      [seconds | _] ->
+        case Integer.parse(seconds) do
+          {s, _} -> s * 1_000
+          :error -> @initial_backoff_ms * Integer.pow(2, attempt)
+        end
+
+      [] ->
+        @initial_backoff_ms * Integer.pow(2, attempt)
     end
   end
 

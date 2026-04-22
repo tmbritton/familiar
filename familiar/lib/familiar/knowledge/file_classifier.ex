@@ -16,7 +16,14 @@ defmodule Familiar.Knowledge.FileClassifier do
     __pycache__/ .tox/ .mypy_cache/ target/ dist/ build/
   )
 
-  @skip_extensions ~w(.beam .pyc .pyo .class .o .so .dylib .min.js .min.css .map)
+  @skip_extensions ~w(
+    .beam .pyc .pyo .class .o .so .dylib .min.js .min.css .map
+    .png .jpg .jpeg .gif .bmp .ico .svg .webp .avif
+    .woff .woff2 .ttf .eot .otf
+    .pdf .zip .tar .gz .bz2 .xz .7z .rar
+    .mp3 .mp4 .wav .ogg .webm .avi .mov
+    .exe .dll .bin .dat .db .sqlite .sqlite3
+  )
 
   @skip_files ~w(
     go.sum mix.lock package-lock.json yarn.lock

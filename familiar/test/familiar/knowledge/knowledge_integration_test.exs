@@ -127,12 +127,12 @@ defmodule Familiar.Knowledge.KnowledgeIntegrationTest do
 
       # --- Freshness phase: mark auth file as modified ---
       # ClockMock sets entry.updated_at to 12:00, so mtime 15:00 = stale
-      stub(Familiar.System.FileSystemMock, :stat, fn
-        "lib/auth.ex" ->
+      stub(Familiar.System.FileSystemMock, :stat, fn path ->
+        if String.ends_with?(path, "lib/auth.ex") do
           {:ok, %{mtime: ~U[2026-04-02 15:00:00Z], size: 200}}
-
-        _other ->
+        else
           {:ok, %{mtime: ~U[2020-01-01 00:00:00Z], size: 100}}
+        end
       end)
 
       {:ok, stale_results} = Knowledge.search("JWT authentication")
@@ -214,7 +214,7 @@ defmodule Familiar.Knowledge.KnowledgeIntegrationTest do
         })
 
       # Source file modified after entry was stored (ClockMock sets updated_at to 12:00)
-      stub(Familiar.System.FileSystemMock, :stat, fn "lib/router.ex" ->
+      stub(Familiar.System.FileSystemMock, :stat, fn path when is_binary(path) ->
         {:ok, %{mtime: ~U[2026-04-02 15:00:00Z], size: 300}}
       end)
 
@@ -264,8 +264,8 @@ defmodule Familiar.Knowledge.KnowledgeIntegrationTest do
         })
 
       # Source file now deleted
-      stub(Familiar.System.FileSystemMock, :stat, fn "lib/helpers/date.ex" ->
-        {:error, {:file_error, %{path: "lib/helpers/date.ex", reason: :enoent}}}
+      stub(Familiar.System.FileSystemMock, :stat, fn path when is_binary(path) ->
+        {:error, {:file_error, %{path: path, reason: :enoent}}}
       end)
 
       expect(Familiar.Knowledge.EmbedderMock, :embed, fn _query -> {:ok, v} end)

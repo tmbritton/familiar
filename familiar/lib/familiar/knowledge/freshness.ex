@@ -6,6 +6,7 @@ defmodule Familiar.Knowledge.Freshness do
   stale or deleted entries. Fails open with warnings rather than blocking.
   """
 
+  alias Familiar.Daemon.Paths
   alias Familiar.Knowledge
   alias Familiar.Knowledge.Entry
   alias Familiar.Knowledge.Extractor
@@ -69,7 +70,9 @@ defmodule Familiar.Knowledge.Freshness do
   defp has_source_file?(_), do: true
 
   defp classify_entry(entry, fs) do
-    case fs.stat(entry.source_file) do
+    abs_path = Path.join(Paths.project_dir(), entry.source_file)
+
+    case fs.stat(abs_path) do
       {:ok, %{mtime: mtime}} ->
         if DateTime.compare(mtime, entry.updated_at) == :gt do
           {:stale, entry}
@@ -133,7 +136,9 @@ defmodule Familiar.Knowledge.Freshness do
   end
 
   defp refresh_entry(entry, fs) do
-    with {:ok, content} <- fs.read(entry.source_file),
+    abs_path = Path.join(Paths.project_dir(), entry.source_file)
+
+    with {:ok, content} <- fs.read(abs_path),
          new_entries when new_entries != [] <-
            Extractor.extract_from_file(%{
              relative_path: entry.source_file,

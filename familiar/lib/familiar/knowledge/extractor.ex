@@ -7,6 +7,8 @@ defmodule Familiar.Knowledge.Extractor do
   decisions) following the knowledge-not-code rule.
   """
 
+  require Logger
+
   alias Familiar.Daemon.Paths
   alias Familiar.Knowledge.DefaultFiles
   alias Familiar.Knowledge.Entry
@@ -39,14 +41,20 @@ defmodule Familiar.Knowledge.Extractor do
 
   @doc false
   def extract_from_file_with_status(%{relative_path: path, content: content}) do
-    messages = [%{role: "user", content: build_prompt(path, content)}]
+    if String.valid?(content) do
+      messages = [%{role: "user", content: build_prompt(path, content)}]
 
-    case llm_impl().chat(messages, []) do
-      {:ok, %{content: response_text}} ->
-        {parse_extraction_response(response_text, path), true}
+      case llm_impl().chat(messages, []) do
+        {:ok, %{content: response_text}} ->
+          {parse_extraction_response(response_text, path), true}
 
-      {:error, _} ->
-        {[], false}
+        {:error, reason} ->
+          Logger.warning("Extraction LLM call failed for #{path}: #{inspect(reason)}")
+          {[], false}
+      end
+    else
+      Logger.debug("Skipping binary file #{path}")
+      {[], true}
     end
   end
 
@@ -58,14 +66,20 @@ defmodule Familiar.Knowledge.Extractor do
   """
   @spec extract_from_file(%{relative_path: String.t(), content: String.t()}) :: [map()]
   def extract_from_file(%{relative_path: path, content: content}) do
-    messages = [%{role: "user", content: build_prompt(path, content)}]
+    if String.valid?(content) do
+      messages = [%{role: "user", content: build_prompt(path, content)}]
 
-    case llm_impl().chat(messages, []) do
-      {:ok, %{content: response_text}} ->
-        parse_extraction_response(response_text, path)
+      case llm_impl().chat(messages, []) do
+        {:ok, %{content: response_text}} ->
+          parse_extraction_response(response_text, path)
 
-      {:error, _} ->
-        []
+        {:error, reason} ->
+          Logger.warning("Extraction LLM call failed for #{path}: #{inspect(reason)}")
+          []
+      end
+    else
+      Logger.debug("Skipping binary file #{path}")
+      []
     end
   end
 
@@ -107,11 +121,23 @@ defmodule Familiar.Knowledge.Extractor do
   @doc false
   @spec parse_extraction_response(String.t(), String.t()) :: [map()]
   def parse_extraction_response(response_text, default_source_file) do
-    case Jason.decode(response_text) do
+    cleaned = strip_markdown_fences(response_text)
+
+    case Jason.decode(cleaned) do
       {:ok, entries} when is_list(entries) ->
-        entries
-        |> Enum.filter(&valid_entry?/1)
-        |> Enum.map(fn entry ->
+        valid =
+          entries
+          |> Enum.filter(&valid_entry?/1)
+
+        rejected = length(entries) - length(valid)
+
+        if rejected > 0,
+          do:
+            Logger.debug(
+              "Extraction for #{default_source_file}: #{rejected}/#{length(entries)} entries rejected by validation"
+            )
+
+        Enum.map(valid, fn entry ->
           text = SecretFilter.filter(entry["text"])
 
           %{
@@ -123,8 +149,28 @@ defmodule Familiar.Knowledge.Extractor do
           }
         end)
 
-      _ ->
+      {:error, decode_error} ->
+        Logger.warning(
+          "Extraction JSON decode failed for #{default_source_file}: #{inspect(decode_error)}, response prefix: #{String.slice(cleaned, 0, 200)}"
+        )
+
         []
+
+      {:ok, non_list} ->
+        Logger.warning(
+          "Extraction returned non-list for #{default_source_file}: #{inspect(non_list) |> String.slice(0, 200)}"
+        )
+
+        []
+    end
+  end
+
+  defp strip_markdown_fences(text) do
+    trimmed = String.trim(text)
+
+    case Regex.run(~r/\A```(?:json)?\s*\n([\s\S]*?)\n\s*```\z/, trimmed) do
+      [_, inner] -> inner
+      nil -> trimmed
     end
   end
 

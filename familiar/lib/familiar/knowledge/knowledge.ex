@@ -462,10 +462,17 @@ defmodule Familiar.Knowledge do
           {:ok, [%{entry: Entry.t(), distance: float()}]} | {:error, {atom(), map()}}
   def search_by_vector(vector, limit) do
     vector_json = Jason.encode!(vector)
-    search_by_vector_json(vector_json, limit)
-  end
 
-  defp search_by_vector_json(vector_json, limit) do
+    Logger.debug(
+      "[Knowledge.search] vector length=#{length(vector)}, json_prefix=#{String.slice(vector_json, 0, 80)}, limit=#{limit}"
+    )
+
+    # First check how many rows exist in the virtual table
+    {:ok, %{rows: [[count]]}} =
+      Repo.query("SELECT count(*) FROM knowledge_entry_embeddings", [])
+
+    Logger.debug("[Knowledge.search] embedding table row count=#{count}")
+
     case Repo.query(
            """
            SELECT entry_id, distance
@@ -477,10 +484,12 @@ defmodule Familiar.Knowledge do
            [vector_json, limit]
          ) do
       {:ok, %{rows: rows}} ->
+        Logger.debug("[Knowledge.search] MATCH returned #{length(rows)} rows")
         entries = load_entries_with_distances(rows)
         {:ok, entries}
 
       {:error, reason} ->
+        Logger.debug("[Knowledge.search] MATCH error: #{inspect(reason)}")
         {:error, {:query_failed, %{reason: reason}}}
     end
   end

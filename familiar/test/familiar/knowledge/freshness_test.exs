@@ -28,7 +28,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
     test "file unchanged — entry is fresh" do
       entry = insert_entry("lib/auth.ex", ~U[2026-04-01 12:00:00Z])
 
-      expect(FileSystemMock, :stat, fn "lib/auth.ex" ->
+      expect(FileSystemMock, :stat, fn path when is_binary(path) ->
         {:ok, %{mtime: ~U[2026-04-01 11:00:00Z], size: 100}}
       end)
 
@@ -43,7 +43,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
     test "file modified — entry is stale" do
       entry = insert_entry("lib/auth.ex", ~U[2026-04-01 12:00:00Z])
 
-      expect(FileSystemMock, :stat, fn "lib/auth.ex" ->
+      expect(FileSystemMock, :stat, fn path when is_binary(path) ->
         {:ok, %{mtime: ~U[2026-04-01 13:00:00Z], size: 200}}
       end)
 
@@ -58,7 +58,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
     test "file deleted — entry marked deleted" do
       entry = insert_entry("lib/removed.ex", ~U[2026-04-01 12:00:00Z])
 
-      expect(FileSystemMock, :stat, fn "lib/removed.ex" ->
+      expect(FileSystemMock, :stat, fn path when is_binary(path) ->
         {:error, {:file_error, %{path: "lib/removed.ex", reason: :enoent}}}
       end)
 
@@ -86,7 +86,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
       entry = insert_entry("lib/slow.ex", ~U[2026-04-01 12:00:00Z])
 
       # Simulate a timeout by returning an error
-      expect(FileSystemMock, :stat, fn "lib/slow.ex" ->
+      expect(FileSystemMock, :stat, fn path when is_binary(path) ->
         {:error, {:file_error, %{path: "lib/slow.ex", reason: :timeout}}}
       end)
 
@@ -107,10 +107,17 @@ defmodule Familiar.Knowledge.FreshnessTest do
       deleted_entry = insert_entry("lib/gone.ex", ~U[2026-04-01 12:00:00Z])
       no_file_entry = insert_entry(nil, ~U[2026-04-01 12:00:00Z])
 
-      stub(FileSystemMock, :stat, fn
-        "lib/fresh.ex" -> {:ok, %{mtime: ~U[2026-04-01 11:00:00Z], size: 100}}
-        "lib/stale.ex" -> {:ok, %{mtime: ~U[2026-04-01 13:00:00Z], size: 200}}
-        "lib/gone.ex" -> {:error, {:file_error, %{path: "lib/gone.ex", reason: :enoent}}}
+      stub(FileSystemMock, :stat, fn path ->
+        cond do
+          String.ends_with?(path, "lib/fresh.ex") ->
+            {:ok, %{mtime: ~U[2026-04-01 11:00:00Z], size: 100}}
+
+          String.ends_with?(path, "lib/stale.ex") ->
+            {:ok, %{mtime: ~U[2026-04-01 13:00:00Z], size: 200}}
+
+          String.ends_with?(path, "lib/gone.ex") ->
+            {:error, {:file_error, %{path: path, reason: :enoent}}}
+        end
       end)
 
       assert {:ok, result} =
@@ -143,7 +150,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
     test "file mtime exactly equal to updated_at — entry is fresh" do
       entry = insert_entry("lib/exact.ex", ~U[2026-04-01 12:00:00Z])
 
-      expect(FileSystemMock, :stat, fn "lib/exact.ex" ->
+      expect(FileSystemMock, :stat, fn path when is_binary(path) ->
         {:ok, %{mtime: ~U[2026-04-01 12:00:00Z], size: 100}}
       end)
 
@@ -171,7 +178,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
         })
 
       # Mock file read for refresh
-      expect(FileSystemMock, :read, fn "lib/auth.ex" ->
+      expect(FileSystemMock, :read, fn path when is_binary(path) ->
         {:ok, "defmodule Auth do\n  # new code\nend"}
       end)
 
@@ -214,7 +221,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
         })
 
       # File read fails
-      expect(FileSystemMock, :read, fn "lib/broken.ex" ->
+      expect(FileSystemMock, :read, fn path when is_binary(path) ->
         {:error, {:file_error, %{path: "lib/broken.ex", reason: :eacces}}}
       end)
 
@@ -243,7 +250,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
         })
 
       # File read succeeds
-      expect(FileSystemMock, :read, fn "lib/embed_fail.ex" ->
+      expect(FileSystemMock, :read, fn path when is_binary(path) ->
         {:ok, "defmodule EmbedFail do\nend"}
       end)
 
@@ -338,7 +345,7 @@ defmodule Familiar.Knowledge.FreshnessTest do
         })
 
       # Make the file appear modified (mtime after entry's updated_at)
-      expect(FileSystemMock, :stat, fn "lib/auth.ex" ->
+      expect(FileSystemMock, :stat, fn path when is_binary(path) ->
         future = DateTime.add(entry.updated_at, 3600, :second)
         {:ok, %{mtime: future, size: 200}}
       end)
@@ -376,11 +383,11 @@ defmodule Familiar.Knowledge.FreshnessTest do
         })
 
       FileSystemMock
-      |> expect(:stat, fn "lib/present.ex" ->
+      |> expect(:stat, fn path when is_binary(path) ->
         {:ok, %{mtime: ~U[2020-01-01 00:00:00Z], size: 100}}
       end)
-      |> expect(:stat, fn "lib/deleted.ex" ->
-        {:error, {:file_error, %{path: "lib/deleted.ex", reason: :enoent}}}
+      |> expect(:stat, fn path when is_binary(path) ->
+        {:error, {:file_error, %{path: path, reason: :enoent}}}
       end)
 
       assert {:ok, results} =

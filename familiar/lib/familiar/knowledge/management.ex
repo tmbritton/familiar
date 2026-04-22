@@ -21,6 +21,18 @@ defmodule Familiar.Knowledge.Management do
   @max_entries_load 5000
 
   @doc """
+  Delete all knowledge entries and their embeddings.
+
+  Used by `--force` refresh to start from a clean slate.
+  """
+  @spec clear_all_entries() :: {:ok, non_neg_integer()}
+  def clear_all_entries do
+    Repo.query!("DELETE FROM knowledge_entry_embeddings", [])
+    {count, _} = from(e in Entry) |> Repo.delete_all()
+    {:ok, count}
+  end
+
+  @doc """
   Refresh the knowledge store by re-scanning files.
 
   Re-extracts and re-embeds auto-generated entries. User-source entries
@@ -37,12 +49,16 @@ defmodule Familiar.Knowledge.Management do
     path_filter = Keyword.get(opts, :path)
     fs = file_system(opts)
     scan_fn = Keyword.get(opts, :scan_fn, &InitScanner.scan_files/2)
+    progress_fn = Keyword.get(opts, :progress_fn, fn _msg -> :ok end)
 
     with {:ok, files, _deferred} <- scan_fn.(project_dir, opts) do
       files = filter_by_path(files, path_filter)
+      progress_fn.("Scanning #{length(files)} files...")
       existing_entries = load_existing_entries(path_filter)
 
-      {updated, created, preserved} = process_files(files, existing_entries, fs, opts)
+      {updated, created, preserved} =
+        process_files(files, existing_entries, fs, project_dir, progress_fn, opts)
+
       removed = remove_orphaned_entries(files, existing_entries, fs)
 
       {:ok,
@@ -139,45 +155,92 @@ defmodule Familiar.Knowledge.Management do
     |> String.replace("_", "\\_")
   end
 
-  defp process_files(files, existing_entries, fs, opts) do
+  @default_concurrency 10
+
+  defp process_files(files, existing_entries, fs, project_dir, progress_fn, opts) do
     entries_by_file = Enum.group_by(existing_entries, & &1.source_file)
+    total = length(files)
+    concurrency = Keyword.get(opts, :concurrency, @default_concurrency)
+    counter = :counters.new(1, [:atomics])
 
-    Enum.reduce(files, {0, 0, 0}, fn file, {updated, created, preserved} ->
-      relative = file_relative_path(file)
-      file_entries = Map.get(entries_by_file, relative, [])
+    # Prepare work items: read files and classify as new/existing/unreadable
+    work_items =
+      Enum.map(files, fn file ->
+        relative = file_relative_path(file)
+        file_entries = Map.get(entries_by_file, relative, [])
 
-      {user_entries, auto_entries} =
-        Enum.split_with(file_entries, &(&1.source == "user"))
+        {user_entries, auto_entries} =
+          Enum.split_with(file_entries, &(&1.source == "user"))
 
-      user_count = length(user_entries)
+        abs_path = Path.join(project_dir, relative)
 
-      case {auto_entries, read_file(fs, relative)} do
-        {_, {:error, _}} ->
-          {updated, created, preserved + user_count}
+        %{
+          relative: relative,
+          abs_path: abs_path,
+          user_count: length(user_entries),
+          auto_entries: auto_entries,
+          file_content: read_file(fs, abs_path)
+        }
+      end)
 
-        {[], {:ok, content}} ->
-          # New file — create entries
-          new_count = create_entries_for_file(relative, content, opts)
-          {updated, created + new_count, preserved + user_count}
+    results =
+      work_items
+      |> Task.async_stream(
+        fn item ->
+          :counters.add(counter, 1, 1)
+          idx = :counters.get(counter, 1)
+          process_single_file(item, idx, total, progress_fn, opts)
+        end,
+        max_concurrency: concurrency,
+        timeout: 120_000,
+        on_timeout: :kill_task
+      )
+      |> Enum.map(fn
+        {:ok, counts} -> counts
+        {:exit, _} -> {0, 0, 0}
+      end)
 
-        {auto, {:ok, content}} ->
-          # Existing auto entries — re-extract and update
-          re_count = refresh_entries(auto, relative, content, opts)
-          {updated + re_count, created, preserved + user_count}
-      end
+    Enum.reduce(results, {0, 0, 0}, fn {u, c, p}, {au, ac, ap} ->
+      {au + u, ac + c, ap + p}
     end)
+  end
+
+  defp process_single_file(item, idx, total, progress_fn, opts) do
+    case {item.auto_entries, item.file_content} do
+      {_, {:error, _}} ->
+        {0, 0, item.user_count}
+
+      {[], {:ok, content}} ->
+        progress_fn.("[#{idx}/#{total}] Extracting knowledge from #{item.relative}...")
+        new_count = create_entries_for_file(item.relative, content, progress_fn, opts)
+
+        if new_count > 0,
+          do: progress_fn.("[#{idx}/#{total}] Saved #{new_count} entries for #{item.relative}"),
+          else: progress_fn.("[#{idx}/#{total}] No entries extracted for #{item.relative}")
+
+        {0, new_count, item.user_count}
+
+      {auto, {:ok, content}} ->
+        progress_fn.("[#{idx}/#{total}] Refreshing #{item.relative}...")
+        re_count = refresh_entries(auto, item.relative, content, opts)
+        {re_count, 0, item.user_count}
+    end
   end
 
   defp read_file(fs, path) do
     fs.read(path)
   end
 
-  defp create_entries_for_file(relative_path, content, _opts) do
+  defp create_entries_for_file(relative_path, content, progress_fn, _opts) do
     entries =
       Extractor.extract_from_file(%{
         relative_path: relative_path,
         content: content
       })
+
+    if entries != [] do
+      progress_fn.("  Embedding #{length(entries)} entries for #{relative_path}...")
+    end
 
     Enum.count(entries, fn entry_attrs ->
       attrs = %{
